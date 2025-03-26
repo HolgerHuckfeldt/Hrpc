@@ -1,0 +1,6 @@
+@Hrpc_HostAddress = http://localhost:5052
+
+GET {{Hrpc_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
