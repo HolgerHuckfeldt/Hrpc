@@ -52,3 +52,10 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+/.vs
+/Designer/DatabaseDesigner/.vite/deps_temp_43246f27
+/Designer/DatabaseDesigner/node_modules
+/Designer/Designer/node_modules/.bin
+/Designer/Designer/node_modules/.svelte2tsx-language-server-files
+/Designer/Designer/node_modules/.vite
+/Designer/Designer/node_modules
