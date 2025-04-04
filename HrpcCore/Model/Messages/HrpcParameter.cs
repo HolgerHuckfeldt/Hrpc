@@ -3,7 +3,7 @@
 
     public class HrpcParameter
     {
-        public int Num { get; set; }
+        public string ParameterName { get; set; } = string.Empty;
         public string? Data { get; set; }
     }
 

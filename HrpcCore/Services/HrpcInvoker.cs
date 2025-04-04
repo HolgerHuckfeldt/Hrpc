@@ -263,7 +263,7 @@ namespace HrpcCore.Services
             {
                 if (jsonValue.TryGetValue<string>(out var strValue))
                 {
-                    return strValue.Trim().StartsWith("@");
+                    return strValue.Trim().StartsWith("@"); //|| strValue.Trim().StartsWith("\"@");
                 }
                 return false;
             }
@@ -420,19 +420,27 @@ namespace HrpcCore.Services
 
         #region Parameter-Bau und Validierung
 
-        private (object?[] Items, HrpcResponse Response) BuildParameters(
+        private (object?[]? Items, HrpcResponse? Response) BuildParameters(
             string? jsonInput,
             ParameterInfo[] methodParams,
             CancellationToken ct)
         {
             try
             {
-                Dictionary<string, JsonElement>? parameterDict = null;
+                List<HrpcParameter>? requestParams;
                 if (!string.IsNullOrEmpty(jsonInput))
                 {
-                    // Deserialisiere in ein Dictionary<string, JsonElement>
-                    parameterDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonInput, _jsonSerializerOptions);
+                    requestParams = JsonSerializer.Deserialize<List<HrpcParameter>>(jsonInput, _jsonSerializerOptions);
+                    if (requestParams == null || !requestParams.All(rp => rp.Data != null))
+                        throw new FormatException("Ungültige JSON-Struktur.");
                 }
+                else
+                {
+                    requestParams = new List<HrpcParameter>();
+                }
+
+                // Erstelle ein Dictionary aus den übermittelten Parametern anhand ihres Namens
+                var dict = requestParams.ToDictionary(rp => rp.ParameterName, rp => rp.Data);
 
                 var parameters = new object?[methodParams.Length];
                 foreach (var param in methodParams)
@@ -443,14 +451,23 @@ namespace HrpcCore.Services
                     }
                     else
                     {
+                        // Verwende den Parameternamen zur Zuordnung
                         string name = param.Name ?? $"param{param.Position}";
-                        if (parameterDict != null && parameterDict.TryGetValue(name, out JsonElement jsonValue))
+                        if (dict.TryGetValue(name, out var jsonValue))
                         {
-                            // Nutze GetRawText(), um den ursprünglichen JSON-String zu erhalten, und deserialisiere dann in den gewünschten Typ
-                            parameters[param.Position] = JsonSerializer.Deserialize(jsonValue.GetRawText(), param.ParameterType, _jsonSerializerOptions);
+                            try
+                            {
+                                parameters[param.Position] =
+                                    JsonSerializer.Deserialize(jsonValue, param.ParameterType, _jsonSerializerOptions);
+                            }
+                            catch (Exception ex)
+                            {
+                                return (null, BadRequest($"Parameter {name} kann nicht in {param.ParameterType} konvertiert werden: {ex.Message}"));
+                            }
                         }
                         else
                         {
+                            // Falls der Parameter fehlt, den Default-Wert verwenden
                             parameters[param.Position] = GetDefault(param.ParameterType);
                         }
                     }
@@ -463,15 +480,11 @@ namespace HrpcCore.Services
             }
         }
 
-        /// <summary>
-        /// Gibt den Default-Wert für einen Typ zurück.
-        /// </summary>
         private object? GetDefault(Type type)
         {
-            if (type.IsValueType)
-                return Activator.CreateInstance(type);
-            return null;
+            return type.IsValueType ? Activator.CreateInstance(type) : null;
         }
+
 
         #endregion
 
