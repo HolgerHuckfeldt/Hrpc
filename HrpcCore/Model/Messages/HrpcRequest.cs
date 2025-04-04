@@ -15,6 +15,7 @@ namespace HrpcCore.Model.Messages
         public byte[]? BinaryData { get; set; }
         [Key(4)]
         public string? Id { get; set; } = string.Empty;
+
         [Key(5)]
         public Dictionary<string, string>? DependencyMapping { get; set; }
     }

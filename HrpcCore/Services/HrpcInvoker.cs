@@ -10,8 +10,8 @@ using HrpcCore.Model.Handler;
 using System.Text.Json.Nodes;
 using HrpcCore.Model.Messages.Mex;
 using HrpcCore.Services.Helper;
-using System.ComponentModel.Design; // Für JsonPath.Net
-// Weitere using-Direktiven ...
+using System.Diagnostics;
+using Microsoft.Extensions.Logging; // Für JsonPath.Net
 
 namespace HrpcCore.Services
 {
@@ -23,6 +23,8 @@ namespace HrpcCore.Services
         private readonly HrpcDiscoveryService _discoveryService;
         private readonly IServiceScopeFactory _serviceScopeFactory;
 
+        private readonly ILogger<HrpcInvoker> _logger;
+
         private readonly JsonSerializerOptions _jsonSerializerOptions = new()
         {
             PropertyNameCaseInsensitive = true,
@@ -30,8 +32,9 @@ namespace HrpcCore.Services
         };
 
 
-        public HrpcInvoker(IServiceScopeFactory serviceScopeFactory)
+        public HrpcInvoker(IServiceScopeFactory serviceScopeFactory, ILogger<HrpcInvoker> logger)
         {
+            _logger = logger;
             _serviceScopeFactory = serviceScopeFactory;
             _discoveryService = new HrpcDiscoveryService(_routeHandlers);
         }
@@ -94,13 +97,30 @@ namespace HrpcCore.Services
             }
         }
 
-        public async Task<HrpcResponse?> InvokeDi(
-            HrpcRequest request,
-            HttpContext? context,
-            CancellationToken ct = default)
+        public async Task<HrpcResponse?> InvokeDi(HrpcRequest request, HttpContext? context, CancellationToken ct = default)
         {
-            return await ExecuteSingleInvocationSimple(request, context, ct);
+            var stopwatch = Stopwatch.StartNew();
+            _logger.LogTrace("Starting RPC call {Controller}.{Method} with request ID {RequestId}", request.Controller, request.Method, request.Id);
+
+            HrpcResponse response;
+            try
+            {
+                response = await ExecuteSingleInvocationSimple(request, context, ct);
+                _logger.LogDebug("RPC call {Controller}.{Method} completed. Status Code: {Code}", request.Controller, request.Method, response.Code);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "RPC call {Controller}.{Method} failed.", request.Controller, request.Method);
+                response = InternalServerError($"Fehler in der Ausführung: {ex.Message}");
+            }
+            finally
+            {
+                stopwatch.Stop();
+                _logger.LogTrace("RPC call {Controller}.{Method} took {Duration} ms", request.Controller, request.Method, stopwatch.ElapsedMilliseconds);
+            }
+            return response;
         }
+
 
         #endregion
 
@@ -400,57 +420,57 @@ namespace HrpcCore.Services
 
         #region Parameter-Bau und Validierung
 
-        private (object?[]? Items, HrpcResponse? Response) BuildParameters(
+        private (object?[] Items, HrpcResponse Response) BuildParameters(
             string? jsonInput,
             ParameterInfo[] methodParams,
             CancellationToken ct)
         {
             try
             {
-                bool hasCancellationToken = methodParams.Any(p => p.ParameterType == typeof(CancellationToken));
-                List<HrpcParameter>? requestParams;
+                Dictionary<string, JsonElement>? parameterDict = null;
                 if (!string.IsNullOrEmpty(jsonInput))
                 {
-                    requestParams = JsonSerializer.Deserialize<List<HrpcParameter>>(jsonInput, _jsonSerializerOptions);
-                    if (requestParams == null || !requestParams.All(rp => rp.Data != null))
-                        throw new FormatException("Ungültige JSON-Struktur.");
-                }
-                else
-                {
-                    requestParams = Array.Empty<HrpcParameter>().ToList();
+                    // Deserialisiere in ein Dictionary<string, JsonElement>
+                    parameterDict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonInput, _jsonSerializerOptions);
                 }
 
-                var requiredCount = hasCancellationToken ? methodParams.Length - 1 : methodParams.Length;
-                if (requestParams.Count != requiredCount)
-                    return (null, BadRequest($"Parameteranzahl stimmt nicht mit der Methode überein (erwartet {requiredCount}, erhalten: {requestParams?.Count})"));
-
-                var parameters = new object[methodParams.Length];
-                int jsonIndex = 0;
+                var parameters = new object?[methodParams.Length];
                 foreach (var param in methodParams)
                 {
                     if (param.ParameterType == typeof(CancellationToken))
+                    {
                         parameters[param.Position] = ct;
+                    }
                     else
                     {
-                        HrpcParameter rp = requestParams[jsonIndex++];
-                        try
+                        string name = param.Name ?? $"param{param.Position}";
+                        if (parameterDict != null && parameterDict.TryGetValue(name, out JsonElement jsonValue))
                         {
-                            parameters[param.Position] =
-                                JsonSerializer.Deserialize(rp.Data, param.ParameterType, _jsonSerializerOptions);
+                            // Nutze GetRawText(), um den ursprünglichen JSON-String zu erhalten, und deserialisiere dann in den gewünschten Typ
+                            parameters[param.Position] = JsonSerializer.Deserialize(jsonValue.GetRawText(), param.ParameterType, _jsonSerializerOptions);
                         }
-                        catch (Exception ex)
+                        else
                         {
-                            return (null, BadRequest($"Parameter {jsonIndex} cannot be converted to {param.ParameterType}: {ex.Message}"));
+                            parameters[param.Position] = GetDefault(param.ParameterType);
                         }
                     }
                 }
-
                 return (parameters, null);
             }
             catch (Exception ex)
             {
                 return (null, BadRequest($"Fehler bei der Parameterverarbeitung: {ex.Message}"));
             }
+        }
+
+        /// <summary>
+        /// Gibt den Default-Wert für einen Typ zurück.
+        /// </summary>
+        private object? GetDefault(Type type)
+        {
+            if (type.IsValueType)
+                return Activator.CreateInstance(type);
+            return null;
         }
 
         #endregion
