@@ -102,7 +102,7 @@ namespace HrpcCore.Services
             var stopwatch = Stopwatch.StartNew();
             _logger.LogTrace("Starting RPC call {Controller}.{Method} with request ID {RequestId}", request.Controller, request.Method, request.Id);
 
-            HrpcResponse response;
+            HrpcResponse? response;
             try
             {
                 response = await ExecuteSingleInvocationSimple(request, context, ct);
@@ -169,7 +169,7 @@ namespace HrpcCore.Services
         }
 
 
-        private async Task<IEnumerable<HrpcResponse>> ExecuteInParallel(
+        private async Task<IEnumerable<HrpcResponse?>> ExecuteInParallel(
             IEnumerable<HrpcRequest> requests,
             HttpContext? context,
             CancellationToken ct)
@@ -215,7 +215,7 @@ namespace HrpcCore.Services
         /// </summary>
         private async Task<string?> ResolveParameterValues(
             HrpcRequest current,
-            ConcurrentDictionary<string, HrpcResponse> previousResponses)
+            ConcurrentDictionary<string, HrpcResponse?>? previousResponses)
         {
             var parameterJson = current.StringData;
             if (string.IsNullOrWhiteSpace(parameterJson))
@@ -229,17 +229,21 @@ namespace HrpcCore.Services
             {
                 // Alle ExposedDependencies aus den bisherigen Responses zusammenführen
                 var mergedDependencies = new Dictionary<string, string>();
-                foreach (var response in previousResponses.Values)
+                if (previousResponses != null)
                 {
-                    if (response.ExposedDependencies != null)
+                    foreach (var response in previousResponses.Values)
                     {
-                        foreach (var kv in response.ExposedDependencies)
+                        if (response?.ExposedDependencies != null)
                         {
-                            // Hier kannst du auch Konfliktlösung oder Priorisierung einbauen
-                            mergedDependencies[kv.Key] = kv.Value;
+                            foreach (var kv in response.ExposedDependencies)
+                            {
+                                // Hier kannst du auch Konfliktlösung oder Priorisierung einbauen
+                                mergedDependencies[kv.Key] = kv.Value;
+                            }
                         }
                     }
                 }
+
                 // Führe den Ersetzungsvorgang durch:
                 ReplaceDependencyByAlias(parameterNode, mergedDependencies);
 
@@ -257,8 +261,9 @@ namespace HrpcCore.Services
         /// <summary>
         /// Durchläuft den JsonNode rekursiv und gibt zurück, ob ein String-Wert gefunden wurde, der mit '@' beginnt.
         /// </summary>
-        private bool ContainsAlias(JsonNode node)
+        private bool ContainsAlias(JsonNode? node)
         {
+            if(node == null) return false;
             if (node is JsonValue jsonValue)
             {
                 if (jsonValue.TryGetValue<string>(out var strValue))
