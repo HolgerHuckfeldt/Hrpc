@@ -8,6 +8,16 @@ namespace Hrpc.Model
     [HrpcDataContract]
     public class Customer
     {
+        public Customer()
+        {
+        }
+        public Customer(int id, string name)
+        : this()
+        {
+            Id = id;
+            Name = name;
+        }
+
         public int Id { get; set; }
         public int OrderId { get; set; }
         public string Name { get; set; }
@@ -20,11 +30,7 @@ namespace Hrpc.Model
 
         public List<Address> Addresses { get; set; } = new List<Address>();
 
-        public Customer(int id, string name)
-        {
-            Id = id;
-            Name = name;
-        }
+
     }
 
     [HrpcDataContract]
@@ -35,7 +41,11 @@ namespace Hrpc.Model
         public string City { get; set; }
         public string PostalCode { get; set; }
 
+        public Address()
+        {
+        }
         public Address(int id, string street, string city, string postalCode)
+        : this()
         {
             Id = id;
             Street = street;
@@ -51,7 +61,11 @@ namespace Hrpc.Model
         public string ProductName { get; set; }
         public decimal Price { get; set; }
 
+        public Order()
+        {
+        }
         public Order(int id, string productName, decimal price)
+        : this()
         {
             Id = id;
             ProductName = productName;

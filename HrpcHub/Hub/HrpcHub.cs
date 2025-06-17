@@ -4,9 +4,10 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace HrpcHub.Hub
 {
+
     public class HrpcHub(HrpcCore.Services.IHrpcCore service) : Microsoft.AspNetCore.SignalR.Hub
     {
-        public async Task<HrpcResponse> DoWork(HrpcRequest request)
+        public async Task<HrpcResponse?> DoWork(HrpcRequest request)
         {
             var user = Context.UserIdentifier;
             return await service.InvokeDi(request, Context.GetHttpContext(), Context.ConnectionAborted);

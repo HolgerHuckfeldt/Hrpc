@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HrpcDeveloperPage", "HrpcDe
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HrpcCommon", "HrpcCommon\HrpcCommon.csproj", "{11B446F9-3E8A-4072-AA07-0BD5D49359B0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HrpcGrpc", "HrpcGrpc\HrpcGrpc.csproj", "{4402B051-47EF-4EAB-8CCC-4C7A13C2DAB4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -51,6 +53,10 @@ Global
 		{11B446F9-3E8A-4072-AA07-0BD5D49359B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{11B446F9-3E8A-4072-AA07-0BD5D49359B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{11B446F9-3E8A-4072-AA07-0BD5D49359B0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4402B051-47EF-4EAB-8CCC-4C7A13C2DAB4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4402B051-47EF-4EAB-8CCC-4C7A13C2DAB4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4402B051-47EF-4EAB-8CCC-4C7A13C2DAB4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4402B051-47EF-4EAB-8CCC-4C7A13C2DAB4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

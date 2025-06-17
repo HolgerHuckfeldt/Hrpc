@@ -19,6 +19,8 @@ namespace HrpcCore.Model.Messages.Mex
         // Optional: Falls der Rückgabetyp eine eigene Klasse ist, liefern wir auch deren Properties.
         public TypeMeta? ReturnTypeDefinition { get; set; }
         public List<ParameterMeta> Parameters { get; set; } = new();
+        public string? Documentation { get; set; }
+
     }
 
     public class ParameterMeta
@@ -27,12 +29,15 @@ namespace HrpcCore.Model.Messages.Mex
         public string ParameterType { get; set; } = string.Empty;
         // Falls der Parameter ein benutzerdefinierter Typ ist, können hier die Properties mitgeliefert werden.
         public TypeMeta? TypeDefinition { get; set; }
+        public string? Documentation { get; set; }
     }
 
     public class TypeMeta
     {
         public string TypeName { get; set; } = string.Empty;
         public List<PropertyMeta> Properties { get; set; } = new();
+
+        public object? Example { get; set; }
     }
 
     public class PropertyMeta

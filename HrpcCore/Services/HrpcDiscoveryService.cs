@@ -3,6 +3,7 @@ using HrpcCore.Attributes;
 using HrpcCore.Model.Messages.Mex;
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Text.Json;
 
 namespace HrpcCore.Services
 {
@@ -43,8 +44,11 @@ namespace HrpcCore.Services
                             effectiveReturnType = typeof(void);
                     }
 
+                    var methodDoc = method.GetCustomAttribute<HrpcDocumentationAttribute>()?.Summary;
+
                     var methodMeta = new MethodMeta
                     {
+                        Documentation = methodDoc,
                         MethodName = method.Name,
                         ReturnType = GetFriendlyTypeName(effectiveReturnType)
                     };
@@ -74,12 +78,16 @@ namespace HrpcCore.Services
                         methodMeta.ReturnTypeDefinition = discovery.Types[effectiveReturnType.FullName];
                     }
 
+                    var paramdDoc = method.GetCustomAttribute<HrpcDocumentationAttribute>()?.Summary;
+
                     // Parameter verarbeiten (CancellationToken ausschließen)
                     var parameters = method.GetParameters().Where(p => p.ParameterType != typeof(CancellationToken));
+                    
                     foreach (var param in parameters)
                     {
                         var paramMeta = new ParameterMeta
                         {
+                            Documentation = paramdDoc,
                             ParameterName = param.Name ?? string.Empty,
                             ParameterType = GetFriendlyTypeName(param.ParameterType)
                         };
@@ -120,25 +128,58 @@ namespace HrpcCore.Services
         {
             visited ??= new HashSet<Type>();
 
-            // Sonderfälle: primitive Typen, Enums, oder wenn der Typ nicht als HrpcDataContract markiert ist
+            // Für primitive Typen, Enums oder String: Nur den Typnamen zurückgeben.
             if (type.IsPrimitive || type.IsEnum || type == typeof(string))
             {
                 return new TypeMeta { TypeName = type.FullName ?? type.Name };
             }
 
+            // Falls der Typ nicht als HrpcDataContract markiert ist, nur den Typnamen zurückgeben.
             if (!type.IsDefined(typeof(HrpcDataContractAttribute), inherit: false))
             {
                 return new TypeMeta { TypeName = type.FullName ?? type.Name };
             }
 
-            // Verhindere rekursive Zyklen
+            // Verhindere rekursive Zyklen.
             if (!visited.Add(type))
             {
-                // Typ wurde bereits verarbeitet – gib einfach den Typnamen zurück.
                 return new TypeMeta { TypeName = type.FullName ?? type.Name };
             }
 
             var typeMeta = new TypeMeta { TypeName = type.FullName ?? type.Name };
+
+            // Prüfe, ob der Typ mit HrpcExampleAttribute dekoriert ist.
+            var exampleAttr = type.GetCustomAttribute<HrpcExampleAttribute>();
+            if (exampleAttr != null)
+            {
+                try
+                {
+                    // Deserialisiere den JSON-String in eine Instanz des Typs.
+                    typeMeta.Example = JsonSerializer.Deserialize(exampleAttr.ExampleJson, type, new JsonSerializerOptions()
+                    {
+                        WriteIndented = true
+                    });
+                }
+                catch
+                {
+                    // Falls die Deserialisierung fehlschlägt, bleibt Example null.
+                    typeMeta.Example = null;
+                }
+            }
+            else
+            {
+                try
+                {
+                    // Wenn kein explizites Beispiel vorhanden ist, versuche eine Standardinstanz zu erzeugen.
+                    typeMeta.Example = Activator.CreateInstance(type);
+                }
+                catch
+                {
+                    typeMeta.Example = null;
+                }
+            }
+
+            // Verarbeite die Properties des Typs.
             var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
             foreach (var prop in properties)
             {
@@ -148,7 +189,7 @@ namespace HrpcCore.Services
                     PropertyType = GetFriendlyTypeName(prop.PropertyType)
                 };
 
-                // Für generische Typen: rekursiv alle Generic-Argumente registrieren
+                // Für generische Typen: rekursiv die Generic-Argumente verarbeiten.
                 if (prop.PropertyType.IsGenericType)
                 {
                     foreach (var arg in prop.PropertyType.GetGenericArguments())
@@ -161,6 +202,7 @@ namespace HrpcCore.Services
                         }
                     }
                 }
+                // Für komplexe Klassen (außer string), die als HrpcDataContract markiert sind.
                 else if (prop.PropertyType.IsClass && prop.PropertyType != typeof(string) &&
                          prop.PropertyType.IsDefined(typeof(HrpcDataContractAttribute), false))
                 {
@@ -170,17 +212,17 @@ namespace HrpcCore.Services
 
                 typeMeta.Properties.Add(propertyMeta);
             }
+
             return typeMeta;
         }
+
+
         private static string GetFriendlyTypeName(Type type)
         {
             if (type.IsEnum)
             {
-                // Gib einfach den Enum-Namen zurück, z.B. "StatusEnum"
                 return type.Name;
             }
-
-            // Falls der Typ generisch ist, rufe die rekursive Methode auf
             if (type.IsGenericType)
             {
                 return GetFriendlyGenericTypeName(type);
@@ -190,17 +232,51 @@ namespace HrpcCore.Services
 
         private static string GetFriendlyGenericTypeName(Type type)
         {
-            // Hole den einfachen Namen des Generic-Definitions-Typs (z. B. "Dictionary" oder "List")
             string genericTypeName = type.GetGenericTypeDefinition().Name;
             int backtickIndex = genericTypeName.IndexOf('`');
             if (backtickIndex > 0)
             {
                 genericTypeName = genericTypeName.Substring(0, backtickIndex);
             }
-            // Verarbeite alle Generic-Argumente rekursiv
             var genericArgs = type.GetGenericArguments().Select(arg => GetFriendlyTypeName(arg));
             string args = string.Join(", ", genericArgs);
             return $"{genericTypeName}<{args}>";
+        }
+
+
+        private static object? CreateExampleInstance(Type type)
+        {
+            try
+            {
+                // Erzeuge eine Basisinstanz
+                var instance = Activator.CreateInstance(type);
+                if (instance == null)
+                    return null;
+
+                // Für alle public, setzbare Properties, die als HrpcDataContract markiert sind
+                foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                             .Where(p => p.CanWrite))
+                {
+                    // Nur für Klassen (außer string) und solche, die als HrpcDataContract markiert sind
+                    if (prop.PropertyType != typeof(string)
+                        && prop.PropertyType.IsClass
+                        && prop.PropertyType.IsDefined(typeof(HrpcDataContractAttribute), false))
+                    {
+                        // Wenn der Wert null ist, versuche, ihn rekursiv zu erstellen
+                        var current = prop.GetValue(instance);
+                        if (current == null)
+                        {
+                            var nested = CreateExampleInstance(prop.PropertyType);
+                            prop.SetValue(instance, nested);
+                        }
+                    }
+                }
+                return instance;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>

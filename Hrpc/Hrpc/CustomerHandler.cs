@@ -8,74 +8,73 @@ namespace Hrpc.Hrpc
     public class CustomerHandler(CustomerService service)
     {
         [HrpcMethod("AddCustomer")]
-        public int AddCustomer(string name)
+        public async Task<int> AddCustomer(string name)
         {
-            return service.AddCustomer(name);
+            return await service.AddCustomer(name);
         }
 
         [HrpcMethod("GetCustomerById")]
         // Read a customer by ID
-        public Customer? GetCustomerById(int id)
+        public async Task<Customer?> GetCustomerById(int id)
         {
-            return service.GetCustomerById(id);
+            return await service.GetCustomerById(id);
         }
 
         [HrpcMethod("GetOrderByOrderId")]
         // Read a customer by ID
-        public Task<List<Order>?> GetOrderByOrderId(int id, CancellationToken ct)
+        public async Task<List<Order>?> GetOrderByOrderId(int id, CancellationToken ct)
         {
-            return Task.FromResult(service.GetOrdersById(id));
+            return await service.GetOrdersById(id);
         }
 
 
         // Read all customers
         [HrpcMethod("GetAllCustomers")]
-        public List<Customer> GetAllCustomers()
+        public async Task<List<Customer>> GetAllCustomers()
         {
-            return service.GetAllCustomers();
+            return await service.GetAllCustomers();
         }
 
         // Update a customer's name
         [HrpcMethod("UpdateCustomerName")]
-        public void UpdateCustomerName(int customerId, string newName)
+        public async Task UpdateCustomerName(int customerId, string newName)
         {
-            service.UpdateCustomerName(customerId, newName);
+            await service.UpdateCustomerName(customerId, newName);
         }
 
         // Delete a customer by ID
 
         [HrpcMethod("DeleteCustomer")]
-        public void DeleteCustomer(int id)
+        public async Task DeleteCustomer(int id)
         {
-            service.DeleteCustomer(id);
+            await service.DeleteCustomer(id);
         }
 
         // Add an address to a customer
         [HrpcMethod("AddAddressToCustomer")]
-        public void AddAddressToCustomer(int customerId, string street, string city, string postalCode)
+        public async Task AddAddressToCustomer(int customerId, string street, string city, string postalCode)
         {
-            service.AddAddressToCustomer(customerId, street, city, postalCode);
+            await service.AddAddressToCustomer(customerId, street, city, postalCode);
         }
 
         // Remove an address from a customer
         [HrpcMethod("RemoveAddressFromCustomer")]
-        public void RemoveAddressFromCustomer(int customerId, int addressId)
+        public async Task  RemoveAddressFromCustomer(int customerId, int addressId)
         {
-            service.RemoveAddressFromCustomer(customerId, addressId);
+            await service.RemoveAddressFromCustomer(customerId, addressId);
         }
 
         // Add an order to a customer
         [HrpcMethod("AddOrderToCustomer")]
-        public void AddOrderToCustomer(int customerId, string productName, decimal price)
+        public async Task AddOrderToCustomer(int customerId, string productName, decimal price)
         {
-            service.AddOrderToCustomer(customerId, productName, price);
+            await service.AddOrderToCustomer(customerId, productName, price);
         }
 
-
         [HrpcMethod("RemoveOrderFromCustomer")]
-        public void RemoveOrderFromCustomer(int customerId, int orderId)
+        public async Task RemoveOrderFromCustomer(int customerId, int orderId)
         {
-            service.RemoveOrderFromCustomer(customerId, orderId);
+            await service.RemoveOrderFromCustomer(customerId, orderId);
         }
     }
 }

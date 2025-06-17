@@ -33,9 +33,9 @@ namespace Hrpc.Hrpc
         }
 
         [HrpcMethod("GetAdresses")]
-        public List<AdresseX> GetAdresses(CancellationToken ct)
+        public List<AdresseX?> GetAdresses(CancellationToken ct)
         {
-            return new List<AdresseX>()
+            return new List<AdresseX?>()
             {
                 GetAdresse(1,"", ct), GetAdresse(2,"", ct)
             };
@@ -54,7 +54,7 @@ namespace Hrpc.Hrpc
         [HrpcMethod("GetAdresseParallel")]
         public async Task<AdresseX?> GetAdresseParallel(int id, string greet, CancellationToken ct)
         {
-            await Task.Delay(1000);
+            await Task.Delay(1000, ct);
             switch (id)
             {
                 case 1:
@@ -81,6 +81,8 @@ namespace Hrpc.Hrpc
     }
 
     [HrpcDataContract]
+    [HrpcExample("{\"Id\":1,\"Name\":\"Holger\",\"Age\":1,\"Greet\":\"Hallo\",\"Contace\":{\"Id\":10,\"Name\":\"Support\"}}")]
+    [HrpcDocumentation("Diese Klasse repräsentiert eine Adresse mit zugehörigen Kontaktdaten.")]
     public class AdresseX
     {
         public int Id { get; set; }
@@ -88,7 +90,7 @@ namespace Hrpc.Hrpc
         public int Age { get; set; }
         public string Greet { get; set; } = String.Empty;
 
-        public Contact? Contace { get; set; }
+        public Contact? Contace { get; set; }   
     }
 
     [HrpcDataContract]
@@ -96,7 +98,6 @@ namespace Hrpc.Hrpc
     {
         public int Id { get; set; }
         public string Name { get; set; } = String.Empty;
-
     }
 
 }
