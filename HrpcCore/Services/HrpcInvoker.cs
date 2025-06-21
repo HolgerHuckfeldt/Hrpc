@@ -90,7 +90,7 @@ namespace HrpcCore.Services
                     return await ExecuteInParallel(requests, context, ct);
 
                 case ExecutionMode.Serial:
-                    return await ExecuteSequentially(requests.ToList(), context, ct);
+                    return await ExecuteSequentially(requests, context, ct);
 
                 default:
                     throw new ArgumentOutOfRangeException(nameof(mode));
@@ -179,8 +179,8 @@ namespace HrpcCore.Services
             return await Task.WhenAll(tasks);
         }
 
-        private async Task<IEnumerable<HrpcResponse>> ExecuteSequentially(
-            List<HrpcRequest> requests,
+        private async Task<IEnumerable<HrpcResponse?>> ExecuteSequentially(
+            IEnumerable<HrpcRequest> requests,
             HttpContext? context,
             CancellationToken ct)
         {
@@ -237,7 +237,6 @@ namespace HrpcCore.Services
                         {
                             foreach (var kv in response.ExposedDependencies)
                             {
-                                // Hier kannst du auch Konfliktlösung oder Priorisierung einbauen
                                 mergedDependencies[kv.Key] = kv.Value;
                             }
                         }
@@ -270,7 +269,6 @@ namespace HrpcCore.Services
                 {
                     return strValue.Trim().StartsWith("@"); //|| strValue.Trim().StartsWith("\"@");
                 }
-                return false;
             }
             else if (node is JsonObject jsonObj)
             {
@@ -279,7 +277,6 @@ namespace HrpcCore.Services
                     if (ContainsAlias(kvp.Value))
                         return true;
                 }
-                return false;
             }
             else if (node is JsonArray jsonArr)
             {
@@ -288,7 +285,6 @@ namespace HrpcCore.Services
                     if (ContainsAlias(item))
                         return true;
                 }
-                return false;
             }
             return false;
         }
@@ -298,8 +294,9 @@ namespace HrpcCore.Services
 
         #region Hilfsmethoden für die Ausführung
 
-        private void ReplaceDependencyByAlias(JsonNode node, Dictionary<string, string>? exposedDependencies)
+        private void ReplaceDependencyByAlias(JsonNode? node, Dictionary<string, string>? exposedDependencies)
         {
+            if (node == null) return;
             if (node is JsonValue jsonValue)
             {
                 if (jsonValue.TryGetValue<string>(out var strValue) && strValue.StartsWith("@"))
@@ -317,14 +314,17 @@ namespace HrpcCore.Services
             {
                 foreach (var property in jsonObj.ToList())
                 {
-                    ReplaceDependencyByAlias(property.Value, exposedDependencies);
+                    if (property.Value != null)
+                    {
+                        ReplaceDependencyByAlias(property.Value, exposedDependencies);
+                    }
                 }
             }
             else if (node is JsonArray jsonArr)
             {
-                for (int i = 0; i < jsonArr.Count; i++)
+                foreach (var t in jsonArr)
                 {
-                    ReplaceDependencyByAlias(jsonArr[i], exposedDependencies);
+                    ReplaceDependencyByAlias(t, exposedDependencies);
                 }
             }
         }
@@ -397,7 +397,7 @@ namespace HrpcCore.Services
                 if (result != null)
                     result.Id = request.Id;
 
-                if (request.DependencyMapping != null && result.Data != null)
+                if (request.DependencyMapping != null && result?.Data != null)
                 {
                     var exposed = new Dictionary<string, string>();
                     // Verwenden Sie hier z. B. Ihre bestehende Hilfsklasse DependencyResolver
@@ -462,8 +462,12 @@ namespace HrpcCore.Services
                         {
                             try
                             {
-                                parameters[param.Position] =
-                                    JsonSerializer.Deserialize(jsonValue, param.ParameterType, _jsonSerializerOptions);
+                                if (jsonValue != null)
+                                {
+                                    parameters[param.Position] =
+                                        JsonSerializer.Deserialize(jsonValue, param.ParameterType,
+                                            _jsonSerializerOptions);
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -497,40 +501,47 @@ namespace HrpcCore.Services
 
         private async Task<HrpcResponse?> ExecuteMethod(
             MethodInfo methodInfo,
-            Type controllerType,
+            Type? controllerType,
             object?[]? parameters,
             CancellationToken ct)
         {
             using var scope = _serviceScopeFactory.CreateScope();
-            var instance = scope.ServiceProvider.GetService(controllerType);
-
-            if (instance == null)
-                return InternalServerError($"Konnte {controllerType.Name} nicht aus dem DI-Container laden.");
-
-            try
+            if (controllerType != null)
             {
-                var result = methodInfo.Invoke(instance, parameters);
-                if (result is Task taskResult)
+                var instance = scope.ServiceProvider.GetService(controllerType);
+
+                if (instance == null)
+                    return InternalServerError($"Konnte {controllerType.Name} nicht aus dem DI-Container laden.");
+
+                try
                 {
-                    await taskResult;
-                    // Versuche, das Result-Property zu extrahieren, wenn vorhanden.
-                    var taskType = taskResult.GetType();
-                    var resultProperty = taskType.GetProperty("Result");
-                    if (resultProperty != null)
+                    var result = methodInfo.Invoke(instance, parameters);
+                    if (result is Task taskResult)
                     {
-                        var resultValue = resultProperty.GetValue(taskResult);
-                        return ReturnResponse(resultValue, instance?.GetType());
+                        await taskResult;
+                        // Versuche, das Result-Property zu extrahieren, wenn vorhanden.
+                        var taskType = taskResult.GetType();
+                        var resultProperty = taskType.GetProperty("Result");
+                        if (resultProperty != null)
+                        {
+                            var resultValue = resultProperty.GetValue(taskResult);
+                            return ReturnResponse(resultValue, instance?.GetType());
+                        }
+                        return Ok($"Vorgang abgeschlossen ({methodInfo.Name})");
                     }
-                    return Ok($"Vorgang abgeschlossen ({methodInfo.Name})");
+                    else
+                    {
+                        return ReturnResponse(result, controllerType);
+                    }
                 }
-                else
+                catch (TargetInvocationException tie)
                 {
-                    return ReturnResponse(result, controllerType);
+                    return InternalServerError($"Fehler bei der Methode {tie.InnerException?.Message}");
                 }
             }
-            catch (TargetInvocationException tie)
+            else
             {
-                return InternalServerError($"Fehler bei der Methode {tie.InnerException?.Message}");
+                return BadRequest("No Controller", HttpStatusCode.BadRequest);
             }
         }
 
@@ -539,7 +550,7 @@ namespace HrpcCore.Services
             var property = taskResult.GetType().GetProperty("Result");
             if (property != null && property.CanRead)
                 return property.GetValue(taskResult);
-            return default;
+            return null;
         }
 
         #endregion
@@ -549,7 +560,7 @@ namespace HrpcCore.Services
         private static T? GetAttribute<T>(MemberInfo member) where T : Attribute
             => (T?)member.GetCustomAttributes(typeof(T), false).FirstOrDefault();
 
-        private HrpcResponse ReturnResponse(object? result, Type instanceType)
+        private HrpcResponse ReturnResponse(object? result, Type? instanceType)
         {
             if (result is null) return Ok(string.Empty);
 
@@ -565,7 +576,7 @@ namespace HrpcCore.Services
         }
 
         private Type? GetControllerType(string controllerName)
-            => _routeHandlers.TryGetValue(controllerName, out var type) ? type : null;
+            => _routeHandlers.GetValueOrDefault(controllerName);
 
         private async Task CheckAuthorisation(HrpcAuthoriseAttribute? authAttr, HttpContext? context)
         {
@@ -602,10 +613,6 @@ namespace HrpcCore.Services
         }
 
         #endregion
-
-
-
-
 
         public class InvokeInfo
         {
