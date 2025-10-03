@@ -1,4 +1,4 @@
-﻿using global::Hrpc.Model;
+﻿using Hrpc.Model;
 using System.Collections.Concurrent;
 
 namespace Hrpc.Services
@@ -16,8 +16,7 @@ namespace Hrpc.Services
         // Create a new customer
         public Task<int> AddCustomer(string name)
         {
-            var customer = new Customer(_nextCustomerId++, name);
-            customer.OrderId = _nextOrderId;
+            var customer = new Customer(_nextCustomerId++, name) { OrderId = _nextOrderId };
             Task.Delay(200).Wait();
             _customers.Add(customer);
             return Task.FromResult(_nextCustomerId - 1);
@@ -31,7 +30,7 @@ namespace Hrpc.Services
         }
 
         // Read a customer by ID
-        public Task<List<Order>?> GetOrdersById(int id)
+        public Task<List<Order>> GetOrdersById(int id)
         {
             if (_orders.TryGetValue(id, out var orders))
             {
@@ -58,9 +57,11 @@ namespace Hrpc.Services
         }
 
         // Delete a customer by ID
-        public async Task DeleteCustomer(int id)
+        public Task DeleteCustomer(int id)
         {
             _customers.RemoveAll(c => c.Id == id);
+
+            return Task.CompletedTask;
         }
 
         // Add an address to a customer
@@ -99,7 +100,7 @@ namespace Hrpc.Services
                 }
                 else
                 {
-                    _orders.TryAdd(customer.OrderId, new List<Order>() { order });
+                    _orders.TryAdd(customer.OrderId, [order]);
 
                 }
 

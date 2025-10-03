@@ -20,7 +20,7 @@ namespace Hrpc.Model
 
         public int Id { get; set; }
         public int OrderId { get; set; }
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
 
         public DateTime Created { get; set; }
 
@@ -28,7 +28,7 @@ namespace Hrpc.Model
 
         public Dictionary<string, int>? Map { get; set; }
 
-        public List<Address> Addresses { get; set; } = new List<Address>();
+        public List<Address> Addresses { get; set; } = new();
 
 
     }
@@ -37,9 +37,9 @@ namespace Hrpc.Model
     public class Address
     {
         public int Id { get; set; }
-        public string Street { get; set; }
-        public string City { get; set; }
-        public string PostalCode { get; set; }
+        public string Street { get; set; } = string.Empty;
+        public string City { get; set; } = string.Empty;
+        public string PostalCode { get; set; } = string.Empty;
 
         public Address()
         {
@@ -58,7 +58,7 @@ namespace Hrpc.Model
     public class Order
     {
         public int Id { get; set; }
-        public string ProductName { get; set; }
+        public string ProductName { get; set; } = string.Empty;
         public decimal Price { get; set; }
 
         public Order()

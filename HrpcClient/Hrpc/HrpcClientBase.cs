@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Threading;
 using HrpcClient.Hrpc.Exceptions;
 
 namespace HrpcClient.Hrpc
@@ -18,18 +19,18 @@ namespace HrpcClient.Hrpc
         /// Sendet einen einzelnen HrpcRequest und liefert eine HrpcResponse zurück.
         /// Die konkrete Umsetzung übernimmt die abgeleitete Client-Klasse (z. B. REST oder SignalR).
         /// </summary>
-        public abstract Task<HrpcResponse?> Call(HrpcRequest? request);
+        public abstract Task<HrpcResponse?> Call(HrpcRequest? request, CancellationToken ct = default);
 
         /// <summary>
         /// Sendet einen HrpcRequest und versucht, das Feld Data in den angegebenen Typ T zu deserialisieren.
         /// Wirft eine HrpcException, wenn ein Fehler (z. B. Netzwerkfehler oder Deserialisierungsfehler) auftritt.
         /// </summary>
-        public async Task<T?> Call<T>(HrpcRequest? request)
+        public async Task<T?> Call<T>(HrpcRequest? request, CancellationToken ct = default)
         {
             if(request == null)
                 return default;
 
-            var response = await Call(request);
+            var response = await Call(request, ct);
             if (response is { Code: 200 } && !string.IsNullOrEmpty(response.Data))
             {
                 try
@@ -52,6 +53,6 @@ namespace HrpcClient.Hrpc
         /// Sendet mehrere HrpcRequests (MultiCall) und liefert eine Liste von HrpcResponses zurück.
         /// Die konkrete Umsetzung übernimmt die abgeleitete Client-Klasse.
         /// </summary>
-        public abstract Task<IEnumerable<HrpcResponse?>?> Call(HrpcMultiRequest? request);
+        public abstract Task<IEnumerable<HrpcResponse?>?> Call(HrpcMultiRequest? request, CancellationToken ct = default);
     }
 }

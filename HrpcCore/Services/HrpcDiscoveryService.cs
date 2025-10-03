@@ -34,6 +34,10 @@ namespace HrpcCore.Services
 
                 foreach (var method in methods)
                 {
+                    // Verwende für die Discovery den Namen aus dem Attribut (falls vorhanden),
+                    // damit dieser konsistent mit der Invoker-Registrierung ist.
+                    var methodAttr = method.GetCustomAttribute<HrpcMethodAttribute>();
+
                     // Bestimme den effektiven Rückgabetyp (Task entpacken)
                     Type effectiveReturnType = method.ReturnType;
                     if (typeof(Task).IsAssignableFrom(effectiveReturnType))
@@ -49,7 +53,7 @@ namespace HrpcCore.Services
                     var methodMeta = new MethodMeta
                     {
                         Documentation = methodDoc,
-                        MethodName = method.Name,
+                        MethodName = methodAttr?.Name ?? method.Name,
                         ReturnType = GetFriendlyTypeName(effectiveReturnType)
                     };
 

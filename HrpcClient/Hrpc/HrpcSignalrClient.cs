@@ -2,6 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using System.Timers;
 using HrpcClient.Hrpc.Exceptions;
+using System.Threading;
 
 namespace HrpcClient.Hrpc;
 
@@ -20,9 +21,6 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
 
     public HrpcSignalrClient(string server)
     {
-        //_jwtToken = token;
-        //_tokenProvider = tokenProvider;
-
         string baseUrl = server;
         if (baseUrl.EndsWith("/"))
             baseUrl = baseUrl.Remove(baseUrl.Length - 1);
@@ -46,7 +44,6 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
                         TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),
                         TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),
                         TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),
-                        TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),
                         TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),
                         TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),
                         TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),
@@ -66,7 +63,7 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
             .Build();
     }
 
-    public override async Task<HrpcResponse?> Call(HrpcRequest? request)
+    public override async Task<HrpcResponse?> Call(HrpcRequest? request, CancellationToken ct = default)
     {
         if (request == null)
         {
@@ -81,7 +78,8 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
         if (await _connection.InvokeCoreAsync(
                 "DoWork",
                 typeof(HrpcResponse),
-                [request]
+                new object[] { request },
+                ct
             ) is HrpcResponse r)
         {
             return r;
@@ -90,7 +88,7 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
         return null;
     }
 
-    public override async Task<IEnumerable<HrpcResponse?>?> Call(HrpcMultiRequest? request)
+    public override async Task<IEnumerable<HrpcResponse?>?> Call(HrpcMultiRequest? request, CancellationToken ct = default)
     {
         if (request == null)
         {
@@ -107,7 +105,8 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
             if (await _connection.InvokeCoreAsync(
                     "DoWorkMany",
                     typeof(IEnumerable<HrpcResponse?>),
-                    [request]
+                    new object[] { request },
+                    ct
                 ) is IEnumerable<HrpcResponse?> r)
             {
                 return r;
@@ -116,13 +115,11 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
         }
         catch (Exception ex)
         {
-            throw new HrpcException("Fehle vom Server.", ex);
+            throw new HrpcException("Fehler vom Server.", ex);
         }
 
-        // To avoid null
         return new List<HrpcResponse?>();
     }
-
 
     private async void NextTryTimerOnElapsed(object sender, ElapsedEventArgs e)
     {
@@ -131,7 +128,6 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
 
     private async Task<bool> Connect()
     {
-
         _connection.On<string, string>("ReceiveMessage", (user, message) =>
         {
             string msg = message;
@@ -142,8 +138,6 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
             byte[] mydata = data;
         });
 
-        //_connection.HandshakeTimeout = TimeSpan.FromSeconds(10);
-        //_connection.ServerTimeout = TimeSpan.FromSeconds(5);
         _connection.Closed += ConnectionOnClosed;
         _connection.Reconnecting += ConnectionOnReconnecting;
         _connection.Reconnected += ConnectionOnReconnected;
@@ -154,9 +148,8 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
             _nextTryTimer.Stop();
             _connected = true;
         }
-        catch (HttpRequestException rex)
+        catch (HttpRequestException)
         {
-            // Network-Exception. Retry...
             _nextTryTimer.Start();
         }
         catch (Exception ex)
@@ -181,7 +174,6 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
     {
         return Task.CompletedTask;
     }
-
 }
 
 
