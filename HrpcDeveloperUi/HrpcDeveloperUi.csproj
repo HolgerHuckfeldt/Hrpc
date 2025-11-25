@@ -11,6 +11,13 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="wwwroot\developer\index.html" />
+    <None Include="wwwroot\developer\main.css" />
+    <None Include="wwwroot\developer\main.js" />
+    <None Include="wwwroot\developer\vite.svg" />
+  </ItemGroup>
+
 
 
 </Project>

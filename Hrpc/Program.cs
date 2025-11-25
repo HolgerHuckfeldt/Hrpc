@@ -61,12 +61,21 @@ app.MapRazorPages();
 
 
 // Konfiguriere statische Dateien für den /hrpc-Pfad
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(
-        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "developer")),
-    RequestPath = "/developer"
+//app.UseStaticFiles(new StaticFileOptions
+//{
+//    FileProvider = new PhysicalFileProvider(
+//        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "developer")),
+//    RequestPath = "/developer"
     
+//});
+
+app.UseStaticFiles();
+
+app.MapGet("/developer", ctx =>
+{
+
+    ctx.Response.Redirect("/_content/HrpcDeveloperUi/developer/index.html");
+    return Task.CompletedTask;
 });
 
 app.MapHub<HrpcHub.Hub.HrpcHub>("/Hrpc");

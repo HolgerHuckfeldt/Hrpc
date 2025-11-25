@@ -18,7 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HrpcCore\HrpcCore.csproj" />
-    <ProjectReference Include="..\HrpcDeveloperPage\HrpcDeveloperPage.csproj" />
+    <ProjectReference Include="..\HrpcDeveloperUi\HrpcDeveloperUi.csproj" />
     <ProjectReference Include="..\HrpcHub\HrpcHub.csproj" />
     <ProjectReference Include="..\HrpcRest\HrpcRest.csproj" />
   </ItemGroup>
@@ -26,6 +26,7 @@
   <ItemGroup>
     <Folder Include="Grpc\" />
     <Folder Include="Grpc\" />
+    <Folder Include="wwwroot\" />
   </ItemGroup>
 
 </Project>
