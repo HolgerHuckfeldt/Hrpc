@@ -59,7 +59,7 @@ a:hover { text-decoration: underline; }
 }
 
 .splitter {
-  width: 8px;
+  width: 6px;
   cursor: col-resize;
   background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
   border: 1px solid var(--border);

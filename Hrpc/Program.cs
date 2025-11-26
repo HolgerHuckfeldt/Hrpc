@@ -4,7 +4,7 @@ using HrpcHub.Extensions;
 using Microsoft.Extensions.FileProviders;
 
 var builder = WebApplication.CreateBuilder(args);
-
+builder.WebHost.UseStaticWebAssets();
 // Add services to the container.
 
 builder.Services.AddControllers();

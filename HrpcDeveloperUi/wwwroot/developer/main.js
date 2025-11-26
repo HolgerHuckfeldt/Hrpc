@@ -178,37 +178,20 @@
     card.appendChild(type);
 
     if (param.typeDefinition?.properties?.length) {
-      const box = document.createElement("div");
-      box.className = "complex-box";
-      const legend = document.createElement("div");
-      legend.className = "complex-legend";
-      legend.textContent = "Properties";
-      box.appendChild(legend);
-      const obj = (param.value && typeof param.value === "object") ? param.value : defaultValueForParam(param);
-      param.value = obj;
-      param.typeDefinition.properties.forEach((prop) => {
-        const sub = document.createElement("div");
-        sub.className = "param-card sub";
-        const subName = document.createElement("div");
-        subName.className = "param-name";
-        subName.textContent = prop.propertyName;
-        const subType = document.createElement("div");
-        subType.className = "param-type";
-        subType.textContent = prop.propertyType;
-        const input = document.createElement("input");
-        input.placeholder = prop.propertyName;
-        input.value = obj[prop.propertyName] ?? "";
-        input.oninput = (e) => {
-          obj[prop.propertyName] = inferValue(e.target.value, prop.propertyType);
-          param.value = obj;
-          syncRequestFromParams(tab);
-        };
-        sub.appendChild(subName);
-        sub.appendChild(subType);
-        sub.appendChild(input);
-        box.appendChild(sub);
-      });
-      card.appendChild(box);
+      const ta = document.createElement("textarea");
+      ta.className = "code";
+      const skeleton = defaultValueForParam(param);
+      const current = (param.value && typeof param.value === "object") ? param.value : skeleton;
+      ta.value = JSON.stringify(current, null, 2);
+      ta.oninput = (e) => {
+        try {
+          param.value = JSON.parse(e.target.value);
+        } catch {
+          param.value = e.target.value;
+        }
+        syncRequestFromParams(tab);
+      };
+      card.appendChild(ta);
     } else {
       const input = document.createElement("input");
       input.placeholder = param.parameterName;
@@ -457,38 +440,44 @@ Console.WriteLine(result.Code);`;
 
     const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
 
-    const drag = (splitter, cb) => {
+    const drag = (splitter, onDragStart) => {
       let startX = 0;
-      const onMove = (e) => cb(e.clientX - startX);
+      let sizes = null;
+      const onMove = (e) => {
+        e.preventDefault();
+        if (!sizes) return;
+        const dx = e.clientX - startX;
+        onDragStart(dx, sizes);
+      };
       const onUp = () => {
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
       };
       splitter.addEventListener("mousedown", (e) => {
+        e.preventDefault();
         startX = e.clientX;
+        sizes = {
+          l: explorer.getBoundingClientRect().width,
+          m: editor.getBoundingClientRect().width,
+          r: result.getBoundingClientRect().width
+        };
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
       });
     };
 
-    drag(leftSplit, (dx) => {
-      const l = explorer.getBoundingClientRect().width;
-      const m = editor.getBoundingClientRect().width;
-      const r = result.getBoundingClientRect().width;
-      const total = l + m + r;
-      const newL = clamp(l + dx, 200, total - r - 320);
-      const newM = clamp(total - r - newL, 320, total - r - 200);
+    drag(leftSplit, (dx, s) => {
+      const total = s.l + s.m + s.r;
+      const newL = clamp(s.l + dx, 200, total - s.r - 320);
+      const newM = clamp(total - s.r - newL, 320, total - s.r - 200);
       explorer.style.width = `${newL}px`;
       editor.style.width = `${newM}px`;
     });
 
-    drag(rightSplit, (dx) => {
-      const l = explorer.getBoundingClientRect().width;
-      const m = editor.getBoundingClientRect().width;
-      const r = result.getBoundingClientRect().width;
-      const total = l + m + r;
-      const newM = clamp(m + dx, 320, total - 220 - 260);
-      const newR = clamp(total - newM - l, 260, total - newM - 200);
+    drag(rightSplit, (dx, s) => {
+      const total = s.l + s.m + s.r;
+      const newM = clamp(s.m + dx, 320, total - s.l - 260);
+      const newR = clamp(total - newM - s.l, 260, total - newM - 200);
       editor.style.width = `${newM}px`;
       result.style.width = `${newR}px`;
     });

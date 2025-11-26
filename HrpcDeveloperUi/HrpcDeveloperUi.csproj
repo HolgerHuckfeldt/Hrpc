@@ -1,23 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
-
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+    <AddRazorSupportForMvc>false</AddRazorSupportForMvc>
+    <GenerateRazorCompileOnBuild>false</GenerateRazorCompileOnBuild>
+    <GenerateRazorCompileOnPublish>false</GenerateRazorCompileOnPublish>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <PackageId>HrpcDeveloperUi</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Your Company</Authors>
+    <Description>Developer UI for Hrpc (static web assets).</Description>
+    <StaticWebAssetBasePath>developer</StaticWebAssetBasePath>
   </PropertyGroup>
 
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="wwwroot\developer\index.html" />
-    <None Include="wwwroot\developer\main.css" />
-    <None Include="wwwroot\developer\main.js" />
-    <None Include="wwwroot\developer\vite.svg" />
-  </ItemGroup>
-
-
-
+  <!-- Rely on Razor SDK implicit wwwroot content -->
 </Project>
