@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -60,11 +61,15 @@ namespace HrpcCore.Services
                 if (methodAttr == null) continue;
 
                 string key = $"{controllerAttr.Name}_{methodAttr.Name}";
-                _invokeCache.TryAdd(key, new InvokeInfo()
+                var invokeInfo = new InvokeInfo()
                 {
                     MethodInfo = methodInfo,
-                    AuthoriseAttribute = GetAttribute<HrpcAuthoriseAttribute>(methodInfo)
-                });
+                    AuthoriseAttribute = GetAttribute<HrpcAuthoriseAttribute>(methodInfo),
+                    CompiledInvocation = CompileInvocation(controllerType, methodInfo),
+                    IsAsync = typeof(Task).IsAssignableFrom(methodInfo.ReturnType),
+                    HasResult = GetHasResult(methodInfo)
+                };
+                _invokeCache.TryAdd(key, invokeInfo);
             }
         }
 
@@ -106,7 +111,7 @@ namespace HrpcCore.Services
             try
             {
                 response = await ExecuteSingleInvocationSimple(request, context, ct);
-                _logger.LogDebug("RPC call {Controller}.{Method} completed. Status Code: {Code}", request.Controller, request.Method, response.Code);
+                _logger.LogDebug("RPC call {Controller}.{Method} completed. Status Code: {Code}", request.Controller, request.Method, response?.Code);
             }
             catch (Exception ex)
             {
@@ -154,10 +159,10 @@ namespace HrpcCore.Services
                 // Im Single-Call ohne Dependencies brauchen wir keine Alias-Auflösung:
                 string parameterJson = request?.StringData??String.Empty;
 
-                var parameters = BuildParameters(parameterJson, invokeInfo.MethodInfo.GetParameters(), ct);
+                var parameters = BuildParameters(parameterJson, invokeInfo.MethodInfo!.GetParameters(), ct);
                 if (parameters.Items == null) return parameters.Response;
 
-                var result = await ExecuteMethod(invokeInfo.MethodInfo, controllerType, parameters.Items, ct);
+                var result = await ExecuteMethod(invokeInfo, controllerType, parameters.Items, ct);
                 if (result != null)
                     result.Id = request?.Id ?? String.Empty;
                 return result;
@@ -184,20 +189,24 @@ namespace HrpcCore.Services
             HttpContext? context,
             CancellationToken ct)
         {
-            //var sortedRequests = SortRequestsByDependencies(requests);
             var responses = new ConcurrentDictionary<string, HrpcResponse?>();
 
             foreach (var current in requests)
             {
                 // Verwende den neuen Mechanismus zum Auflösen von Abhängigkeiten
-                var parametersJson = await ResolveParameterValues(current, responses);
+                var resolution = ResolveParameterValues(current, responses);
+                if (resolution.Error != null)
+                {
+                    responses.TryAdd(current?.Id ?? String.Empty, resolution.Error);
+                    continue;
+                }
 
                 var effectiveRequest = new HrpcRequest()
                 {
                     Id = current.Id,
                     Controller = current.Controller,
                     Method = current.Method,
-                    StringData = parametersJson,
+                    StringData = resolution.ResolvedJson,
                     DependencyMapping = current.DependencyMapping
                 };
 
@@ -210,51 +219,64 @@ namespace HrpcCore.Services
 
 
         /// <summary>
-        /// Aktualisiert die Parameter-JSON, indem Platzhalter (@dependency) ersetzt werden.
-        /// Hier wird die JsonDependencyReplacer-Klasse verwendet.
+        /// Löst Alias-Platzhalter (@alias) in den Parametern eines Requests anhand der
+        /// ExposedDependencies vorheriger Responses auf. Gibt BadRequest zurück, wenn
+        /// ein Alias nicht auflösbar ist.
         /// </summary>
-        private async Task<string?> ResolveParameterValues(
+        private (string? ResolvedJson, HrpcResponse? Error) ResolveParameterValues(
             HrpcRequest current,
             ConcurrentDictionary<string, HrpcResponse?>? previousResponses)
         {
             var parameterJson = current.StringData;
             if (string.IsNullOrWhiteSpace(parameterJson))
-                return parameterJson;
+                return (parameterJson, null);
 
             // Parse die Parameter-JSON
-            JsonNode? parameterNode = JsonNode.Parse(parameterJson);
-
-            // Überprüfe, ob irgendwo ein String-Wert mit '@' vorkommt
-            if (parameterNode != null && ContainsAlias(parameterNode))
+            JsonNode? parameterNode;
+            try
             {
-                // Alle ExposedDependencies aus den bisherigen Responses zusammenführen
-                var mergedDependencies = new Dictionary<string, string>();
-                if (previousResponses != null)
+                parameterNode = JsonNode.Parse(parameterJson);
+            }
+            catch (Exception ex)
+            {
+                return (null, BadRequest($"Ungültige Parameter-JSON: {ex.Message}"));
+            }
+
+            if (parameterNode == null)
+                return (parameterJson, null);
+
+            if (!ContainsAlias(parameterNode))
+                return (parameterJson, null);
+
+            // Alle ExposedDependencies aus den bisherigen Responses zusammenführen
+            var mergedDependencies = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (previousResponses != null)
+            {
+                foreach (var response in previousResponses.Values)
                 {
-                    foreach (var response in previousResponses.Values)
+                    if (response?.ExposedDependencies != null)
                     {
-                        if (response?.ExposedDependencies != null)
+                        foreach (var kv in response.ExposedDependencies)
                         {
-                            foreach (var kv in response.ExposedDependencies)
-                            {
-                                mergedDependencies[kv.Key] = kv.Value;
-                            }
+                            mergedDependencies[kv.Key] = kv.Value;
                         }
                     }
                 }
-
-                // Führe den Ersetzungsvorgang durch:
-                ReplaceDependencyByAlias(parameterNode, mergedDependencies);
-
-                var options = new JsonSerializerOptions
-                {
-                    WriteIndented = true,
-                    PropertyNamingPolicy = null // Beibehaltung der Originalschreibweise
-                };
-                return parameterNode.ToJsonString(options);
             }
 
-            return parameterJson;
+            // Führe den Ersetzungsvorgang durch:
+            var unresolved = ReplaceDependencyByAlias(parameterNode, mergedDependencies);
+            if (unresolved.Count > 0)
+            {
+                return (null, BadRequest($"Unaufgelöste Abhängigkeiten: {string.Join(", ", unresolved)}"));
+            }
+
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = null // Beibehaltung der Originalschreibweise
+            };
+            return (parameterNode.ToJsonString(options), null);
         }
 
         /// <summary>
@@ -294,7 +316,17 @@ namespace HrpcCore.Services
 
         #region Hilfsmethoden für die Ausführung
 
-        private void ReplaceDependencyByAlias(JsonNode? node, Dictionary<string, string>? exposedDependencies)
+        private HashSet<string> ReplaceDependencyByAlias(JsonNode? node, Dictionary<string, string> exposedDependencies)
+        {
+            var unresolved = new HashSet<string>(StringComparer.Ordinal);
+            ReplaceDependencyByAliasCore(node, exposedDependencies, unresolved);
+            return unresolved;
+        }
+
+        private void ReplaceDependencyByAliasCore(
+            JsonNode? node,
+            Dictionary<string, string> exposedDependencies,
+            HashSet<string> unresolved)
         {
             if (node == null) return;
             if (node is JsonValue jsonValue)
@@ -302,11 +334,15 @@ namespace HrpcCore.Services
                 if (jsonValue.TryGetValue<string>(out var strValue) && strValue.StartsWith("@"))
                 {
                     string alias = strValue.Substring(1); // z. B. "firstId"
-                    if (exposedDependencies != null && exposedDependencies.TryGetValue(alias, out var actualValue))
+                    if (exposedDependencies.TryGetValue(alias, out var actualValue))
                     {
                         // Ersetze den aktuellen Knoten durch den extrahierten Wert (als JsonValue)
                         var newNode = JsonValue.Create(actualValue);
                         ReplaceInParent(node, newNode);
+                    }
+                    else
+                    {
+                        unresolved.Add(alias);
                     }
                 }
             }
@@ -316,7 +352,7 @@ namespace HrpcCore.Services
                 {
                     if (property.Value != null)
                     {
-                        ReplaceDependencyByAlias(property.Value, exposedDependencies);
+                        ReplaceDependencyByAliasCore(property.Value, exposedDependencies, unresolved);
                     }
                 }
             }
@@ -324,7 +360,7 @@ namespace HrpcCore.Services
             {
                 foreach (var t in jsonArr)
                 {
-                    ReplaceDependencyByAlias(t, exposedDependencies);
+                    ReplaceDependencyByAliasCore(t, exposedDependencies, unresolved);
                 }
             }
         }
@@ -390,10 +426,10 @@ namespace HrpcCore.Services
                     return MethodNotAllowed();
                 }
 
-                var parameters = BuildParameters(request.StringData, invokeInfo.MethodInfo.GetParameters(), ct);
+                var parameters = BuildParameters(request.StringData, invokeInfo.MethodInfo!.GetParameters(), ct);
                 if (parameters == default) return parameters.Response;
 
-                var result = await ExecuteMethod(invokeInfo.MethodInfo, controllerType, parameters.Items!, ct);
+                var result = await ExecuteMethod(invokeInfo, controllerType, parameters.Items!, ct);
                 if (result != null)
                     result.Id = request.Id;
 
@@ -499,8 +535,74 @@ namespace HrpcCore.Services
 
         #region Methoden-Ausführung und Reflection-Handling
 
+        private static bool GetHasResult(MethodInfo methodInfo)
+        {
+            var returnType = methodInfo.ReturnType;
+
+            if (returnType == typeof(void))
+                return false;
+
+            if (typeof(Task).IsAssignableFrom(returnType))
+            {
+                return returnType.IsGenericType;
+            }
+
+            return true;
+        }
+
+        private static Func<object, object?[], object?> CompileInvocation(Type controllerType, MethodInfo methodInfo)
+        {
+            // Parameter: (object instance, object?[] args)
+            var instanceParam = Expression.Parameter(typeof(object), "instance");
+            var argsParam = Expression.Parameter(typeof(object?[]), "args");
+
+            var parameters = methodInfo.GetParameters();
+            var argExpressions = new Expression[parameters.Length];
+
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var paramInfo = parameters[i];
+                // args[i]
+                var indexed = Expression.ArrayIndex(argsParam, Expression.Constant(i));
+
+                Expression converted;
+                if (paramInfo.ParameterType == typeof(CancellationToken))
+                {
+                    // CancellationToken wird zur Laufzeit vom Invoker eingesetzt.
+                    converted = Expression.Default(typeof(CancellationToken));
+                }
+                else
+                {
+                    converted = Expression.Convert(indexed, paramInfo.ParameterType);
+                }
+
+                argExpressions[i] = converted;
+            }
+
+            // ((ControllerType)instance).MethodName(...)
+            var castInstance = Expression.Convert(instanceParam, controllerType);
+            var call = Expression.Call(castInstance, methodInfo, argExpressions);
+
+            Expression body;
+            if (methodInfo.ReturnType == typeof(void))
+            {
+                body = Expression.Block(call, Expression.Constant(null, typeof(object)));
+            }
+            else if (methodInfo.ReturnType.IsValueType)
+            {
+                body = Expression.Convert(call, typeof(object));
+            }
+            else
+            {
+                body = Expression.TypeAs(call, typeof(object));
+            }
+
+            var lambda = Expression.Lambda<Func<object, object?[], object?>>(body, instanceParam, argsParam);
+            return lambda.Compile();
+        }
+
         private async Task<HrpcResponse?> ExecuteMethod(
-            MethodInfo methodInfo,
+            InvokeInfo invokeInfo,
             Type? controllerType,
             object?[]? parameters,
             CancellationToken ct)
@@ -515,24 +617,43 @@ namespace HrpcCore.Services
 
                 try
                 {
-                    var result = methodInfo.Invoke(instance, parameters);
-                    if (result is Task taskResult)
+                    var compiled = invokeInfo.CompiledInvocation;
+                    if (compiled == null)
                     {
-                        await taskResult;
-                        // Versuche, das Result-Property zu extrahieren, wenn vorhanden.
-                        var taskType = taskResult.GetType();
-                        var resultProperty = taskType.GetProperty("Result");
-                        if (resultProperty != null)
+                        return InternalServerError($"Methode '{invokeInfo.MethodInfo?.Name}' ist nicht kompiliert.");
+                    }
+
+                    // Ersetze ggf. CancellationToken-Platzhalter durch den realen Wert
+                    var methodParams = invokeInfo.MethodInfo!.GetParameters();
+                    for (int i = 0; i < methodParams.Length; i++)
+                    {
+                        if (methodParams[i].ParameterType == typeof(CancellationToken))
                         {
-                            var resultValue = resultProperty.GetValue(taskResult);
-                            return ReturnResponse(resultValue, instance?.GetType());
+                            parameters![i] = ct;
                         }
-                        return Ok($"Vorgang abgeschlossen ({methodInfo.Name})");
                     }
-                    else
+
+                    var result = compiled(instance, parameters!);
+
+                    if (invokeInfo.IsAsync)
                     {
-                        return ReturnResponse(result, controllerType);
+                        if (result is Task taskResult)
+                        {
+                            await taskResult;
+
+                            if (invokeInfo.HasResult)
+                            {
+                                var resultValue = GetTaskResult(taskResult);
+                                return ReturnResponse(resultValue, instance?.GetType());
+                            }
+
+                            return Ok($"Vorgang abgeschlossen ({invokeInfo.MethodInfo.Name})");
+                        }
+
+                        return InternalServerError($"Asynchrone Methode '{invokeInfo.MethodInfo.Name}' hat keinen Task zurückgegeben.");
                     }
+
+                    return ReturnResponse(result, controllerType);
                 }
                 catch (TargetInvocationException tie)
                 {
@@ -547,9 +668,16 @@ namespace HrpcCore.Services
 
         private object? GetTaskResult(Task taskResult)
         {
-            var property = taskResult.GetType().GetProperty("Result");
-            if (property != null && property.CanRead)
-                return property.GetValue(taskResult);
+            if (taskResult is null)
+                return null;
+
+            // Für Task&lt;T&gt; greifen wir direkt über die generische Eigenschaft auf das Result zu.
+            // Dies spart Reflection (GetProperty) pro Request.
+            if (taskResult.GetType().IsGenericType)
+            {
+                return ((dynamic)taskResult).Result;
+            }
+
             return null;
         }
 
@@ -570,7 +698,9 @@ namespace HrpcCore.Services
             try { return Ok(JsonSerializer.Serialize(result)); }
             catch
             {
-                var errorMessage = $"Kann das Ergebnis von '{instanceType.FullName}.{result.GetType().Name}' nicht serialisieren.";
+                var typeName = instanceType?.FullName ?? "?";
+                var resultTypeName = result.GetType().Name;
+                var errorMessage = $"Kann das Ergebnis von '{typeName}.{resultTypeName}' nicht serialisieren.";
                 return InternalServerError(errorMessage);
             }
         }
@@ -618,6 +748,23 @@ namespace HrpcCore.Services
         {
             public MethodInfo MethodInfo { get; set; } = null!;
             public HrpcAuthoriseAttribute? AuthoriseAttribute { get; set; }
+
+            /// <summary>
+            /// Kompilierter Delegate für den Methodenaufruf.
+            /// Signatur: (object controllerInstance, object?[] args) => object?
+            /// Falls die Methode async ist, wird der zurückgegebene Task noch nicht awaited.
+            /// </summary>
+            public Func<object, object?[], object?>? CompiledInvocation { get; set; }
+
+            /// <summary>
+            /// True, wenn die Methode asynchron (Task/Task&lt;T&gt;) ist.
+            /// </summary>
+            public bool IsAsync { get; set; }
+
+            /// <summary>
+            /// True, wenn die Methode einen Rückgabewert liefert (Task&lt;T&gt; oder synchroner Wert).
+            /// </summary>
+            public bool HasResult { get; set; }
         }
     }
 }

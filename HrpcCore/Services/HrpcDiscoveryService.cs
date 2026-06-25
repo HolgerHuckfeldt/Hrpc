@@ -10,7 +10,8 @@ namespace HrpcCore.Services
     public class HrpcDiscoveryService
     {
         private readonly ConcurrentDictionary<string, Type> _routeHandlers;
-        // Weitere Abhängigkeiten oder Konfigurationen
+        private DiscoveryInfo? _cachedDiscovery;
+        private readonly object _cacheLock = new();
 
         public HrpcDiscoveryService(ConcurrentDictionary<string, Type> routeHandlers)
         {
@@ -18,6 +19,25 @@ namespace HrpcCore.Services
         }
 
         public DiscoveryInfo GetDiscoveryInfo()
+        {
+            if (_cachedDiscovery != null)
+                return _cachedDiscovery;
+
+            lock (_cacheLock)
+            {
+                return _cachedDiscovery ??= BuildDiscoveryInfo();
+            }
+        }
+
+        public void InvalidateCache()
+        {
+            lock (_cacheLock)
+            {
+                _cachedDiscovery = null;
+            }
+        }
+
+        private DiscoveryInfo BuildDiscoveryInfo()
         {
             var discovery = new DiscoveryInfo();
 
@@ -66,11 +86,9 @@ namespace HrpcCore.Services
                         // Registriere das Generic-Argument, also z. B. Order
                         RegisterType(genericArg, discovery.Types);
                         // Falls das Generic-Argument als HrpcDataContract markiert ist, setze die Nested-Definition
-                        if (genericArg.IsClass && genericArg != typeof(string) &&
-                            genericArg.IsDefined(typeof(HrpcDataContractAttribute), false))
-                        {
-                            methodMeta.ReturnTypeDefinition = discovery.Types[genericArg.FullName];
-                        }
+                        string key = genericArg.FullName ?? genericArg.Name;
+                        if (key != null)
+                            methodMeta.ReturnTypeDefinition = discovery.Types[key];
                     }
                     // Für nicht-generische Rückgabetypen (außer void)
                     else if (!effectiveReturnType.Equals(typeof(void)) &&
@@ -78,8 +96,9 @@ namespace HrpcCore.Services
                         effectiveReturnType != typeof(string) &&
                         effectiveReturnType.IsDefined(typeof(HrpcDataContractAttribute), false))
                     {
-                        RegisterType(effectiveReturnType, discovery.Types);
-                        methodMeta.ReturnTypeDefinition = discovery.Types[effectiveReturnType.FullName];
+                        string key = effectiveReturnType.FullName ?? effectiveReturnType.Name;
+                        if (key != null)
+                            methodMeta.ReturnTypeDefinition = discovery.Types[key];
                     }
 
                     var paramdDoc = method.GetCustomAttribute<HrpcDocumentationAttribute>()?.Summary;
@@ -102,17 +121,16 @@ namespace HrpcCore.Services
                             var genericArg = param.ParameterType.GetGenericArguments()[0];
                             paramMeta.ParameterType = $"List<{GetFriendlyTypeName(genericArg)}>";
                             RegisterType(genericArg, discovery.Types);
-                            if (genericArg.IsClass && genericArg != typeof(string) &&
-                                genericArg.IsDefined(typeof(HrpcDataContractAttribute), false))
-                            {
-                                paramMeta.TypeDefinition = discovery.Types[genericArg.FullName];
-                            }
+                            string key = genericArg.FullName ?? genericArg.Name;
+                            if (key != null)
+                                paramMeta.TypeDefinition = discovery.Types[key];
                         }
                         else if (param.ParameterType.IsClass && param.ParameterType != typeof(string) &&
                                  param.ParameterType.IsDefined(typeof(HrpcDataContractAttribute), false))
                         {
-                            RegisterType(param.ParameterType, discovery.Types);
-                            paramMeta.TypeDefinition = discovery.Types[param.ParameterType.FullName];
+                            string key = param.ParameterType.FullName ?? param.ParameterType.Name;
+                            if (key != null)
+                                paramMeta.TypeDefinition = discovery.Types[key];
                         }
 
                         methodMeta.Parameters.Add(paramMeta);

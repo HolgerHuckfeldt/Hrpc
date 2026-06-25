@@ -13,11 +13,30 @@ namespace HrpcClient.Hrpc
     {
         private readonly HttpClient _httpClient;
         private readonly string _serverBase;
+        private readonly bool _ownsHttpClient;
 
         public HrpcRestJsonClient(string serverBaseUrl, HttpClient? httpClient = null)
         {
-            _httpClient = httpClient ?? new HttpClient();
-            _serverBase = serverBaseUrl.EndsWith("/") ? serverBaseUrl : serverBaseUrl + "/";
+            if (string.IsNullOrWhiteSpace(serverBaseUrl))
+                throw new ArgumentException("Server-URL darf nicht leer sein.", nameof(serverBaseUrl));
+
+            if (httpClient != null)
+            {
+                _httpClient = httpClient;
+                _ownsHttpClient = false;
+            }
+            else
+            {
+                _httpClient = new HttpClient(
+                    new SocketsHttpHandler
+                    {
+                        PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+                    },
+                    disposeHandler: true);
+                _ownsHttpClient = true;
+            }
+
+            _serverBase = serverBaseUrl.EndsWith("/", StringComparison.Ordinal) ? serverBaseUrl : serverBaseUrl + "/";
         }
 
         public override async Task<HrpcResponse?> Call(HrpcRequest? request, CancellationToken ct = default)
@@ -73,6 +92,20 @@ namespace HrpcClient.Hrpc
             }
             var hrpcResponses = JsonSerializer.Deserialize<List<HrpcResponse>>(responseJson, JsonOptions);
             return hrpcResponses ?? new List<HrpcResponse>();
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing && _ownsHttpClient)
+            {
+                _httpClient?.Dispose();
+            }
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
     }
 }
