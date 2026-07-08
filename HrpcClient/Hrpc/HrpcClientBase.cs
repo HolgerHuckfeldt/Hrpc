@@ -51,6 +51,28 @@ namespace HrpcClient.Hrpc
         }
 
         /// <summary>
+        /// Sendet einen HrpcRequest und liefert das binäre <c>Content</c>-Feld der
+        /// Antwort (z. B. für Methoden, die <c>byte[]</c> zurückgeben). Wirft eine
+        /// <see cref="HrpcException"/> bei nicht-erfolgreichem Call.
+        /// </summary>
+        public async Task<byte[]?> CallBinary(HrpcRequest? request, CancellationToken ct = default)
+        {
+            if (request == null)
+                return default;
+
+            var response = await Call(request, ct);
+            if (response is { IsSuccess: true })
+                return response.Content;
+
+            if (response != null && !response.IsSuccess)
+            {
+                var error = response.Error ?? HrpcError.FromResponse(response);
+                throw new HrpcException(error, null);
+            }
+            return default;
+        }
+
+        /// <summary>
         /// Sendet mehrere HrpcRequests (MultiCall) und liefert eine Liste von HrpcResponses zurück.
         /// Die konkrete Umsetzung übernimmt die abgeleitete Client-Klasse.
         /// </summary>

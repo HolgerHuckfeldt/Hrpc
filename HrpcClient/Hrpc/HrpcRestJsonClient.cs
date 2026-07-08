@@ -9,14 +9,15 @@ using System.Threading.Tasks;
 
 namespace HrpcClient.Hrpc
 {
-    public class HrpcRestJsonClient : HrpcClientBase, IHrpcClient
+    public class HrpcRestJsonClient : HrpcClientBase, IHrpcClient, IDisposable
     {
         private readonly HttpClient _httpClient;
         private readonly string _serverBase;
         private readonly string _apiPath;
         private readonly bool _ownsHttpClient;
 
-        public HrpcRestJsonClient(string serverBaseUrl, HttpClient? httpClient = null, string apiPath = "api/hrpc")
+        public HrpcRestJsonClient(string serverBaseUrl, HttpClient? httpClient = null, string apiPath = "api/hrpc",
+            TimeSpan? httpClientTimeout = null)
         {
             if (string.IsNullOrWhiteSpace(serverBaseUrl))
                 throw new ArgumentException("Server-URL darf nicht leer sein.", nameof(serverBaseUrl));
@@ -36,6 +37,9 @@ namespace HrpcClient.Hrpc
                     disposeHandler: true);
                 _ownsHttpClient = true;
             }
+
+            if (httpClientTimeout.HasValue)
+                _httpClient.Timeout = httpClientTimeout.Value;
 
             _serverBase = serverBaseUrl.EndsWith("/", StringComparison.Ordinal) ? serverBaseUrl : serverBaseUrl + "/";
             _apiPath = apiPath.Trim('/');
@@ -58,6 +62,7 @@ namespace HrpcClient.Hrpc
                 return new HrpcResponse
                 {
                     Code = (int)response.StatusCode,
+                    Id = request.Id,
                     Data = $"HTTP Error: {response.StatusCode} | {responseJson}",
                     Error = new HrpcError
                     {
@@ -94,6 +99,7 @@ namespace HrpcClient.Hrpc
                     new HrpcResponse
                     {
                         Code = (int)response.StatusCode,
+                        Id = request.Requests?.FirstOrDefault()?.Id,
                         Data = $"HTTP Error: {response.StatusCode} | {responseJson}",
                         Error = new HrpcError
                         {

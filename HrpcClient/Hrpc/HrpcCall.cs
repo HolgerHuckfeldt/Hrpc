@@ -6,7 +6,6 @@ namespace HrpcClient.Hrpc
     {
         private readonly string _controller;
         private readonly string _method;
-        //private string _dataPath;
         private string _name;
         private readonly List<HrpcParameter> _parameters = new();
         private int _num = 0;
@@ -122,7 +121,6 @@ namespace HrpcClient.Hrpc
                 Method = _method,
                 StringData = JsonSerializer.Serialize(_parameters),
                 Id = _name,
-                //DataPath = _dataPath,
                 DependencyMapping = _exposedDependencies.Count > 0 ? _exposedDependencies : null
             };
         }

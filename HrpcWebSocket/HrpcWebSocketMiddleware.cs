@@ -53,12 +53,13 @@ public class HrpcWebSocketMiddleware
     private async Task HandleConnectionAsync(HttpContext context, WebSocket webSocket)
     {
         var buffer = new byte[1024 * 4];
-        var messageBuilder = new StringBuilder();
 
         while (webSocket.State == WebSocketState.Open)
         {
+            // Bytes sammeln (nicht pro Chunk dekodieren) — sonst korruptieren
+            // Multi-Byte-Zeichen an Chunk-Grenzen (A2).
+            using var messageStream = new MemoryStream();
             WebSocketReceiveResult result;
-            messageBuilder.Clear();
 
             do
             {
@@ -70,11 +71,11 @@ public class HrpcWebSocketMiddleware
                     return;
                 }
 
-                if (result.MessageType == WebSocketMessageType.Text)
+                if (result.MessageType == WebSocketMessageType.Text && result.Count > 0)
                 {
-                    messageBuilder.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                    messageStream.Write(buffer, 0, result.Count);
 
-                    if (messageBuilder.Length > MaxMessageSize)
+                    if (messageStream.Length > MaxMessageSize)
                     {
                         await SendErrorAsync(webSocket, "Message too large.");
                         return;
@@ -83,7 +84,10 @@ public class HrpcWebSocketMiddleware
             }
             while (!result.EndOfMessage);
 
-            var message = messageBuilder.ToString();
+            if (messageStream.Length == 0)
+                continue;
+
+            var message = Encoding.UTF8.GetString(messageStream.GetBuffer(), 0, (int)messageStream.Length);
             if (string.IsNullOrWhiteSpace(message))
                 continue;
 

@@ -1,89 +1,69 @@
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
-using System.Timers;
-// HrpcException is now provided via global using alias from GlobalUsings.cs
-using System.Threading;
+// HrpcException is provided via global using alias from GlobalUsings.cs
 
 namespace HrpcClient.Hrpc;
 
 /// <summary>
-/// Ein HRPC-Client, der über SignalR mit dem Server kommuniziert.
-/// Unterstützt automatische Wiederverbindung und asynchrone Einzel- und Multi-Requests.
+/// Ein Hrpc-Client, der über SignalR mit dem Server kommuniziert.
+/// Unterstützt automatische Wiederverbindung (SignalR-eigen) und asynchrone
+/// Einzel- und Multi-Requests.
 /// </summary>
 public class HrpcSignalrClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
 {
-    /// <summary>
-    /// Timer für automatische Reconnect-Versuche bei Verbindungsabbruch.
-    /// </summary>
-    private readonly System.Timers.Timer _nextTryTimer;
-    /// <summary>
-    /// Die SignalR HubConnection zum Server.
-    /// </summary>
     private readonly HubConnection _connection;
-    private bool _connected;
     private bool _disposed;
-    private bool _handlersRegistered;
-    private string _jwtToken = String.Empty;
+    private string _jwtToken = string.Empty;
+    private readonly SemaphoreSlim _connectLock = new(1, 1);
+    // Repräsentiert einen laufenden Verbindungsversuch; konkurrierende Caller
+    // erwarten dieselbe Task statt selbst StartAsync aufzurufen oder abzuweisen (B1).
+    private Task<bool>? _connectingTask;
 
     /// <summary>
-    /// Erstellt einen neuen SignalR-Client mit JWT-Token für Authentifizierung.
+    /// Erstellt einen neuen SignalR-Client. Optionaler <paramref name="bearer"/>
+    /// (JWT) an zweiter Stelle, damit <c>new HrpcSignalrClient(url, "token")</c>
+    /// eindeutig den Bearer setzt (A4) und nicht mit <paramref name="hubPath"/> kollidiert.
     /// </summary>
-    /// <param name="server">Die Basis-URL des Servers.</param>
-    /// <param name="bearer">Das JWT-Token für die Authentifizierung.</param>
-    public HrpcSignalrClient(string server, string bearer)
-    : this(server)
+    public HrpcSignalrClient(string server,
+        string? bearer = null,
+        string? hubPath = "Hrpc", bool useMessagePack = true,
+        TimeSpan? handshakeTimeout = null, TimeSpan? serverTimeout = null,
+        TimeSpan? keepAliveInterval = null)
     {
-        _jwtToken = bearer;
-    }
+        _jwtToken = bearer ?? string.Empty;
 
-    /// <summary>
-    /// Erstellt einen neuen SignalR-Client.
-    /// </summary>
-    /// <param name="server">Die Basis-URL des Servers.</param>
-    public HrpcSignalrClient(string server)
-    {
-        string baseUrl = server;
-        if (baseUrl.EndsWith("/"))
-            baseUrl = baseUrl.Remove(baseUrl.Length - 1);
-
-        if (!baseUrl.EndsWith("/"))
+        var baseUrl = server.TrimEnd('/');
+        if (!baseUrl.EndsWith('/'))
             baseUrl += "/";
 
-        _nextTryTimer = new System.Timers.Timer();
-        _nextTryTimer.Interval = TimeSpan.FromMinutes(2).TotalMilliseconds;
-        _nextTryTimer.AutoReset = true;
-        _nextTryTimer.Elapsed += NextTryTimerOnElapsed;
-
-        var reconnectTimes = new List<TimeSpan>()
-                    {
-                        TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2),
-                        TimeSpan.FromSeconds(5),TimeSpan.FromSeconds(5),TimeSpan.FromSeconds(5),TimeSpan.FromSeconds(5),
-                        TimeSpan.FromSeconds(10),TimeSpan.FromSeconds(10),TimeSpan.FromSeconds(10),TimeSpan.FromSeconds(10),
-                        TimeSpan.FromSeconds(30),TimeSpan.FromSeconds(30),TimeSpan.FromSeconds(30),TimeSpan.FromSeconds(30),
-                        TimeSpan.FromSeconds(60),TimeSpan.FromSeconds(60),TimeSpan.FromSeconds(60),TimeSpan.FromSeconds(60),
-                        TimeSpan.FromMinutes(5),TimeSpan.FromMinutes(5),TimeSpan.FromMinutes(5),TimeSpan.FromMinutes(5),
-                        TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),
-                        TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),
-                        TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),
-                        TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),TimeSpan.FromMinutes(10),
-                        TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),
-                        TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),
-                        TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),TimeSpan.FromMinutes(30),
-                        TimeSpan.FromMinutes(60),TimeSpan.FromMinutes(60),TimeSpan.FromMinutes(60),TimeSpan.FromMinutes(60),
-                        TimeSpan.FromMinutes(60),TimeSpan.FromMinutes(60),TimeSpan.FromMinutes(60),TimeSpan.FromMinutes(60)
-                    };
-
-        _connection = new HubConnectionBuilder()
-            .WithUrl($"{baseUrl}Hrpc", options =>
+        var builder = new HubConnectionBuilder()
+            .WithUrl($"{baseUrl}{hubPath ?? "Hrpc"}", options =>
             {
-                if (!string.IsNullOrEmpty(_jwtToken))
-                {
-                    options.AccessTokenProvider = () => Task.FromResult(_jwtToken)!;
-                }
-            })
-            .AddMessagePackProtocol()
-            .WithAutomaticReconnect(reconnectTimes.ToArray())
-            .Build();
+                // AccessTokenProvider IMMER registrieren (A4): der Provider liest
+                // das Token lazy zur Call-Zeit. _jwtToken ist oben bereits gesetzt.
+                options.AccessTokenProvider = () =>
+                    Task.FromResult<string?>(string.IsNullOrEmpty(_jwtToken) ? null : _jwtToken);
+            });
+
+        if (useMessagePack)
+            builder.AddMessagePackProtocol();
+
+        builder.WithAutomaticReconnect(new[]
+        {
+            TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5),
+            TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30),
+            TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5)
+        });
+
+        _connection = builder.Build();
+
+        if (handshakeTimeout.HasValue)
+            _connection.HandshakeTimeout = handshakeTimeout.Value;
+        if (serverTimeout.HasValue)
+            _connection.ServerTimeout = serverTimeout.Value;
+        if (keepAliveInterval.HasValue)
+            _connection.KeepAliveInterval = keepAliveInterval.Value;
     }
 
     /// <summary>
@@ -94,24 +74,31 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
         if (request == null)
             return null;
 
-        if (!_connected)
-        {
-            var connected = await Connect();
-            if (!connected)
-                throw new HrpcException("Not connected to server.");
-        }
+        if (!await Connect())
+            throw new HrpcException("Not connected to server.");
 
-        if (await _connection.InvokeCoreAsync(
-                "DoWork",
-                typeof(HrpcResponse),
-                new object[] { request },
-                ct
-            ) is HrpcResponse r)
+        try
         {
-            return r;
-        }
+            if (await _connection.InvokeCoreAsync(
+                    "DoWork",
+                    typeof(HrpcResponse),
+                    new object[] { request },
+                    ct
+                ) is HrpcResponse r)
+            {
+                return r;
+            }
 
-        return null;
+            return null;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new HrpcException("Error from server.", ex);
+        }
     }
 
     /// <summary>
@@ -122,12 +109,8 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
         if (request == null)
             return null;
 
-        if (!_connected)
-        {
-            var connected = await Connect();
-            if (!connected)
-                throw new HrpcException("Not connected to server.");
-        }
+        if (!await Connect())
+            throw new HrpcException("Not connected to server.");
 
         try
         {
@@ -141,6 +124,10 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
                 return r;
             }
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             throw new HrpcException("Error from server.", ex);
@@ -150,88 +137,75 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
     }
 
     /// <summary>
-    /// Timer-Callback für erneuten Verbindungsaufbau.
+    /// Baut die Verbindung zum Server auf. Ein laufender Verbindungsversuch wird
+    /// von konkurrierenden Callern **gemeinsam erwartet** (B1) statt abgewiesen —
+    /// parallele erste Calls werfen also nicht "Not connected". SignalRs
+    /// <c>WithAutomaticReconnect</c> kümmert sich um Wiederverbindung; <c>.State</c>
+    /// ist autoritativ, daher keine eigenen Lifecycle-Handler nötig.
     /// </summary>
-    private async void NextTryTimerOnElapsed(object? sender, ElapsedEventArgs e)
+    private Task<bool> Connect()
     {
+        // Fast path: bereits verbunden.
+        if (_connection.State == HubConnectionState.Connected)
+            return Task.FromResult(true);
+
+        // Ein Connect/Reconnect läuft bereits -> dieselbe Task mitwarten (B1),
+        // statt sofort "Not connected" zu werfen.
+        if (_connection.State is HubConnectionState.Connecting or HubConnectionState.Reconnecting
+            && _connectingTask is not null)
+        {
+            return _connectingTask;
+        }
+
+        return ConnectSlowPathAsync();
+    }
+
+    private async Task<bool> ConnectSlowPathAsync()
+    {
+        await _connectLock.WaitAsync();
         try
         {
-            await Connect();
-        }
-        catch
-        {
-            // Errors are logged inside Connect(); avoid async void crash
-        }
-    }
-
-    /// <summary>
-    /// Baut die Verbindung zum Server auf und registriert Event-Handler.
-    /// </summary>
-    /// <returns>True, wenn die Verbindung erfolgreich war.</returns>
-    private async Task<bool> Connect()
-    {
-        // Register handlers only once to prevent duplicates on reconnect
-        if (!_handlersRegistered)
-        {
-            _connection.On<string, string>("ReceiveMessage", (user, message) =>
+            // Double-Check nach Lock-Erwerb: ein anderer Caller hat evtl. schon
+            // verbunden oder einen Versuch gestartet.
+            if (_connection.State == HubConnectionState.Connected)
+                return true;
+            if (_connection.State is HubConnectionState.Connecting or HubConnectionState.Reconnecting
+                && _connectingTask is not null)
             {
-                string msg = message;
-            });
+                return await _connectingTask;
+            }
 
-            _connection.On<string, byte[]>("ReceiveData", (user, data) =>
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _connectingTask = tcs.Task;
+            try
             {
-                byte[] mydata = data;
-            });
-
-            _connection.Closed += ConnectionOnClosed;
-            _connection.Reconnecting += ConnectionOnReconnecting;
-            _connection.Reconnected += ConnectionOnReconnected;
-            _handlersRegistered = true;
+                await _connection.StartAsync();
+                tcs.TrySetResult(true);
+                return true;
+            }
+            catch (HttpRequestException)
+            {
+                // Transienter Netzwerkfehler -> Caller kann es erneut versuchen.
+                tcs.TrySetResult(false);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                var hrpcEx = new HrpcException("Error connecting to server via SignalR", ex);
+                tcs.TrySetException(hrpcEx);
+                throw hrpcEx;
+            }
+            finally
+            {
+                // Versuch beendet -> Feld freigeben, damit ein späterer Retry
+                // (z.B. nach Closed) einen neuen Versuch starten kann.
+                _connectingTask = null;
+            }
         }
-
-        try
+        finally
         {
-            await _connection.StartAsync();
-            _nextTryTimer.Stop();
-            _connected = true;
-            return true;
+            _connectLock.Release();
         }
-        catch (HttpRequestException)
-        {
-            _nextTryTimer.Start();
-            return false;
-        }
-        catch (Exception ex)
-        {
-            throw new HrpcException("Error connecting to server via SignalR", ex);
-        }
-    }
-
-    /// <summary>
-    /// Wird aufgerufen, wenn die Verbindung erfolgreich wiederhergestellt wurde.
-    /// </summary>
-    private Task ConnectionOnReconnected(string? arg)
-    {
-        _connected = true;
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Wird aufgerufen, wenn die Verbindung gerade wiederhergestellt wird.
-    /// </summary>
-    private Task ConnectionOnReconnecting(Exception? arg)
-    {
-        _connected = false;
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Wird aufgerufen, wenn die Verbindung geschlossen wurde.
-    /// </summary>
-    private Task ConnectionOnClosed(Exception? arg)
-    {
-        _connected = false;
-        return Task.CompletedTask;
     }
 
     public async ValueTask DisposeAsync()
@@ -239,22 +213,12 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
         if (_disposed) return;
         _disposed = true;
 
-        _nextTryTimer.Stop();
-        _nextTryTimer.Elapsed -= NextTryTimerOnElapsed;
-        _nextTryTimer.Dispose();
-
-        if (_handlersRegistered)
-        {
-            _connection.Closed -= ConnectionOnClosed;
-            _connection.Reconnecting -= ConnectionOnReconnecting;
-            _connection.Reconnected -= ConnectionOnReconnected;
-        }
-
         if (_connection.State == HubConnectionState.Connected)
         {
             await _connection.StopAsync();
         }
 
         await _connection.DisposeAsync();
+        _connectLock.Dispose();
     }
 }
