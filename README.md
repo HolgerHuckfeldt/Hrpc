@@ -215,7 +215,7 @@ The `/api/hrpc/discovery` endpoint returns full type metadata, enabling auto-gen
 
 Hrpc v1 is intentionally focused. The following are deliberate scope decisions, not bugs — documented here so adopters can plan around them:
 
-- **No built-in API versioning.** The `controller` field is a free-form string. There is no framework-level versioning mechanism. The recommended convention is to encode the version in the controller name, e.g. `[HrpcController("Customer.v1")]`, so a v2 can coexist without breaking v1 clients.
+- **No built-in API versioning.** The `controller` field is a free-form string. There is no framework-level versioning mechanism. The recommended convention is to encode the version in the controller name, e.g. `[HrpcController("Customer.v1")]`, so a v2 can coexist without breaking v1 clients. Build-time version enforcement via a source generator (the `wsdl.exe` model) is planned for v1.1 — see [ROADMAP.md](ROADMAP.md).
 - **No Native AOT.** Method discovery uses runtime reflection, and invocation uses `Expression.Compile`-produced delegates. This is incompatible with Native AOT trimming. Standard (JIT) publishing is the supported deployment model.
 - **REST streaming is materialized.** An `IAsyncEnumerable<T>` result is fully consumed server-side and serialized as a JSON array before the REST response is sent. True streamed delivery over REST is not supported — use the WebSocket or SignalR transport for streaming semantics.
 - **Attribute-based registration only.** Controllers and methods are discovered via `[HrpcController]` / `[HrpcMethod]` attribute scanning. Direct/fluent registration of individual handlers in code (without attributes) is on the roadmap, not in v1.
