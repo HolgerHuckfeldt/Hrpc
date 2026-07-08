@@ -18,16 +18,32 @@ namespace HrpcRest
             group.MapPost("/json", async (
                 HrpcRequest request, IHrpcCore hrpcService, HttpContext httpContext, CancellationToken ct) =>
             {
-                var result = await hrpcService.InvokeDi(request, httpContext, ct);
-                return Results.Ok(result);
+                try
+                {
+                    var result = await hrpcService.InvokeDi(request, httpContext, ct);
+                    return Results.Ok(result);
+                }
+                catch (OperationCanceledException)
+                {
+                    return Results.Json(new { title = "Request cancelled.", status = 499 },
+                        statusCode: 499);
+                }
             });
 
             group.MapPost("/json/multi", async (
                 HrpcMultiRequest? request, IHrpcCore hrpcService, HttpContext httpContext, CancellationToken ct) =>
             {
                 if (request?.Requests == null) return Results.BadRequest("Request is empty.");
-                var result = await hrpcService.InvokeDi(request.Requests, httpContext, request.Mode, ct);
-                return Results.Ok(result);
+                try
+                {
+                    var result = await hrpcService.InvokeDi(request.Requests, httpContext, request.Mode, ct);
+                    return Results.Ok(result);
+                }
+                catch (OperationCanceledException)
+                {
+                    return Results.Json(new { title = "Request cancelled.", status = 499 },
+                        statusCode: 499);
+                }
             });
 
             group.MapGet("/discovery", (IHrpcCore hrpcService) =>

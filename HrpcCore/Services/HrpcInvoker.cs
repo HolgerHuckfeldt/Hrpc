@@ -25,6 +25,14 @@ namespace HrpcCore.Services
         private readonly ILogger<HrpcInvoker> _logger;
         private readonly List<IHrpcInterceptor> _interceptors;
 
+        /// <summary>
+        /// Wenn gesetzt, werden in Fehler-Responses die echten Exception-Details
+        /// (HrpcError.Details) befüllt. In Produktion auf false belassen, um keine
+        /// internen Informationen an Clients preiszugeben. Wird durch AddHrpc anhand
+        /// von HrpcOptions.EnableDetailedErrors bzw. IHostEnvironment.IsDevelopment() gesetzt.
+        /// </summary>
+        public bool EnableDetailedErrors { get; set; }
+
         private readonly JsonSerializerOptions _jsonSerializerOptions = new()
         {
             PropertyNameCaseInsensitive = true,
@@ -136,13 +144,16 @@ namespace HrpcCore.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "RPC call {Controller}.{Method} failed.", request.Controller, request.Method);
-                response = InternalServerError("An internal error occurred while processing the request.");
+                response = InternalServerError("An internal error occurred while processing the request.", ex);
             }
             finally
             {
                 stopwatch.Stop();
                 _logger.LogTrace("RPC call {Controller}.{Method} took {Duration} ms", request.Controller, request.Method, stopwatch.ElapsedMilliseconds);
             }
+            // RequestId auf allen Pfaden durchreichen (auch Fehlerpfade).
+            if (response != null && string.IsNullOrEmpty(response.Id))
+                response.Id = request?.Id ?? string.Empty;
             return response;
         }
 
@@ -160,11 +171,11 @@ namespace HrpcCore.Services
             {
                 var controllerType = GetControllerType(request.Controller);
                 if (controllerType == null)
-                    return BadRequest($"Controller '{request.Controller}' nicht gefunden.", HttpStatusCode.NotFound);
+                    return BadRequest($"Controller '{request.Controller}' not found.", HttpStatusCode.NotFound);
 
                 string key = $"{request.Controller}_{request.Method}";
                 if (!_invokeCache.TryGetValue(key, out var invokeInfo))
-                    return BadRequest($"Methode '{request.Method}' auf Controller '{request.Controller}' nicht gefunden.");
+                    return BadRequest($"Method '{request.Method}' not found on controller '{request.Controller}'.");
 
                 try
                 {
@@ -173,7 +184,7 @@ namespace HrpcCore.Services
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    return MethodNotAllowed();
+                    return Unauthorized();
                 }
 
                 // Im Single-Call ohne Dependencies brauchen wir keine Alias-Auflösung:
@@ -192,7 +203,7 @@ namespace HrpcCore.Services
             }
             catch (Exception ex)
             {
-                return InternalServerError("An internal error occurred while processing the request.");
+                return InternalServerError("An internal error occurred while processing the request.", ex);
             }
         }
 
@@ -202,9 +213,16 @@ namespace HrpcCore.Services
             HttpContext? context,
             CancellationToken ct)
         {
-            var tasks = requests.Select(request =>
-                ExecuteSingleInvocation(request, context, ct));
-            return await Task.WhenAll(tasks);
+            var requestList = requests.ToList();
+            var results = await Task.WhenAll(
+                requestList.Select(request => ExecuteSingleInvocation(request, context, ct)));
+            // RequestId durchreichen (Erfolgspfade setzen die Id bereits, Fehlerpfade nicht).
+            for (int i = 0; i < results.Length; i++)
+            {
+                if (results[i] != null && string.IsNullOrEmpty(results[i]!.Id))
+                    results[i]!.Id = requestList[i].Id ?? string.Empty;
+            }
+            return results;
         }
 
         private async Task<IEnumerable<HrpcResponse?>> ExecuteSequentially(
@@ -234,6 +252,8 @@ namespace HrpcCore.Services
                 };
 
                 var result = await ExecuteSingleInvocation(effectiveRequest, context, ct);
+                if (result != null && string.IsNullOrEmpty(result.Id))
+                    result.Id = current?.Id ?? string.Empty;
                 responses.TryAdd(current?.Id ?? String.Empty, result);
             }
 
@@ -258,6 +278,7 @@ namespace HrpcCore.Services
             catch (InvalidOperationException ex)
             {
                 // Cycle detected – return error for all requests
+                _logger.LogWarning(ex, "Circular dependency detected in request batch.");
                 return requests.Select(r => new HrpcResponse
                 {
                     Code = (int)HttpStatusCode.BadRequest,
@@ -287,7 +308,10 @@ namespace HrpcCore.Services
             HttpContext? context,
             CancellationToken ct)
         {
-            return await ExecuteSingleInvocation(request, context, ct);
+            var response = await ExecuteSingleInvocation(request, context, ct);
+            if (response != null && string.IsNullOrEmpty(response.Id))
+                response.Id = request?.Id ?? string.Empty;
+            return response;
         }
 
 
@@ -310,7 +334,7 @@ namespace HrpcCore.Services
             {
                 parameterNode = JsonNode.Parse(parameterJson);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return (null, BadRequest("Invalid parameter JSON format."));
             }
@@ -341,7 +365,7 @@ namespace HrpcCore.Services
             var unresolved = ReplaceDependencyByAlias(parameterNode, mergedDependencies);
             if (unresolved.Count > 0)
             {
-                return (null, BadRequest($"Unaufgelöste Abhängigkeiten: {string.Join(", ", unresolved)}"));
+                return (null, BadRequest($"Unresolved dependencies: {string.Join(", ", unresolved)}"));
             }
 
             var options = new JsonSerializerOptions
@@ -484,11 +508,11 @@ namespace HrpcCore.Services
             {
                 var controllerType = GetControllerType(request.Controller);
                 if (controllerType == null)
-                    return BadRequest($"Controller '{request.Controller}' nicht gefunden.", HttpStatusCode.NotFound);
+                    return BadRequest($"Controller '{request.Controller}' not found.", HttpStatusCode.NotFound);
 
                 string key = $"{request.Controller}_{request.Method}";
                 if (!_invokeCache.TryGetValue(key, out var invokeInfo))
-                    return BadRequest($"Methode '{request.Method}' auf Controller '{request.Controller}' nicht gefunden.");
+                    return BadRequest($"Method '{request.Method}' not found on controller '{request.Controller}'.");
 
                 try
                 {
@@ -496,7 +520,7 @@ namespace HrpcCore.Services
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    return MethodNotAllowed();
+                    return Unauthorized();
                 }
 
                 var parameters = BuildParameters(request.StringData, invokeInfo.MethodInfo!.GetParameters(), ct);
@@ -526,7 +550,7 @@ namespace HrpcCore.Services
             }
             catch (Exception ex)
             {
-                return InternalServerError("An internal error occurred while processing the request.");
+                return InternalServerError("An internal error occurred while processing the request.", ex);
             }
         }
 
@@ -546,15 +570,31 @@ namespace HrpcCore.Services
                 {
                     requestParams = JsonSerializer.Deserialize<List<HrpcParameter>>(jsonInput, _jsonSerializerOptions);
                     if (requestParams == null || !requestParams.All(rp => rp.Data != null))
-                        throw new FormatException("Ungültige JSON-Struktur.");
+                        throw new FormatException("Invalid parameter structure.");
                 }
                 else
                 {
                     requestParams = new List<HrpcParameter>();
                 }
 
-                // Erstelle ein Dictionary aus den übermittelten Parametern anhand ihres Namens
-                var dict = requestParams.ToDictionary(rp => rp.ParameterName, rp => rp.Data);
+                // Nach Parameternamen indizieren. Doppelte Namen als BadRequest melden,
+                // statt über ToDictionary eine unbehandelte Exception auszulösen.
+                var byName = new Dictionary<string, string?>(StringComparer.Ordinal);
+                foreach (var rp in requestParams)
+                {
+                    if (string.IsNullOrEmpty(rp.ParameterName))
+                        continue;
+                    if (byName.ContainsKey(rp.ParameterName))
+                        return (null, BadRequest($"Duplicate parameter name '{rp.ParameterName}'."));
+                    byName[rp.ParameterName] = rp.Data;
+                }
+
+                // Parameter ohne CancellationToken in der Reihenfolge der Methodensignatur.
+                // Der clientseitige HrpcCall-Builder vergibt Num ohnehin ohne Kenntnis der
+                // CancellationToken-Parameter, daher wird hier an der bereinigten Folge gebunden.
+                var nonTokenParams = methodParams
+                    .Where(p => p.ParameterType != typeof(CancellationToken))
+                    .ToArray();
 
                 var parameters = new object?[methodParams.Length];
                 foreach (var param in methodParams)
@@ -562,37 +602,53 @@ namespace HrpcCore.Services
                     if (param.ParameterType == typeof(CancellationToken))
                     {
                         parameters[param.Position] = ct;
+                        continue;
+                    }
+
+                    string name = param.Name ?? $"param{param.Position}";
+
+                    // 1. Bindung nach Parameternamen (bevorzugt).
+                    bool matched = byName.TryGetValue(name, out var jsonValue);
+
+                    // 2. Positions-Fallback: über Num, falls kein Name gepasst hat.
+                    //    byte[]-Parameter werden hier ausgespart, da sie nachträglich über
+                    //    InjectBinaryParameters aus HrpcRequest.BinaryData gefüllt werden.
+                    if (!matched && param.ParameterType != typeof(byte[]))
+                    {
+                        int positionalIndex = Array.IndexOf(nonTokenParams, param);
+                        var positional = requestParams.FirstOrDefault(rp => rp.Num == positionalIndex);
+                        if (positional != null)
+                        {
+                            jsonValue = positional.Data;
+                            matched = true;
+                        }
+                    }
+
+                    if (matched)
+                    {
+                        try
+                        {
+                            if (jsonValue != null)
+                            {
+                                parameters[param.Position] =
+                                    JsonSerializer.Deserialize(jsonValue, param.ParameterType,
+                                        _jsonSerializerOptions);
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            return (null, BadRequest($"Parameter '{name}' cannot be converted to type '{param.ParameterType.Name}'."));
+                        }
                     }
                     else
                     {
-                        // Verwende den Parameternamen zur Zuordnung
-                        string name = param.Name ?? $"param{param.Position}";
-                        if (dict.TryGetValue(name, out var jsonValue))
-                        {
-                            try
-                            {
-                                if (jsonValue != null)
-                                {
-                                    parameters[param.Position] =
-                                        JsonSerializer.Deserialize(jsonValue, param.ParameterType,
-                                            _jsonSerializerOptions);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                return (null, BadRequest($"Parameter '{name}' cannot be converted to type '{param.ParameterType.Name}'."));
-                            }
-                        }
-                        else
-                        {
-                            // Falls der Parameter fehlt, den Default-Wert verwenden
-                            parameters[param.Position] = GetDefault(param.ParameterType);
-                        }
+                        // Falls der Parameter fehlt, den Default-Wert verwenden
+                        parameters[param.Position] = GetDefault(param.ParameterType);
                     }
                 }
                 return (parameters, null);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return (null, BadRequest("Error processing request parameters."));
             }
@@ -748,14 +804,14 @@ namespace HrpcCore.Services
                 var instance = scope.ServiceProvider.GetService(controllerType);
 
                 if (instance == null)
-                    return InternalServerError($"Konnte {controllerType.Name} nicht aus dem DI-Container laden.");
+                    return InternalServerError($"Failed to resolve controller '{controllerType.Name}' from the DI container.");
 
                 try
                 {
                     var compiled = invokeInfo.CompiledInvocation;
                     if (compiled == null)
                     {
-                        return InternalServerError($"Methode '{invokeInfo.MethodInfo?.Name}' ist nicht kompiliert.");
+                        return InternalServerError($"Method '{invokeInfo.MethodInfo?.Name}' is not compiled.");
                     }
 
                     // Ersetze ggf. CancellationToken-Platzhalter durch den realen Wert
@@ -798,14 +854,19 @@ namespace HrpcCore.Services
                             return ReturnResponse(resultValue, instance?.GetType());
                         }
 
-                        return Ok($"Vorgang abgeschlossen ({invokeInfo.MethodInfo.Name})");
+                        // Task ohne Ergebnis (async void-ähnlich) → 204 No Content.
+                        return NoContent();
                     }
+
+                    // Synchrone void-Methoden → 204 No Content.
+                    if (!invokeInfo.HasResult)
+                        return NoContent();
 
                     return ReturnResponse(result, controllerType);
                 }
                 catch (TargetInvocationException tie)
                 {
-                    return InternalServerError($"Fehler bei der Methode {tie.InnerException?.Message}");
+                    return InternalServerError("An internal error occurred while processing the request.", tie.InnerException);
                 }
             }
             else
@@ -906,14 +967,27 @@ namespace HrpcCore.Services
         private HrpcResponse Ok(string? data)
             => CreateResponse(HttpStatusCode.OK, data);
 
+        private HrpcResponse NoContent()
+            => new() { Code = (int)HttpStatusCode.NoContent };
+
+        private HrpcResponse Unauthorized()
+            => CreateResponse(HttpStatusCode.Unauthorized, "Unauthorized.");
+
         private HrpcResponse InternalServerError(string message)
             => CreateResponse(HttpStatusCode.InternalServerError, message);
 
-        private static HrpcResponse Forbidden()
-            => new() { Code = (int)HttpStatusCode.Forbidden, Error = new HrpcError { Code = 403, Message = "Forbidden" } };
-
-        private static HrpcResponse MethodNotAllowed()
-            => new() { Code = (int)HttpStatusCode.MethodNotAllowed, Error = new HrpcError { Code = 405, Message = "Method Not Allowed" } };
+        /// <summary>
+        /// Erzeugt eine 500-Response. Die Message bleibt generisch (kein Leak in Produktion);
+        /// die echten Exception-Details werden nur bei aktiviertem EnableDetailedErrors
+        /// in HrpcError.Details abgelegt.
+        /// </summary>
+        private HrpcResponse InternalServerError(string message, Exception? ex)
+        {
+            var response = CreateResponse(HttpStatusCode.InternalServerError, message);
+            if (ex != null && EnableDetailedErrors && response.Error != null)
+                response.Error.Details = ex.ToString();
+            return response;
+        }
 
         private HrpcResponse CreateResponse(HttpStatusCode code, string? data)
         {

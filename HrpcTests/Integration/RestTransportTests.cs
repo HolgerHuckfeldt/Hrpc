@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HrpcClient.Hrpc;
 using HrpcCommon.Models;
 using HrpcCore.Services;
 using HrpcTests.Fixtures;
@@ -158,6 +159,48 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task SingleCall_FluentPositional_BindsByIndex()
+    {
+        // Arrange: the fluent builder emits param0/param1; the server must bind them
+        // positionally and return the greet value echoed from GetAdresse.
+        var request = HrpcCall.Init("TestService", "GetAdresse")
+            .With(1, "Hi")
+            .ToRequest();
+
+        // Act
+        var response = await _client.PostAsync("/api/hrpc/json", CreateJsonContent(request));
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var content = await response.Content.ReadAsStringAsync();
+        var hrpcResp = JsonSerializer.Deserialize<HrpcResponse>(content, _jsonOpts);
+        hrpcResp!.Code.Should().Be(200);
+        hrpcResp.Data.Should().Contain("\"Greet\":\"Hi\"");
+        hrpcResp.Data.Should().Contain("\"Id\":1");
+    }
+
+    [Fact]
+    public async Task SingleCall_FluentNamed_BindsByName()
+    {
+        // Arrange: named parameters bind by explicit name, independent of order.
+        var request = HrpcCall.Init("TestService", "GetAdresse")
+            .Param("greet", "Hola")
+            .Param("id", 2)
+            .ToRequest();
+
+        // Act
+        var response = await _client.PostAsync("/api/hrpc/json", CreateJsonContent(request));
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var content = await response.Content.ReadAsStringAsync();
+        var hrpcResp = JsonSerializer.Deserialize<HrpcResponse>(content, _jsonOpts);
+        hrpcResp!.Code.Should().Be(200);
+        hrpcResp.Data.Should().Contain("\"Greet\":\"Hola\"");
+        hrpcResp.Data.Should().Contain("\"Id\":2");
     }
 
 }

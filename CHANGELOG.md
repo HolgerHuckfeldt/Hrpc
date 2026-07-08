@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Background
+
+Contract-correctness pass before the first public GitHub release. Several v1.0.0 wire-facing claims did not match the implementation; this release reconciles the wire format, error semantics, and parameter binding with `PROTOCOL.md` so the public contract is consistent and stable.
+
+### Fixed
+- **Parameter binding (P0):** The fluent client API sent `ParameterName = "param0/param1"`, but the server bound strictly by the real C# parameter name — a mismatch silently fell back to defaults with `200 OK`. The server now binds each method parameter by name first, then falls back to the positional `num` index (counting non-`CancellationToken` parameters). `byte[]` parameters are never bound positionally (injected from `binaryData`).
+- **Duplicate parameter name:** A duplicate `parameterName` no longer throws inside `ToDictionary`; it returns a `400 Bad Request`.
+- **Error semantics (P0):**
+  - Authorization failures now return `401 Unauthorized` (previously `405 Method Not Allowed`). `405` was dead/wrong and has been removed.
+  - `HrpcError.requestId` is now populated from the originating request `id` on every non-2xx response, so failures can be correlated even within batch calls.
+  - `HrpcError.details` (stack trace) is populated only when detailed errors are enabled (`EnableDetailedErrors` option or `IHostEnvironment.IsDevelopment()`); in production the error `message` is generic and does not leak exception internals. `TargetInvocationException` no longer leaks the inner exception message.
+  - `void` / `Task`-without-result methods now return `204 No Content` with `data = null` (previously returned a localized success string as `data`).
+- **REST transport (P0):** Cancelled requests (`OperationCanceledException`) now return `499` on both the Minimal-API and MVC endpoints (previously only the MVC controller). The HTTP envelope over REST is always `200 OK` with the `HrpcResponse` (including any error) in the body — the logical `code` is a body field, not the HTTP status (JSON-RPC style).
+- **Wire language (P0):** All wire-facing strings (`HrpcError.message`, error `data`, transport problem titles) are now English. German is retained only for internal logs and comments, per the project convention.
+- **`HrpcCall.WithAlias`:** Removed the unused `fallbackValue` parameter. An unresolvable `@alias` is now a hard error (returns `400`), not a silent default.
+
+### Added
+- Client: `HrpcCall.Param(string parameterName, object? value)` named overload, so callers can bind by explicit server-side parameter name regardless of order.
+- Support for dotted controller namespaces (e.g. `[HrpcController("Customer.Address.Contact")]`) — verified and tested; no fixed two-level routing limit.
+- New tests: positional vs named parameter binding (unit + integration), duplicate-name `400`, missing-parameter default, `void`→`204`, `401` on authorization failure, dotted-namespace routing.
+
+### Changed
+- `HrpcInvoker` exposes `EnableDetailedErrors`, wired from `HrpcOptions.EnableDetailedErrors` or `IHostEnvironment.IsDevelopment()` during `AddHrpc` registration.
+- `PROTOCOL.md` rewritten: status codes are logical body codes (envelope-at-200); `405` removed; `401` for auth; `403` marked roadmap; `204` for void; transport-level `429`/`499`/`400` clarified; `HrpcError.requestId` added to the TypeScript client type.
+
+### Removed
+- `MethodNotAllowed()` (405) and the unused `Forbidden()` factory from `HrpcInvoker`.
+
 ## [1.0.0] - 2026-07-02
 
 ### Background
@@ -26,7 +56,7 @@ Hrpc takes inspiration from GraphQL (dependency resolution, batch queries) and g
 - Developer UI: built-in web interface at `/developer`
 - Rate-limiting: configurable fixed-window rate limiter
 - Authorization: `[HrpcAuthorise]` attribute with role-based access
-- Unified error model: `HrpcError` with structured error details
+- `HrpcError` error model introduced (populated consistently and gated on `EnableDetailedErrors` in `[Unreleased]`)
 - Expression-Tree invocation: pre-compiled method delegates for performance
 - Fluent client API: `HrpcCall.Init().With().Exposes().WithAlias().ToRequest()`
 - `HrpcDataContract`, `HrpcDocumentation`, `HrpcExample` attributes for API metadata
@@ -45,7 +75,7 @@ Hrpc takes inspiration from GraphQL (dependency resolution, batch queries) and g
 - Unified exception handling with `HrpcException` + `HrpcError`
 - Migrated from `Newtonsoft.Json` to `System.Text.Json` as sole JSON serializer
 - `HrpcCommon` target framework changed from `netstandard2.1` to `net8.0`
-- `EnableDetailedErrors` now bound to `IHostEnvironment.IsDevelopment()`
+- `EnableDetailedErrors` option introduced (wiring to `IHostEnvironment.IsDevelopment()` and `HrpcOptions` completed in `[Unreleased]`)
 
 ### Removed
 - Removed `HrpcGrpc` stub project (gRPC transport was not implemented)

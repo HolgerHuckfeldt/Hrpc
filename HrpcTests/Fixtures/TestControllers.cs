@@ -94,3 +94,14 @@ public class TestDto
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Controller mit gepunktetem Namespace, um beliebig tiefe Routing-Pfade
+/// (Customer.Address.Contact) über das Controller-Feld abzubilden.
+/// </summary>
+[HrpcController("Customer.Address.Contact")]
+public class NestedContactController
+{
+    [HrpcMethod("Add")]
+    public string Add(string name) => $"added {name}";
+}

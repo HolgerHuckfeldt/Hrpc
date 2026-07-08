@@ -43,11 +43,13 @@ namespace HrpcClient.Hrpc
 
         /// <summary>
         /// Fügt einen Parameter mit einem Dependency-Platzhalter hinzu.
-        /// Beispiel: With("@firstId", "6")
-        /// Der erste Parameter wird als Platzhalter (z. B. "@firstId") in den Parametern hinterlegt.
-        /// Die Server-Logik soll diesen Platzhalter dann anhand der zuvor exposed Dependencies ersetzen.
+        /// Beispiel: WithAlias("@firstId")
+        /// Der Platzhalter (z. B. "@firstId") wird unter dem abgeleiteten Parameternamen
+        /// (ohne führendes @) hinterlegt. Die Server-Logik ersetzt diesen Platzhalter
+        /// anhand der zuvor exposed Dependencies. Ist ein Alias nicht auflösbar, schlägt
+        /// der Aufruf fehlt (kein impliziter Fallback in v1).
         /// </summary>
-        public HrpcCall WithAlias(string dependencyPlaceholder, string fallbackValue)
+        public HrpcCall WithAlias(string dependencyPlaceholder)
         {
             // Store the alias placeholder with a parameter name derived from the alias.
             // The server resolves @alias references before invoking the method.
@@ -59,6 +61,22 @@ namespace HrpcClient.Hrpc
                 Num = _num,
                 ParameterName = aliasName,
                 Data = dependencyPlaceholder // e.g. "@firstId"
+            });
+            _num++;
+            return this;
+        }
+
+        /// <summary>
+        /// Fügt einen benannten Parameter hinzu. Der Name muss mit einem Parameter der
+        /// Zielmethode übereinstimmen (sichere, positionsunabhängige Bindung).
+        /// </summary>
+        public HrpcCall Param(string parameterName, object? value)
+        {
+            _parameters.Add(new HrpcParameter
+            {
+                Num = _num,
+                ParameterName = parameterName,
+                Data = value == null ? null : JsonSerializer.Serialize(value)
             });
             _num++;
             return this;

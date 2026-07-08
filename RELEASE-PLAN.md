@@ -178,7 +178,7 @@ HrpcCommon/
 
 **Problem**: Jeder Transport behandelt Fehler unterschiedlich.
 
-- [ ] Einheitliches Fehlermodell definieren:
+- [x] Einheitliches Fehlermodell definieren:
   ```csharp
   public class HrpcError
   {
@@ -188,17 +188,18 @@ HrpcCommon/
       public string? RequestId { get; set; }  // Korrelations-ID
   }
   ```
-- [ ] Alle Transporte mappen Server-Fehler → `HrpcResponse.Code != 200` + `HrpcError`
-- [ ] Alle Clients werfen `HrpcException` mit `HrpcError` als Payload
-- [ ] `OperationCanceledException` → Code 499 (Client Closed Request) – bisher nur in `HrpcController`
-- [ ] `UnauthorizedAccessException` → Code 401
+- [x] Alle Transporte mappen Server-Fehler → `HrpcResponse.Code != 200` + `HrpcError`
+- [x] Alle Clients werfen `HrpcException` mit `HrpcError` als Payload
+- [x] `OperationCanceledException` → Code 499 (Client Closed Request) – jetzt auf beiden REST-Endpunkten (Minimal-API + MVC-Controller)
+- [x] `[HrpcAuthorise]`-Fehler → Code 401 (vorher fälschlich 405). `RequestId` wird auf allen Fehler-Pfaden gesetzt. `Details` nur bei `EnableDetailedErrors`/Development. *(Offen: 403 für "authentifiziert, aber nicht erlaubt" — benötigt Rollen-Unterscheidung im Attribut; Roadmap.)*
 
 ### 3.2 Sicherheits-Härtung
 
-- [ ] `EnableDetailedErrors` an `IHostEnvironment.IsDevelopment()` binden:
+- [x] `EnableDetailedErrors` an `IHostEnvironment.IsDevelopment()` binden:
   ```csharp
   EnableDetailedErrors = builder.Environment.IsDevelopment()
   ```
+  *(Verdrahtet in `AddHrpc`: `HrpcOptions.EnableDetailedErrors || env.IsDevelopment()`.)*
 - [ ] CORS-Default-Policy restriktiver konfigurieren (kein `AllowAnyOrigin` als Fallback)
 - [ ] Rate-Limiting: `Microsoft.AspNetCore.RateLimiting` integrieren (z.B. Token Bucket pro Connection)
 - [ ] Request-Size-Limit konfigurierbar machen und validieren
@@ -213,8 +214,8 @@ HrpcCommon/
 - [ ] Oder: `lock`-basierten Schutz für verbundene Operationen (Add + Address)
 
 ### 3.4 Akzeptanzkriterien Phase 3
-- [ ] Einheitliches Fehlermodell über alle Transporte
-- [ ] `EnableDetailedErrors` ist Development-only
+- [x] Einheitliches Fehlermodell über alle Transporte
+- [x] `EnableDetailedErrors` ist Development-only
 - [ ] Rate-Limiting aktiv
 - [ ] Sample-App thread-safe bei parallelen Batch-Calls
 

@@ -47,7 +47,19 @@ namespace HrpcHub.Extensions
             // Add the HrpcService
             // Singleton for performance-reasons.
             // The HrpcService will create a scope for the controllers.
-            services.AddSingleton<IHrpcCore, HrpcCore.Services.HrpcInvoker>();
+            services.AddSingleton<IHrpcCore>(sp =>
+            {
+                var invoker = new HrpcCore.Services.HrpcInvoker(
+                    sp.GetRequiredService<IServiceScopeFactory>(),
+                    sp.GetService<Microsoft.Extensions.Logging.ILogger<HrpcCore.Services.HrpcInvoker>>()
+                        ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<HrpcCore.Services.HrpcInvoker>.Instance,
+                    sp.GetService<IEnumerable<HrpcCore.Services.IHrpcInterceptor>>());
+
+                // Detailed Errors aktivieren, wenn explizit gewünscht oder in Development.
+                var env = sp.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>();
+                invoker.EnableDetailedErrors = options.EnableDetailedErrors || (env?.IsDevelopment() ?? false);
+                return invoker;
+            });
 
             // Register built-in interceptors
             services.AddSingleton<HrpcCore.Services.IHrpcInterceptor, HrpcCore.Services.HrpcLoggingInterceptor>();

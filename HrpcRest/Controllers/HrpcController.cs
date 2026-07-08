@@ -31,12 +31,12 @@ namespace HrpcRest.Controllers
             catch (OperationCanceledException)
             {
                 logger.LogWarning("Request wurde abgebrochen");
-                return Problem(title: "Anfrage abgebrochen", statusCode: 499);
+                return Problem(title: "Request cancelled", statusCode: 499);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Fehler beim Verarbeiten eines Hrpc-Requests");
-                return Problem(title: "Interner Serverfehler", statusCode: StatusCodes.Status500InternalServerError);
+                return Problem(title: "Internal server error", statusCode: StatusCodes.Status500InternalServerError);
             }
         }
 
@@ -67,12 +67,12 @@ namespace HrpcRest.Controllers
             catch (OperationCanceledException)
             {
                 logger.LogWarning("Multi-Request wurde abgebrochen");
-                return Problem(title: "Anfrage abgebrochen", statusCode: 499);
+                return Problem(title: "Request cancelled", statusCode: 499);
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Fehler beim Verarbeiten eines Multi-Hrpc-Requests");
-                return Problem(title: "Interner Serverfehler", statusCode: StatusCodes.Status500InternalServerError);
+                return Problem(title: "Internal server error", statusCode: StatusCodes.Status500InternalServerError);
             }
         }
 
@@ -89,7 +89,7 @@ namespace HrpcRest.Controllers
             catch (Exception ex)
             {
                 logger.LogError(ex, "Fehler beim Ermitteln der Discovery-Informationen");
-                return Problem(title: "Interner Serverfehler", statusCode: StatusCodes.Status500InternalServerError);
+                return Problem(title: "Internal server error", statusCode: StatusCodes.Status500InternalServerError);
             }
         }
     }

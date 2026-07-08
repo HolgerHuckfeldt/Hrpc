@@ -85,7 +85,7 @@ public class HrpcCallTests
     {
         // Act
         var call = HrpcCall.Init("Customer", "GetById")
-            .WithAlias("@customerId", "0");
+            .WithAlias("@customerId");
 
         // Assert
         var request = call.ToRequest();
@@ -97,7 +97,7 @@ public class HrpcCallTests
     {
         // Act
         var call = HrpcCall.Init("Customer", "GetById")
-            .WithAlias("@customerId", "0");
+            .WithAlias("@customerId");
 
         // Assert
         var request = call.ToRequest();
@@ -105,6 +105,22 @@ public class HrpcCallTests
         params_.Should().NotBeNull();
         params_!.Should().ContainSingle()
             .Which.ParameterName.Should().Be("customerId");
+    }
+
+    [Fact]
+    public void Param_SetsParameterName()
+    {
+        // Act
+        var call = HrpcCall.Init("Customer", "GetById")
+            .Param("id", 42);
+
+        // Assert
+        var request = call.ToRequest();
+        var params_ = JsonSerializer.Deserialize<List<HrpcParameter>>(request.StringData!);
+        params_.Should().NotBeNull();
+        params_!.Should().ContainSingle()
+            .Which.ParameterName.Should().Be("id");
+        params_!.Single().Data.Should().Be("42");
     }
 
     [Fact]

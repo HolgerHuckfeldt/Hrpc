@@ -23,12 +23,14 @@ public class HrpcInvokerTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddTransient<TestInvokerController>();
+        services.AddTransient<NestedContactController>();
         _serviceProvider = services.BuildServiceProvider();
 
         var scopeFactory = _serviceProvider.GetRequiredService<IServiceScopeFactory>();
         var logger = _serviceProvider.GetRequiredService<ILogger<HrpcInvoker>>();
         _invoker = new HrpcInvoker(scopeFactory, logger);
         _invoker.Register<TestInvokerController>();
+        _invoker.Register<NestedContactController>();
     }
 
     private static HrpcRequest CreateRequest(string controller, string method,
@@ -136,7 +138,7 @@ public class HrpcInvokerTests
     }
 
     [Fact]
-    public async Task InvokeDi_VoidMethod_ReturnsOk()
+    public async Task InvokeDi_VoidMethod_ReturnsNoContent()
     {
         // Arrange
         var request = CreateRequest("TestInvoker", "VoidMethod",
@@ -145,9 +147,10 @@ public class HrpcInvokerTests
         // Act
         var response = await _invoker.InvokeDi(request, null);
 
-        // Assert
+        // Assert: void methods respond with 204 No Content (no body).
         response.Should().NotBeNull();
-        response!.Code.Should().Be((int)HttpStatusCode.OK);
+        response!.Code.Should().Be((int)HttpStatusCode.NoContent);
+        response.Data.Should().BeNull();
     }
 
     [Fact]
@@ -290,6 +293,140 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Id.Should().Be("my-custom-id");
+    }
+
+    #endregion
+
+    #region Parameter Binding (positional fallback + duplicate names)
+
+    [Fact]
+    public async Task InvokeDi_PositionalParams_BindByIndex()
+    {
+        // Arrange: simulate the fluent client which emits param0/param1 with Num indices.
+        // The method Add(int a, int b) has no matching names -> server must fall back to Num.
+        var paramList = new List<HrpcParameter>
+        {
+            new() { Num = 0, ParameterName = "param0", Data = "3" },
+            new() { Num = 1, ParameterName = "param1", Data = "4" }
+        };
+        var request = new HrpcRequest
+        {
+            Controller = "TestInvoker",
+            Method = "Add",
+            StringData = JsonSerializer.Serialize(paramList),
+            Id = "pos"
+        };
+
+        // Act
+        var response = await _invoker.InvokeDi(request, null);
+
+        // Assert
+        response.Should().NotBeNull();
+        response!.Code.Should().Be((int)HttpStatusCode.OK);
+        response.Data.Should().Be("7");
+    }
+
+    [Fact]
+    public async Task InvokeDi_PositionalParams_SkipCancellationTokenInIndex()
+    {
+        // Arrange: WithCancellation(string input, CancellationToken ct) — client sends one
+        // positional arg (Num=0). Server must bind it to `input` (the first non-token param),
+        // not to position 0 of the raw signature (which is `input` anyway) — this guards the
+        // general case where a CancellationToken sits before a value parameter.
+        var paramList = new List<HrpcParameter>
+        {
+            new() { Num = 0, ParameterName = "param0", Data = "\"hello\"" }
+        };
+        var request = new HrpcRequest
+        {
+            Controller = "TestInvoker",
+            Method = "Echo",
+            StringData = JsonSerializer.Serialize(paramList),
+            Id = "pos-ct"
+        };
+
+        // Act
+        var response = await _invoker.InvokeDi(request, null);
+
+        // Assert
+        response.Should().NotBeNull();
+        response!.Code.Should().Be((int)HttpStatusCode.OK);
+        response.Data.Should().Contain("hello");
+    }
+
+    [Fact]
+    public async Task InvokeDi_DuplicateParameterName_ReturnsBadRequest()
+    {
+        // Arrange
+        var paramList = new List<HrpcParameter>
+        {
+            new() { ParameterName = "a", Data = "3" },
+            new() { ParameterName = "a", Data = "4" }
+        };
+        var request = new HrpcRequest
+        {
+            Controller = "TestInvoker",
+            Method = "Add",
+            StringData = JsonSerializer.Serialize(paramList),
+            Id = "dup"
+        };
+
+        // Act
+        var response = await _invoker.InvokeDi(request, null);
+
+        // Assert
+        response.Should().NotBeNull();
+        response!.Code.Should().Be((int)HttpStatusCode.BadRequest);
+        response.Data.Should().Contain("Duplicate");
+    }
+
+    [Fact]
+    public async Task InvokeDi_MissingParameter_UsesDefault()
+    {
+        // Arrange: Add(int a, int b) — only `a` supplied; `b` defaults to 0.
+        var request = CreateRequest("TestInvoker", "Add", ("a", "3"));
+
+        // Act
+        var response = await _invoker.InvokeDi(request, null);
+
+        // Assert
+        response.Should().NotBeNull();
+        response!.Code.Should().Be((int)HttpStatusCode.OK);
+        response.Data.Should().Be("3");
+    }
+
+    [Fact]
+    public async Task InvokeDi_AuthorisationFailure_ReturnsUnauthorized()
+    {
+        // Arrange: [HrpcAuthorise] on Secured; no HttpContext -> auth fails.
+        var request = CreateRequest("TestInvoker", "Secured", ("data", "\"x\""));
+
+        // Act
+        var response = await _invoker.InvokeDi(request, null);
+
+        // Assert
+        response.Should().NotBeNull();
+        response!.Code.Should().Be((int)HttpStatusCode.Unauthorized);
+    }
+
+    #endregion
+
+    #region Dotted Controller Namespace
+
+    [Fact]
+    public async Task InvokeDi_DottedControllerNamespace_RoutesCorrectly()
+    {
+        // Arrange: Controller "Customer.Address.Contact" — dots in the name are allowed
+        // and let callers express arbitrarily deep namespaces via the controller field.
+        var request = CreateRequest("Customer.Address.Contact", "Add", ("name", "\"alice\""));
+
+        // Act
+        var response = await _invoker.InvokeDi(request, null);
+
+        // Assert
+        response.Should().NotBeNull();
+        response!.Code.Should().Be((int)HttpStatusCode.OK);
+        response.Data.Should().Contain("added alice");
     }
 
     #endregion

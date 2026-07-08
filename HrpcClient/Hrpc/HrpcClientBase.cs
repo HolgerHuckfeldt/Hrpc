@@ -39,7 +39,7 @@ namespace HrpcClient.Hrpc
                 }
                 catch (Exception ex)
                 {
-                    throw new HrpcException("Fehler bei der Deserialisierung der Antwort.", ex);
+                    throw new HrpcException("Failed to deserialize the response.", ex);
                 }
             }
             if (response != null && !response.IsSuccess)

@@ -35,7 +35,7 @@ Single method invocation.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `controller` | string | ✅ | Target controller name |
+| `controller` | string | ✅ | Target controller name. A dotted namespace is allowed (e.g. `Customer.Address.Contact`) to express arbitrarily deep hierarchies — there is no fixed two-level limit. |
 | `method` | string | ✅ | Target method name |
 | `stringData` | string (JSON) | ✅ | JSON array of `HrpcParameter` objects |
 | `id` | string | ✅ | Request identifier for correlation |
@@ -57,8 +57,14 @@ Method parameter within `stringData`.
 |-------|------|----------|-------------|
 | `parameterName` | string | ✅ | Parameter name (matched server-side by name) |
 | `data` | string | ✅ | JSON-encoded parameter value (string, number, object, array) |
-| `num` | int | ❌ | Positional index (alternative to name) |
+| `num` | int | ❌ | Positional index (fallback when `parameterName` does not match) |
 
+> **Binding order:** the server binds each method parameter by `parameterName` first.
+> If the name does not match, it falls back to the positional `num` index (counting
+> non-`CancellationToken` parameters). This is what lets a fluent client send arguments
+> positionally without knowing the server-side parameter names. `byte[]` parameters
+> are never bound positionally — they are injected from `binaryData`.
+>
 > `data` is always a **JSON string** that the server deserializes into the target type.
 > Example: `"42"` (number as string), `"\"hello\""` (string with escaped quotes),
 > `"{\"id\":1,\"name\":\"Alice\"}"` (object as string).
@@ -95,7 +101,7 @@ Structured error details, included in `HrpcResponse.error` when `code != 2xx`.
 ```json
 {
   "code": 404,
-  "message": "Customer '99' nicht gefunden.",
+  "message": "Customer '99' not found.",
   "details": null,
   "requestId": "Customer.GetById"
 }
@@ -135,17 +141,29 @@ Batch of multiple requests in one roundtrip.
 
 ## Status Codes
 
+`HrpcResponse.code` is a **logical result code carried inside the response body**,
+not an HTTP status. Over REST, the HTTP envelope is always `200 OK` and the
+`HrpcResponse` (with its `code` and `error`) is returned in the body — the same way
+JSON-RPC carries its error object inside an HTTP 200. WebSocket and SignalR pass
+`code` as a field of the returned object the same way.
+
+Real HTTP/WebSocket status codes are only used for **transport-level** failures
+that happen before or outside a method invocation (e.g. `400` for a malformed
+request body, `429` from the rate limiter, `499` for a cancelled request).
+
 | Code | Meaning |
 |------|---------|
 | 200 | OK – method executed successfully |
-| 204 | No Content – void method completed |
-| 400 | Bad Request – invalid parameters or JSON |
-| 401 | Unauthorized – `[HrpcAuthorise]` check failed |
-| 403 | Forbidden – role-based authorization failed |
+| 204 | No Content – void / `Task`-without-result method completed (no `data`) |
+| 400 | Bad Request – invalid parameters, duplicate parameter name, unresolved dependency, cycle, or malformed JSON |
+| 401 | Unauthorized – `[HrpcAuthorise]` check failed (not authenticated) |
+| 403 | Forbidden – role-based authorization failed _(roadmap: requires the auth attribute to distinguish authenticated-but-not-allowed from unauthenticated)_ |
 | 404 | Not Found – controller or method not found |
-| 405 | Method Not Allowed – authorization denied |
-| 429 | Too Many Requests – rate limit exceeded |
-| 500 | Internal Server Error – method threw exception |
+| 429 | Too Many Requests – rate limit exceeded (transport-level) |
+| 500 | Internal Server Error – method threw an exception. The generic `message` never leaks the exception; `error.details` carries the stack trace only when detailed errors are enabled (Development / `EnableDetailedErrors`). |
+
+> `HrpcError.requestId` is populated from the originating request `id` on every
+> non-2xx response, so clients can correlate failures even in batch calls.
 
 ---
 
@@ -170,7 +188,9 @@ A subsequent request can **use** exposed values with `@alias` placeholders:
 3. **Auto-detection**: If any request has `dependencyMapping`, the server switches to
    topological batch execution regardless of the specified mode.
 4. **Cycle detection**: If a cycle is detected (A depends on B, B depends on A),
-   all affected requests return 400 with error message listing involved request IDs.
+   every request in the batch returns `400` with the message
+   `"Circular dependency detected in request batch."` and the offending request's `id`
+   in `error.requestId`.
 5. **JsonPath**: Values are extracted using [JsonPath](https://goessner.net/articles/JsonPath/)
    expressions against the response `data` field (which is a JSON string, parsed first).
 
@@ -297,7 +317,7 @@ interface HrpcResponse {
   code: number;
   data: string | null;
   id: string | null;
-  error: { code: number; message: string; details?: string } | null;
+  error: { code: number; message: string; details?: string; requestId?: string | null } | null;
   exposedDependencies?: Record<string, string> | null;
 }
 
