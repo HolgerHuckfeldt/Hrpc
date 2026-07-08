@@ -203,13 +203,13 @@ var responses = await client.Call(batch);
 
 Hrpc's wire protocol is fully specified in [PROTOCOL.md](PROTOCOL.md) — JSON-based, no binary dependency. This enables implementations in any language:
 
-- **TypeScript/JavaScript**: Use the REST endpoint with `fetch()`, or WebSocket for persistent connections
+- **TypeScript/JavaScript**: A ready-to-use isomorphic client ships in [`clients/ts/`](clients/ts/) (`npm i hrpc-client`) — REST + WebSocket, fluent + functional API, runs in the browser and Node.js. See [`clients/ts/README.md`](clients/ts/README.md).
 - **Python**: Use the REST endpoint with `requests`, or `websockets` library
 - **Go/Rust**: Any HTTP or WebSocket client works
 
 The `/api/hrpc/discovery` endpoint returns full type metadata, enabling auto-generated clients.
 
-> Example TypeScript and Python clients are included in [PROTOCOL.md](PROTOCOL.md).
+> The wire format and a minimal hand-rolled example are documented in [PROTOCOL.md](PROTOCOL.md); for real use prefer the `clients/ts/` package.
 
 ## Known Limitations (v1)
 

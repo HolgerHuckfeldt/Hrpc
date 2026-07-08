@@ -4,6 +4,10 @@
 > den ersten öffentlichen Release gekommen sind — entweder weil sie den v1-Vertrag
 > berühren würden, oder weil sie optional sind und das Code-first-Default-Modell nicht
 > verändern dürfen. Stand: 2026-07-08.
+>
+> **Mit v1 geliefert:** Ein isomorpher JS/TypeScript-Client (REST + WebSocket) unter
+> [`clients/ts/`](clients/ts/) (`npm i hrpc-client`). SignalR für JS/TS und
+> Discovery→TS-Codegen bleiben offen (siehe „Später").
 
 ---
 
@@ -118,6 +122,15 @@ Inkompatibilität für bestehende Clients.
 
 ## Später (v1.x+, unsortiert)
 
+- **SignalR-Client für JS/TS.** Der `clients/ts/`-Client (v1) deckt REST +
+  WebSocket ab. Ein SignalR-Transport (`/Hrpc`-Hub, MessagePack) für den
+  Browser/Node folgt als v1.1 — bewusst nicht in v1, um die schwere
+  `@microsoft/signalr`-Abhängigkeit + MessagePack aus dem Default-Build
+  herauszuhalten. REST + WebSocket decken Browser-RPC bereits ab.
+- **Discovery→TypeScript-Codegen.** `/api/hrpc/discovery` liefert vollständige
+  Typ-Metadaten. Ein Generator, der daraus getypte Client-Stubs (statt der
+  heute rein funktionalen API) erzeugt, ist das JS-Äquivalent des oben
+  beschriebenen .NET-Source-Generators und teilt dessen Drift-Check-Anforderung.
 - **Policy-basierte Autorisierung** für `[HrpcAuthorise]` via `IAuthorizationHandler`,
   damit `403` (authentifiziert, aber nicht erlaubt) von `401` (nicht
   authentifiziert) unterschieden werden kann — aktuell Roadmap im

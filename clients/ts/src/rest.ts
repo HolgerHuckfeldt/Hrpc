@@ -1,0 +1,337 @@
+import { linkAbortSignal } from "./abort.js";
+import { HrpcError, CancelledError } from "./errors.js";
+import { buildSingle, buildMulti, fromBase64, normalizeResponse, normalizeResponses } from "./request.js";
+import { ExecutionMode } from "./types.js";
+import type {
+  DiscoveryInfo,
+  HrpcMultiRequest,
+  HrpcRequest,
+  HrpcResponse,
+} from "./types.js";
+
+/** Pro-Call-Optionen für einen REST-Aufruf. */
+export interface CallOptions {
+  /** Abbruch-Signal (Browser/Node); wirft CancelledError, nicht HrpcError. */
+  signal?: AbortSignal;
+  /** Zusätzliche Header (z. B. Trace-Ids). */
+  headers?: Record<string, string>;
+  /** Call-Timeout in ms ( überschreibt clientweiten callTimeout). */
+  timeout?: number;
+}
+
+/** Injizierbares fetch — permissiv, damit Test-Mocks und Node-Lib.fetch passen. */
+export type FetchLike = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
+/** Optionen für den REST-Client. */
+export interface HrpcRestClientOptions {
+  /** Injizierbares fetch (Tests / älteres Node). Default: globales fetch. */
+  fetch?: FetchLike;
+  /** Standard-Header für jeden Request. */
+  headers?: Record<string, string>;
+  /** Bearer-Token (Authorization-Header). */
+  bearer?: string;
+  /** Call-Timeout in ms. */
+  callTimeout?: number;
+  /** REST-Basispfad (Default "api/hrpc"); Slashes werden abgeschnitten. */
+  apiPath?: string;
+}
+
+/**
+ * REST-Client für Hrpc (HTTP/1.1 + JSON), isomorph via globalem `fetch`.
+ *
+ * `call`/`callBatch`/`discover` liefern die rohe {@link HrpcResponse} bzw. das
+ * Array und werfen nur bei **Transportfehlern** (Netzwerk, non-2xx HTTP) bzw.
+ * Abbruch. Logische Nicht-2xx-Codes (im 200-Body) werden zurückgegeben — prüfe
+ * `response.isSuccess`/`response.error`. `callJson`/`callBinary` werfen bei
+ * logischem Nicht-2xx (Spiegel der C#-Methoden Call<T>/CallBinary).
+ */
+export class HrpcRestClient {
+  private readonly _baseUrl: string;
+  private readonly _apiPath: string;
+  private readonly _fetch: FetchLike;
+  private readonly _headers: Record<string, string>;
+  private readonly _bearer?: string;
+  private readonly _callTimeout?: number;
+
+  constructor(baseUrl: string, options: HrpcRestClientOptions = {}) {
+    if (!baseUrl || baseUrl.trim().length === 0) {
+      throw new Error("HrpcRestClient: baseUrl darf nicht leer sein.");
+    }
+    this._baseUrl = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
+    this._apiPath = (options.apiPath ?? "api/hrpc").replace(/^\/+|\/+$/g, "");
+    this._fetch = options.fetch ?? fetch;
+    this._headers = { ...(options.headers ?? {}) };
+    this._bearer = options.bearer;
+    this._callTimeout = options.callTimeout;
+  }
+
+  /** Sendet einen einzelnen Request (überlädt: pre-built oder (controller,method,params)). */
+  async call(req: HrpcRequest, opts?: CallOptions): Promise<HrpcResponse>;
+  async call(
+    controller: string,
+    method: string,
+    params?: Record<string, unknown> | unknown[],
+    opts?: CallOptions,
+  ): Promise<HrpcResponse>;
+  async call(
+    reqOrController: HrpcRequest | string,
+    methodOrOpts?: string | CallOptions,
+    params?: Record<string, unknown> | unknown[],
+    opts?: CallOptions,
+  ): Promise<HrpcResponse> {
+    let request: HrpcRequest;
+    let callOpts: CallOptions | undefined;
+    if (typeof reqOrController === "string") {
+      request = buildSingle({
+        controller: reqOrController,
+        method: methodOrOpts as string,
+        params,
+      });
+      callOpts = opts;
+    } else {
+      request = reqOrController;
+      callOpts = (methodOrOpts as CallOptions) ?? opts;
+    }
+    return this.postJson(`${this._baseUrl}${this._apiPath}/json`, request, callOpts);
+  }
+
+  /** Ruft eine Methode auf und deserialisiert `response.data` als T. Wirft bei Nicht-2xx. */
+  async callJson<T>(
+    controller: string,
+    method: string,
+    params?: Record<string, unknown> | unknown[],
+    opts?: CallOptions,
+  ): Promise<T | null>;
+  async callJson<T>(req: HrpcRequest, opts?: CallOptions): Promise<T | null>;
+  async callJson<T>(
+    reqOrController: HrpcRequest | string,
+    methodOrOpts?: string | CallOptions,
+    params?: Record<string, unknown> | unknown[],
+    opts?: CallOptions,
+  ): Promise<T | null> {
+    const response =
+      typeof reqOrController === "string"
+        ? await this.call(reqOrController, methodOrOpts as string, params, opts)
+        : await this.call(reqOrController, (methodOrOpts as CallOptions) ?? opts);
+    return parseData<T>(response);
+  }
+
+  /** Ruft eine byte[]-Methode auf und liefert `response.content` als Uint8Array. Wirft bei Nicht-2xx. */
+  async callBinary(
+    controller: string,
+    method: string,
+    params?: Record<string, unknown> | unknown[],
+    opts?: CallOptions,
+  ): Promise<Uint8Array | null>;
+  async callBinary(req: HrpcRequest, opts?: CallOptions): Promise<Uint8Array | null>;
+  async callBinary(
+    reqOrController: HrpcRequest | string,
+    methodOrOpts?: string | CallOptions,
+    params?: Record<string, unknown> | unknown[],
+    opts?: CallOptions,
+  ): Promise<Uint8Array | null> {
+    const response =
+      typeof reqOrController === "string"
+        ? await this.call(reqOrController, methodOrOpts as string, params, opts)
+        : await this.call(reqOrController, (methodOrOpts as CallOptions) ?? opts);
+    if (!response.isSuccess) throw HrpcError.fromResponse(response);
+    return response.content ? fromBase64(response.content) : null;
+  }
+
+  /** Sendet einen Batch (Multi-Request). Auto-Setzt leere Ids auf `controller.method`. */
+  async callBatch(
+    requests: HrpcRequest[],
+    mode: ExecutionMode = ExecutionMode.Parallel,
+    opts?: CallOptions,
+  ): Promise<HrpcResponse[]> {
+    const normalized = requests.map((r) =>
+      r.id ? r : { ...r, id: `${r.controller}.${r.method}` },
+    );
+    const multi: HrpcMultiRequest = buildMulti(normalized, mode);
+    const result = await this.postJsonArray(
+      `${this._baseUrl}${this._apiPath}/json/multi`,
+      multi,
+      normalized[0]?.id,
+      opts,
+    );
+    return result;
+  }
+
+  /** Ruft die Discovery-Metadaten ab (GET /api/hrpc/discovery). */
+  async discover(opts?: CallOptions): Promise<DiscoveryInfo> {
+    const url = `${this._baseUrl}${this._apiPath}/discovery`;
+    const { signal, clear, isTimeout } = linkAbortSignal(
+      opts?.signal,
+      opts?.timeout ?? this._callTimeout,
+    );
+    try {
+      const response = await this._fetch(url, {
+        method: "GET",
+        headers: this.buildHeaders(opts?.headers),
+        signal,
+      });
+      if (!response.ok) {
+        const text = await safeReadText(response);
+        throw new HrpcError(response.status, `HTTP Error: ${response.status}`, {
+          details: text,
+        });
+      }
+      return (await response.json()) as DiscoveryInfo;
+    } catch (err) {
+      throw toTransportError(err, isTimeout);
+    } finally {
+      clear();
+    }
+  }
+
+  /** Freiressourcen (noop für stateless fetch; vorhanden für Symmetrie). */
+  dispose(): void {
+    // nichts zu disposen
+  }
+
+  // --- Interna ---
+
+  private async postJson(
+    url: string,
+    body: unknown,
+    opts?: CallOptions,
+  ): Promise<HrpcResponse> {
+    const { signal, clear, isTimeout } = linkAbortSignal(
+      opts?.signal,
+      opts?.timeout ?? this._callTimeout,
+    );
+    try {
+      const response = await this._fetch(url, {
+        method: "POST",
+        headers: { ...this.buildHeaders(opts?.headers), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      });
+      const text = await safeReadText(response);
+      if (!response.ok) {
+        // Transport-Level-Fehler (400/429/499 …) -> synthetische Response
+        // (Spiegel C# HrpcRestJsonClient non-2xx-Pfad).
+        return {
+          code: response.status,
+          id: (body as HrpcRequest)?.id ?? null,
+          data: `HTTP Error: ${response.status} | ${text}`,
+          content: null,
+          exposedDependencies: null,
+          error: {
+            code: response.status,
+            message: `HTTP Error: ${response.status}`,
+            details: text,
+            requestId: (body as HrpcRequest)?.id ?? null,
+          },
+          isSuccess: false,
+        };
+      }
+      return normalizeResponse(JSON.parse(text) as HrpcResponse);
+    } catch (err) {
+      throw toTransportError(err, isTimeout);
+    } finally {
+      clear();
+    }
+  }
+
+  private async postJsonArray(
+    url: string,
+    body: HrpcMultiRequest,
+    firstId: string | undefined,
+    opts?: CallOptions,
+  ): Promise<HrpcResponse[]> {
+    const { signal, clear, isTimeout } = linkAbortSignal(
+      opts?.signal,
+      opts?.timeout ?? this._callTimeout,
+    );
+    try {
+      const response = await this._fetch(url, {
+        method: "POST",
+        headers: { ...this.buildHeaders(opts?.headers), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal,
+      });
+      const text = await safeReadText(response);
+      if (!response.ok) {
+        return [
+          {
+            code: response.status,
+            id: firstId ?? null,
+            data: `HTTP Error: ${response.status} | ${text}`,
+            content: null,
+            exposedDependencies: null,
+            error: {
+              code: response.status,
+              message: `HTTP Error: ${response.status}`,
+              details: text,
+              requestId: firstId ?? null,
+            },
+            isSuccess: false,
+          },
+        ];
+      }
+      const parsed = JSON.parse(text);
+      return Array.isArray(parsed) ? normalizeResponses(parsed as HrpcResponse[]) : [];
+    } catch (err) {
+      throw toTransportError(err, isTimeout);
+    } finally {
+      clear();
+    }
+  }
+
+  private buildHeaders(extra?: Record<string, string>): Record<string, string> {
+    const headers: Record<string, string> = { ...this._headers };
+    if (this._bearer) headers["Authorization"] = `Bearer ${this._bearer}`;
+    if (extra) Object.assign(headers, extra);
+    return headers;
+  }
+}
+
+// --- Shared Helpers ---
+
+/** Deserialisiert response.data als T; wirft bei Nicht-2xx HrpcError (Spiegel Call<T>). */
+function parseData<T>(response: HrpcResponse): T | null {
+  if (response.isSuccess && typeof response.data === "string" && response.data.length > 0) {
+    try {
+      return JSON.parse(response.data) as T;
+    } catch (err) {
+      throw new HrpcError(0, "Failed to deserialize the response.", { cause: err });
+    }
+  }
+  if (!response.isSuccess) throw HrpcError.fromResponse(response);
+  return null; // 204 / void
+}
+
+async function safeReadText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Mapt einen fetch-Fehler auf die richtige Client-Exception:
+ * - Abbruch (AbortError/aborted) → CancelledError (unverpackt; timedOut, wenn Timeout).
+ * - sonst → HrpcError(0, "Transport error", cause).
+ */
+function toTransportError(err: unknown, isTimeout: () => boolean): Error {
+  if (err instanceof HrpcError || err instanceof CancelledError) return err;
+  if (err instanceof Error) {
+    const aborted =
+      err.name === "AbortError" ||
+      (typeof DOMException !== "undefined" && err instanceof DOMException && err.name === "AbortError");
+    if (aborted) {
+      const timedOut = isTimeout();
+      return new CancelledError(
+        timedOut ? "Hrpc call timed out." : "Hrpc call was cancelled.",
+        timedOut,
+      );
+    }
+    return new HrpcError(0, `Transport error: ${err.message}`, { cause: err });
+  }
+  return new HrpcError(0, "Transport error: unknown failure.", { cause: err });
+}

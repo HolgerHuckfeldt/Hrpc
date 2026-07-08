@@ -304,6 +304,11 @@ Content-Type: application/json
 
 ## TypeScript Client Example
 
+> A maintained, isomorphic reference client (REST + WebSocket, fluent + functional
+> API, browser + Node.js) ships under [`clients/ts/`](clients/ts/) as the
+> `hrpc-client` npm package. The snippet below illustrates the wire format only;
+> for real use prefer `import { createClient } from "hrpc-client"`.
+
 ```typescript
 interface HrpcRequest {
   controller: string;
