@@ -1,7 +1,8 @@
-﻿using HrpcCore.Attributes;
+using HrpcCore.Attributes;
 using HrpcCore.Services;
 using MessagePack;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 
 namespace HrpcHub.Extensions
 {
@@ -14,7 +15,6 @@ namespace HrpcHub.Extensions
             if (options.UseSignalR)
             {
                 // Add SignalR as the transport-layer.
-                // Maybe POST or Grps in future.
                 var fastHub = services.AddSignalR(
                     o =>
                     {
@@ -25,17 +25,32 @@ namespace HrpcHub.Extensions
                     });
 
                 if (options.UseMessagePack)
-                    fastHub.AddMessagePackProtocol(
-                    //protocolOptions => protocolOptions.SerializerOptions = MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.Lz4BlockArray)
-                    );
+                    fastHub.AddMessagePackProtocol();
             }
 
+            // Rate Limiting – always register to ensure UseRateLimiter works.
+            services.AddRateLimiter(rateLimiterOptions =>
+            {
+                if (options.RateLimitPermitLimit > 0)
+                {
+                    rateLimiterOptions.AddFixedWindowLimiter("hrpc", opt =>
+                    {
+                        opt.PermitLimit = options.RateLimitPermitLimit;
+                        opt.Window = TimeSpan.FromSeconds(options.RateLimitWindowSeconds);
+                        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+                        opt.QueueLimit = 0;
+                    });
+                    rateLimiterOptions.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+                }
+            });
 
             // Add the HrpcService
             // Singleton for performance-reasons.
             // The HrpcService will create a scope for the controllers.
             services.AddSingleton<IHrpcCore, HrpcCore.Services.HrpcInvoker>();
-            //services.AddSingleton<HrpcCore.Services.HrpcDiscoveryService>();
+
+            // Register built-in interceptors
+            services.AddSingleton<HrpcCore.Services.IHrpcInterceptor, HrpcCore.Services.HrpcLoggingInterceptor>();
 
             // Register Fast-Controller as Scoped.
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -63,6 +78,15 @@ namespace HrpcHub.Extensions
                 return app;
             }
 
+            // If a HrpcControllerBuilder was registered (fluent API), use it
+            var builder = app.ApplicationServices.GetService<HrpcControllerBuilder>();
+            if (builder != null)
+            {
+                builder.Apply(app.ApplicationServices, hrpcService);
+                return app;
+            }
+
+            // Fallback: register all auto-discovered [HrpcController] types
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 foreach (Type type in assembly.GetTypes())

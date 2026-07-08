@@ -1,14 +1,2 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace HrpcCore.Model.Handler
-{
-    public enum ExecutionMode
-    {
-        Parallel,
-        Serial
-    }
-}
+﻿// Removed: ExecutionMode has been consolidated into Hrpc.Common.Models.ExecutionMode.
+// See GlobalUsings.cs for the global type alias.

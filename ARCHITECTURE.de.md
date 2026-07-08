@@ -1,0 +1,149 @@
+# Hrpc Architektur
+
+> English version: [ARCHITECTURE.md](ARCHITECTURE.md)
+
+## Design-Philosophie
+
+Hrpc entstand aus einer einfachen Beobachtung: **REST ist für Ressourcen gemacht, nicht für RPC.**
+
+Wenn man Aktionen aufruft (nicht CRUD auf Substantiven), zwingt REST in unpassende Muster:
+- URL-Pfade, die Substantive simulieren: `/api/customer/42/add-address`
+- N+1-Roundtrips für abhängige Aufrufe: Client wartet auf A, ruft dann B auf, dann C
+- Kein Batching: 10 Methodenaufrufe = 10 HTTP-Requests mit 10× Overhead
+
+Hrpc lässt sich von **GraphQL** (Abhängigkeitsauflösung, Batch-Queries) und **gRPC** (methodenorientierte Aufrufe, binärer Transport) inspirieren, bleibt aber im .NET/ASP.NET-Core-Ökosystem.
+
+### Warum nicht gRPC?
+
+Zwei wesentliche Gründe, warum Hrpc existiert statt einfach gRPC zu nutzen:
+
+1. **gRPC war nicht gut unterstützt** zur Entstehungszeit. Browser-Unterstützung erforderte gRPC-Web-Proxys, und die .NET-gRPC-Tooling war noch unausgereift. Hrpc unterstützt REST, WebSocket und SignalR out-of-the-box — Browser können WebSocket oder REST nutzen, ohne Proxys.
+
+2. **Code-first, nicht schema-first.** gRPC erfordert `.proto`-Dateien — eine separate IDL, die C#-Stubs generiert. Das bedeutet: eine zweite Source-of-Truth pflegen — die `.proto` und die C#-Implementierung. Hrpc nutzt Attribute auf normalen C#-Klassen: `[HrpcController]`, `[HrpcMethod]`, `[HrpcDataContract]`. Der C#-Code *ist* der Vertrag. Discovery-Metadaten werden zur Laufzeit generiert, nicht zur Compile-Zeit.
+
+Die Kern-Designprinzipien:
+1. **Methodenorientiert**: Controller und Methoden, nicht Routen und Verben
+2. **Batch als Standard**: Mehrere Aufrufe in einem Roundtrip, parallel oder seriell
+3. **Serverseitige Abhängigkeitsauflösung**: `@alias`-Chaining inspiriert von GraphQL-Field-Selection
+4. **Transport-agnostisch**: Derselbe `HrpcRequest` funktioniert über REST, WebSocket oder SignalR
+5. **Zero-Reflection-Ausführung**: Expression Trees kompilieren Methodenaufrufe beim Startup
+6. **Code-first**: Keine IDL, keine `.proto`-Dateien, keine Code-Generierung — C#-Klassen sind das Schema
+
+## Übersicht
+
+Hrpc ist eine protokoll-agnostische RPC-Engine, die zwischen der Geschäftslogik und mehreren Transportschichten sitzt. Die Kern-Engine (`HrpcCore`) löst Methodenaufrufe über vorkompilierte Expression Trees auf, während die Transports (REST, WebSocket, SignalR) das Wire-Protokoll handhaben.
+
+## Anfrage/Antwort-Fluss
+
+### Einzelner Aufruf
+1. Der Client erstellt einen `HrpcRequest` mit Controller-Name, Methoden-Name und JSON-Parametern
+2. Der Transport sendet die Anfrage (HTTP POST, WebSocket-Frame oder SignalR-Hub-Aufruf)
+3. `HrpcInvoker` sucht Controller und Methode im Invoke-Cache
+4. Interceptor-Pipeline läuft (Logging, Tracing, etc.)
+5. Autorisierung wird geprüft (`[HrpcAuthorise]`)
+6. Parameter werden aus JSON deserialisiert und nach Name gematcht
+7. Methode wird über vorkompilierten Expression-Tree-Delegate aufgerufen
+8. Ergebnis wird als JSON serialisiert und in `HrpcResponse` verpackt
+9. Antwort wird über den Transport zurückgesendet
+
+### Batch-Aufruf (Multi-Request)
+1. Client sendet `HrpcMultiRequest` mit mehreren `HrpcRequest`-Einträgen und einem `ExecutionMode`
+2. Bei vorhandenem `DependencyMapping` schaltet die Auto-Erkennung auf topologische Batch-Ausführung um
+3. **Parallel**: Alle Requests parallel via `Task.WhenAll`
+4. **Serial**: Requests nacheinander mit Dependency-Auflösung
+5. **Dependency-Batch**: `DependencyGraphBuilder` erstellt Ausführungs-Batches:
+   - Level 0: Alle Requests ohne Dependencies → parallel
+   - Level 1: Requests, die nur von Level 0 abhängen → parallel
+   - Level N: Requests, die von Level N-1 abhängen → parallel
+6. Jedes Level läuft parallel, Levels nacheinander
+
+### Dependency-Chaining
+1. Request A deklariert `DependencyMapping: { "alias" → "$.data" }`
+   - Nach der Ausführung extrahiert der Server Werte aus A's Response via JsonPath
+   - Extrahierte Werte werden in `ExposedDependencies: { "alias" → value }` gespeichert
+2. Request B verwendet `@alias` als Parameter-Platzhalter
+   - Der Server ersetzt `@alias` durch den tatsächlichen Wert aus A's `ExposedDependencies`
+3. Dies ermöglicht 3 abhängige Aufrufe in einem einzigen HTTP-Roundtrip
+
+## Kernkomponenten
+
+### HrpcInvoker (`HrpcCore`)
+- Singleton-Service, thread-sicher
+- `ConcurrentDictionary`-Caches: Controller-Typen und kompilierte `InvokeInfo`
+- `CompileInvocation()`: Expression Trees erstellen `Func<object, object?[], object?>` pro Methode
+- `BuildParameters()`: Deserialisiert JSON-Parameter, matcht nach Parameternamen, injiziert `CancellationToken`
+- `ExecuteMethod()`: Erstellt DI-Scope, löst Controller-Instanz auf, ruft kompilierten Delegate auf
+- Behandelt synchrone, asynchrone (Task/Task<T>), void und `IAsyncEnumerable<T>`-Rückgabetypen
+
+### HrpcDiscoveryService (`HrpcCore`)
+- Generiert `DiscoveryInfo` mit allen Controllern, Methoden, Parametern und Typen
+- Nur Typen mit `[HrpcDataContract]` werden einbezogen
+- Extrahiert `[HrpcDocumentation]`-Zusammenfassungen und `[HrpcExample]`-JSON-Beispiele
+- Gecacht mit Invalidierung bei neuen Registrierungen
+
+### DependencyGraphBuilder (`HrpcCore`)
+- Topologische Sortierung der Requests basierend auf `DependencyMapping` und `@alias`-Verwendung
+- Gruppiert unabhängige Requests in parallele Batches (Level-basiert)
+- Zykluserkennung wirft `InvalidOperationException` mit beteiligten Request-IDs
+
+### Interceptor-Pipeline (`HrpcCore`)
+- `IHrpcInterceptor`: `InvokeAsync(request, next, ct)`
+- Pipeline umschließt die Methodenausführung in umgekehrter Reihenfolge
+- Eingebaut: `HrpcLoggingInterceptor` (misst Aufrufdauer)
+- Eigene Interceptors via DI registrieren: `services.AddSingleton<IHrpcInterceptor, MyInterceptor>()`
+
+### Transportschichten
+
+| Transport | Projekt | Wire-Protokoll | Features |
+|-----------|---------|---------------|----------|
+| REST | HrpcRest | HTTP/1.1 + JSON | Minimal APIs unter `/api/hrpc/json`, `/api/hrpc/json/multi`, `/api/hrpc/discovery` |
+| WebSocket | HrpcWebSocket | RFC 6455 + JSON-Text-Frames | Erkennt Single vs. Multi-Request automatisch, Multi-Frame-Support |
+| SignalR | HrpcHub | WebSocket + MessagePack | Hub-Methoden `DoWork()` / `DoWorkMany()`, Auto-Reconnect |
+
+### Client-Bibliothek (`HrpcClient`)
+- `IHrpcClient`-Interface: `Call(HrpcRequest)`, `Call<T>(HrpcRequest)`, `Call(HrpcMultiRequest)`
+- `HrpcRestJsonClient`: HTTP-basiert, Connection-Pooling, `IDisposable`
+- `HrpcWebSocketClient`: Persistente Verbindung, `SemaphoreSlim` für Thread-Safety, `IAsyncDisposable`
+- `HrpcSignalrClient`: Auto-Reconnect mit exponentiellem Backoff, MessagePack-Protokoll
+- `HrpcCall`: Fluent Builder mit `.Named()`, `.Exposes()`, `.WithAlias()`, `.With()`, `.Add()`, `.ToRequest()`
+
+## Fehlermodell
+
+```csharp
+HrpcResponse {
+    int Code;                    // HTTP-ähnlicher Statuscode
+    string? Data;                // JSON-Ergebnis oder Fehlermeldung
+    byte[]? Content;             // Binärer Payload
+    string? Id;                  // Request-Korrelations-ID
+    Dictionary<string, string>? ExposedDependencies;  // Für Chaining
+    HrpcError? Error;            // Strukturierter Fehler (wenn Code != 200)
+    bool IsSuccess;               // true bei 200-299
+}
+
+HrpcError {
+    int Code;
+    string Message;
+    string? Details;             // Stacktrace nur in Development
+    string? RequestId;
+}
+```
+
+Clients werfen `HrpcException` mit `HrpcError` bei non-2xx-Antworten.
+
+## Attribute
+
+| Attribut | Ziel | Zweck |
+|-----------|--------|---------|
+| `[HrpcController("name")]` | Klasse | Markiert eine Klasse als RPC-Controller |
+| `[HrpcMethod("name")]` | Methode | Markiert eine Methode als remote aufrufbar |
+| `[HrpcAuthorise]` | Methode | Erfordert Authentifizierung (optionale Rolle) |
+| `[HrpcDataContract]` | Klasse | Markiert einen Typ für Discovery/Metadaten |
+| `[HrpcDocumentation("summary")]` | Klasse/Methode/Parameter | XML-ähnliche Doku für Discovery |
+| `[HrpcExample("json")]` | Klasse | Beispiel-JSON für Developer-UI |
+
+## Erweiterungspunkte
+
+1. **Custom Interceptor**: `IHrpcInterceptor` implementieren, in DI registrieren
+2. **Custom Transport**: `IHrpcClient` (Client) oder Middleware (Server) implementieren
+3. **Custom Autorisierung**: `HrpcAuthoriseAttribute.OnAuthorization()` erweitern
+4. **Discovery-Erweiterung**: `HrpcDiscoveryService.BuildDiscoveryInfo()` erweitern

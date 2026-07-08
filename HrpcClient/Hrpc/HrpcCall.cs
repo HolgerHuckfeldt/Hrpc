@@ -49,15 +49,18 @@ namespace HrpcClient.Hrpc
         /// </summary>
         public HrpcCall WithAlias(string dependencyPlaceholder, string fallbackValue)
         {
-            // Hier speichern wir einfach den dependencyPlaceholder in den Parametern.
-            // Falls der Server einen Fallback-Wert benötigt, kann man diesen auch separat übergeben.
+            // Store the alias placeholder with a parameter name derived from the alias.
+            // The server resolves @alias references before invoking the method.
+            var aliasName = dependencyPlaceholder.StartsWith('@')
+                ? dependencyPlaceholder.Substring(1)
+                : dependencyPlaceholder;
             _parameters.Add(new HrpcParameter
             {
                 Num = _num,
-                Data = dependencyPlaceholder // Beispiel: "@firstId"
+                ParameterName = aliasName,
+                Data = dependencyPlaceholder // e.g. "@firstId"
             });
             _num++;
-            // Optional: Du könntest auch den Fallback-Wert in einem anderen Feld speichern.
             return this;
         }
 
@@ -76,18 +79,12 @@ namespace HrpcClient.Hrpc
         /// </summary>
         public HrpcCall Add(object? p)
         {
-            if (p == null)
-                _parameters.Add(new HrpcParameter()
-                {
-                    Num = _num,
-                    Data = null
-                });
-            else
-                _parameters.Add(new HrpcParameter()
-                {
-                    Num = _num,
-                    Data = JsonSerializer.Serialize(p)
-                });
+            _parameters.Add(new HrpcParameter()
+            {
+                Num = _num,
+                ParameterName = $"param{_num}",
+                Data = p == null ? null : JsonSerializer.Serialize(p)
+            });
             _num++;
             return this;
         }

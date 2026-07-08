@@ -1,15 +1,16 @@
-﻿using Hrpc.Hrpc;
+using Hrpc.Grpc;
+using Hrpc.Hrpc;
 using Hrpc.Services;
 using HrpcHub.Extensions;
-using Microsoft.Extensions.FileProviders;
+using HrpcWebSocket;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseStaticWebAssets();
-// Add services to the container.
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddGrpc();
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
 
@@ -34,12 +35,14 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddHrpc(new HrpcOptions()
 {
-    EnableDetailedErrors = true,
+    EnableDetailedErrors = builder.Environment.IsDevelopment(),
     UseMessagePack = true,
     UseSignalR = true,
     MaximumParallelInvocationsPerClient = 100,
     MaximumReceiveMessageSize = 102400,
-    StreamBufferCapacity = 100
+    StreamBufferCapacity = 100,
+    RateLimitPermitLimit = builder.Environment.IsProduction() ? 50 : 0,
+    RateLimitWindowSeconds = 10
 });
 
 builder.Services.AddSingleton<CustomerService>();
@@ -55,40 +58,39 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseRateLimiter();
 
 app.UseHttpsRedirection();
 
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        System.IO.Path.Combine(builder.Environment.ContentRootPath, "..", "HrpcDeveloperUi", "wwwroot")),
+    RequestPath = "/developer-static"
+});
+app.UseStaticFiles();
+app.UseDefaultFiles();
+
+app.UseRouting();
 app.UseAuthorization();
 
 app.MapControllers();
 
 app.UseHrpc();
 
-
-app.UseDefaultFiles();
-app.UseRouting();
 app.MapRazorPages();
-
-
-// Konfiguriere statische Dateien für den /hrpc-Pfad
-//app.UseStaticFiles(new StaticFileOptions
-//{
-//    FileProvider = new PhysicalFileProvider(
-//        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "developer")),
-//    RequestPath = "/developer"
-    
-//});
-
-app.UseStaticFiles();
 
 app.MapGet("/developer", ctx =>
 {
-
-    ctx.Response.Redirect("/_content/HrpcDeveloperUi/developer/index.html");
+    ctx.Response.Redirect("/developer-static/developer/index.html");
     return Task.CompletedTask;
 });
 
+app.UseWebSockets();
+app.UseHrpcWebSocket("/hrpcws");
+
 app.MapHub<HrpcHub.Hub.HrpcHub>("/Hrpc");
-//app.MapGrpcService<Hrpc.Grpc.HrpcService>();
+
+app.MapGrpcService<CustomerGrpcService>();
 
 app.Run();

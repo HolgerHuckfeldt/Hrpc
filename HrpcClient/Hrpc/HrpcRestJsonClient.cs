@@ -13,9 +13,10 @@ namespace HrpcClient.Hrpc
     {
         private readonly HttpClient _httpClient;
         private readonly string _serverBase;
+        private readonly string _apiPath;
         private readonly bool _ownsHttpClient;
 
-        public HrpcRestJsonClient(string serverBaseUrl, HttpClient? httpClient = null)
+        public HrpcRestJsonClient(string serverBaseUrl, HttpClient? httpClient = null, string apiPath = "api/hrpc")
         {
             if (string.IsNullOrWhiteSpace(serverBaseUrl))
                 throw new ArgumentException("Server-URL darf nicht leer sein.", nameof(serverBaseUrl));
@@ -37,6 +38,7 @@ namespace HrpcClient.Hrpc
             }
 
             _serverBase = serverBaseUrl.EndsWith("/", StringComparison.Ordinal) ? serverBaseUrl : serverBaseUrl + "/";
+            _apiPath = apiPath.Trim('/');
         }
 
         public override async Task<HrpcResponse?> Call(HrpcRequest? request, CancellationToken ct = default)
@@ -48,7 +50,7 @@ namespace HrpcClient.Hrpc
 
             var jsonData = JsonSerializer.Serialize(request, JsonOptions);
             var content = new StringContent(jsonData, Encoding.UTF8, "application/json");
-            var response = await _httpClient.PostAsync($"{_serverBase}api/Hrpc/json", content, ct);
+            var response = await _httpClient.PostAsync($"{_serverBase}{_apiPath}/json", content, ct);
 
             var responseJson = await response.Content.ReadAsStringAsync(ct);
             if (!response.IsSuccessStatusCode)
@@ -56,7 +58,13 @@ namespace HrpcClient.Hrpc
                 return new HrpcResponse
                 {
                     Code = (int)response.StatusCode,
-                    Data = $"HTTP Error: {response.StatusCode} | {responseJson}"
+                    Data = $"HTTP Error: {response.StatusCode} | {responseJson}",
+                    Error = new HrpcError
+                    {
+                        Code = (int)response.StatusCode,
+                        Message = $"HTTP Error: {response.StatusCode}",
+                        Details = responseJson
+                    }
                 };
             }
             return JsonSerializer.Deserialize<HrpcResponse>(responseJson, JsonOptions);
@@ -77,7 +85,7 @@ namespace HrpcClient.Hrpc
 
             var jsonData = JsonSerializer.Serialize(request, JsonOptions);
             var content = new StringContent(jsonData, Encoding.UTF8, "application/json");
-            var response = await _httpClient.PostAsync($"{_serverBase}api/Hrpc/json/multi", content, ct);
+            var response = await _httpClient.PostAsync($"{_serverBase}{_apiPath}/json/multi", content, ct);
             var responseJson = await response.Content.ReadAsStringAsync(ct);
             if (!response.IsSuccessStatusCode)
             {
@@ -86,7 +94,13 @@ namespace HrpcClient.Hrpc
                     new HrpcResponse
                     {
                         Code = (int)response.StatusCode,
-                        Data = $"HTTP Error: {response.StatusCode} | {responseJson}"
+                        Data = $"HTTP Error: {response.StatusCode} | {responseJson}",
+                        Error = new HrpcError
+                        {
+                            Code = (int)response.StatusCode,
+                            Message = $"HTTP Error: {response.StatusCode}",
+                            Details = responseJson
+                        }
                     }
                 };
             }

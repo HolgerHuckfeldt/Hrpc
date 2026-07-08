@@ -96,6 +96,7 @@ namespace HrpcCore.Services
                         effectiveReturnType != typeof(string) &&
                         effectiveReturnType.IsDefined(typeof(HrpcDataContractAttribute), false))
                     {
+                        RegisterType(effectiveReturnType, discovery.Types);
                         string key = effectiveReturnType.FullName ?? effectiveReturnType.Name;
                         if (key != null)
                             methodMeta.ReturnTypeDefinition = discovery.Types[key];
@@ -128,6 +129,7 @@ namespace HrpcCore.Services
                         else if (param.ParameterType.IsClass && param.ParameterType != typeof(string) &&
                                  param.ParameterType.IsDefined(typeof(HrpcDataContractAttribute), false))
                         {
+                            RegisterType(param.ParameterType, discovery.Types);
                             string key = param.ParameterType.FullName ?? param.ParameterType.Name;
                             if (key != null)
                                 paramMeta.TypeDefinition = discovery.Types[key];

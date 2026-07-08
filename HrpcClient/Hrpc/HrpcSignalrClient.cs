@@ -1,7 +1,7 @@
-﻿using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 using System.Timers;
-using HrpcClient.Hrpc.Exceptions;
+// HrpcException is now provided via global using alias from GlobalUsings.cs
 using System.Threading;
 
 namespace HrpcClient.Hrpc;
@@ -10,7 +10,7 @@ namespace HrpcClient.Hrpc;
 /// Ein HRPC-Client, der über SignalR mit dem Server kommuniziert.
 /// Unterstützt automatische Wiederverbindung und asynchrone Einzel- und Multi-Requests.
 /// </summary>
-public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
+public class HrpcSignalrClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
 {
     /// <summary>
     /// Timer für automatische Reconnect-Versuche bei Verbindungsabbruch.
@@ -21,6 +21,8 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
     /// </summary>
     private readonly HubConnection _connection;
     private bool _connected;
+    private bool _disposed;
+    private bool _handlersRegistered;
     private string _jwtToken = String.Empty;
 
     /// <summary>
@@ -74,11 +76,12 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
         _connection = new HubConnectionBuilder()
             .WithUrl($"{baseUrl}Hrpc", options =>
             {
-                //options.AccessTokenProvider = () => Task.FromResult(_jwtToken);
+                if (!string.IsNullOrEmpty(_jwtToken))
+                {
+                    options.AccessTokenProvider = () => Task.FromResult(_jwtToken)!;
+                }
             })
-            .AddMessagePackProtocol(
-                //options => options.SerializerOptions = MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.Lz4BlockArray)
-                )
+            .AddMessagePackProtocol()
             .WithAutomaticReconnect(reconnectTimes.ToArray())
             .Build();
     }
@@ -86,19 +89,16 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
     /// <summary>
     /// Sendet einen einzelnen HrpcRequest an den Server und gibt die Antwort zurück.
     /// </summary>
-    /// <param name="request">Der HrpcRequest.</param>
-    /// <param name="ct">CancellationToken für Abbruch.</param>
-    /// <returns>Die Antwort des Servers als HrpcResponse.</returns>
     public override async Task<HrpcResponse?> Call(HrpcRequest? request, CancellationToken ct = default)
     {
         if (request == null)
-        {
             return null;
-        }
 
         if (!_connected)
         {
-            var t = await Connect();
+            var connected = await Connect();
+            if (!connected)
+                throw new HrpcException("Not connected to server.");
         }
 
         if (await _connection.InvokeCoreAsync(
@@ -117,23 +117,20 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
     /// <summary>
     /// Sendet mehrere HrpcRequests (Batch) an den Server und gibt die Antworten zurück.
     /// </summary>
-    /// <param name="request">Der Multi-Request.</param>
-    /// <param name="ct">CancellationToken für Abbruch.</param>
-    /// <returns>Die Antworten des Servers als Liste von HrpcResponse.</returns>
     public override async Task<IEnumerable<HrpcResponse?>?> Call(HrpcMultiRequest? request, CancellationToken ct = default)
     {
         if (request == null)
-        {
             return null;
+
+        if (!_connected)
+        {
+            var connected = await Connect();
+            if (!connected)
+                throw new HrpcException("Not connected to server.");
         }
 
         try
         {
-            if (!_connected)
-            {
-                var t = await Connect();
-            }
-
             if (await _connection.InvokeCoreAsync(
                     "DoWorkMany",
                     typeof(IEnumerable<HrpcResponse?>),
@@ -143,11 +140,10 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
             {
                 return r;
             }
-
         }
         catch (Exception ex)
         {
-            throw new HrpcException("Fehler vom Server.", ex);
+            throw new HrpcException("Error from server.", ex);
         }
 
         return new List<HrpcResponse?>();
@@ -156,9 +152,16 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
     /// <summary>
     /// Timer-Callback für erneuten Verbindungsaufbau.
     /// </summary>
-    private async void NextTryTimerOnElapsed(object sender, ElapsedEventArgs e)
+    private async void NextTryTimerOnElapsed(object? sender, ElapsedEventArgs e)
     {
-        await Connect();
+        try
+        {
+            await Connect();
+        }
+        catch
+        {
+            // Errors are logged inside Connect(); avoid async void crash
+        }
     }
 
     /// <summary>
@@ -167,36 +170,41 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
     /// <returns>True, wenn die Verbindung erfolgreich war.</returns>
     private async Task<bool> Connect()
     {
-        _connection.On<string, string>("ReceiveMessage", (user, message) =>
+        // Register handlers only once to prevent duplicates on reconnect
+        if (!_handlersRegistered)
         {
-            string msg = message;
-        });
+            _connection.On<string, string>("ReceiveMessage", (user, message) =>
+            {
+                string msg = message;
+            });
 
-        _connection.On<string, byte[]>("ReceiveData", (user, data) =>
-        {
-            byte[] mydata = data;
-        });
+            _connection.On<string, byte[]>("ReceiveData", (user, data) =>
+            {
+                byte[] mydata = data;
+            });
 
-        _connection.Closed += ConnectionOnClosed;
-        _connection.Reconnecting += ConnectionOnReconnecting;
-        _connection.Reconnected += ConnectionOnReconnected;
+            _connection.Closed += ConnectionOnClosed;
+            _connection.Reconnecting += ConnectionOnReconnecting;
+            _connection.Reconnected += ConnectionOnReconnected;
+            _handlersRegistered = true;
+        }
 
         try
         {
             await _connection.StartAsync();
             _nextTryTimer.Stop();
             _connected = true;
+            return true;
         }
         catch (HttpRequestException)
         {
             _nextTryTimer.Start();
+            return false;
         }
         catch (Exception ex)
         {
             throw new HrpcException("Error connecting to server via SignalR", ex);
         }
-
-        return true;
     }
 
     /// <summary>
@@ -204,6 +212,7 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
     /// </summary>
     private Task ConnectionOnReconnected(string? arg)
     {
+        _connected = true;
         return Task.CompletedTask;
     }
 
@@ -212,6 +221,7 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
     /// </summary>
     private Task ConnectionOnReconnecting(Exception? arg)
     {
+        _connected = false;
         return Task.CompletedTask;
     }
 
@@ -220,8 +230,31 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient
     /// </summary>
     private Task ConnectionOnClosed(Exception? arg)
     {
+        _connected = false;
         return Task.CompletedTask;
     }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        _nextTryTimer.Stop();
+        _nextTryTimer.Elapsed -= NextTryTimerOnElapsed;
+        _nextTryTimer.Dispose();
+
+        if (_handlersRegistered)
+        {
+            _connection.Closed -= ConnectionOnClosed;
+            _connection.Reconnecting -= ConnectionOnReconnecting;
+            _connection.Reconnected -= ConnectionOnReconnected;
+        }
+
+        if (_connection.State == HubConnectionState.Connected)
+        {
+            await _connection.StopAsync();
+        }
+
+        await _connection.DisposeAsync();
+    }
 }
-
-

@@ -1,9 +1,9 @@
-﻿using HrpcCore.Model.Messages;
-using HrpcCore.Model.Messages.Mex;
+﻿using HrpcCore.Model.Messages.Mex;
 using HrpcCore.Services;
 using HrpcRest.Attribute;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Logging;
 
 namespace HrpcRest.Controllers
@@ -12,6 +12,8 @@ namespace HrpcRest.Controllers
     [ApiController]
     [CamelCaseJsonFilter]
     [Produces("application/json")]
+    [EnableRateLimiting("hrpc")]
+    [RequestSizeLimit(1_048_576)] // 1 MB max request body
     public class HrpcController(IHrpcCore hrpcService, ILogger<HrpcController> logger) : ControllerBase
     {
         [HttpPost("json")]

@@ -1,127 +1,14 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hrpc Developer</title>
-  <link rel="icon" href="./vite.svg">
-  <link rel="stylesheet" href="./main.css?v=3">
-</head>
-<body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="dot green"></div>
-      <div class="dot blue"></div>
-      <div class="dot purple"></div>
-      <span class="title">Hrpc Developer</span>
-    </div>
-    <div class="top-actions">
-      <span class="pill" id="env-label">/api/hrpc</span>
-      <button id="refresh-discovery" class="ghost">Refresh Discovery</button>
-      <a class="ghost" href="/swagger/index.html" target="_blank">Swagger</a>
-      <a class="ghost" href="/developer" target="_blank">Developer</a>
-    </div>
-  </header>
-
-  <main class="layout" id="layout">
-    <section class="pane explorer" id="pane-explorer">
-      <div class="pane-header">
-        <div class="label">Discovery</div>
-        <div class="hint">VS Code style tree</div>
-      </div>
-      <div class="search">
-        <input id="search" type="search" placeholder="Filter controller/method" />
-      </div>
-      <div class="tree" id="controller-tree"></div>
-      <div class="pane-header compact">
-        <div class="label">Types</div>
-      </div>
-      <div class="tree types" id="types-tree"></div>
-      <div class="status-line" id="discovery-status">Loading discovery...</div>
-    </section>
-
-    <div class="splitter" id="split-left" data-dir="vertical"></div>
-
-    <section class="pane editor" id="pane-editor">
-      <div class="tabs" id="tab-bar">
-        <div class="tab active" data-id="welcome"><span class="tab-title">Welcome</span></div>
-        <button class="ghost small" id="tab-new">+</button>
-      </div>
-      <div class="pane-header">
-        <div>
-          <div class="label">Request Editor</div>
-          <div class="hint">JSON payload + parameter helper</div>
-        </div>
-        <div class="actions">
-          <button id="format" class="ghost">Format</button>
-          <button id="reset" class="ghost">Reset</button>
-          <button id="run" class="primary">Run</button>
-        </div>
-      </div>
-
-      <div class="editor-scroll">
-        <div class="toolbar">
-          <div class="pill strong" id="selection-label">No method selected</div>
-          <div class="pill" id="param-summary">0 params</div>
-          <div class="pill" id="duration">-- ms</div>
-        </div>
-
-        <div class="param-list" id="param-list"></div>
-
-        <label class="field-label">JSON Request</label>
-        <textarea id="request-editor" spellcheck="false" class="code"></textarea>
-
-        <div class="pane-header compact">
-          <div class="label">Codegen</div>
-          <div class="actions">
-            <button id="copy-ts" class="ghost small">Copy TS</button>
-            <button id="copy-cs" class="ghost small">Copy C#</button>
-          </div>
-        </div>
-        <div class="codegen">
-          <div class="code-block">
-            <div class="code-title">TypeScript client</div>
-            <pre><code id="ts-snippet"></code></pre>
-          </div>
-          <div class="code-block">
-            <div class="code-title">C# client</div>
-            <pre><code id="cs-snippet"></code></pre>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <div class="splitter" id="split-right" data-dir="vertical"></div>
-
-    <section class="pane result" id="pane-result">
-      <div class="pane-header">
-        <div>
-          <div class="label">Result</div>
-          <div class="hint">Status, id, pretty JSON</div>
-        </div>
-        <div class="pill" id="status-pill">Idle</div>
-      </div>
-      <div class="result-scroll">
-        <div class="result-meta">
-          <div><span class="meta-label">Status:</span> <span id="resp-status">-</span></div>
-          <div><span class="meta-label">Id:</span> <span id="resp-id">-</span></div>
-        </div>
-        <label class="field-label">Response</label>
-        <pre class="code view"><code id="response-view">{}</code></pre>
-        <label class="field-label">Errors / Info</label>
-        <pre class="code view"><code id="log-view"></code></pre>
-      </div>
-    </section>
-  </main>
-
-  <footer class="footer">
-    <div>Hrpc · JSON RPC with batching, dependency mapping, MessagePack & SignalR</div>
-    <div class="footer-links">
-      <a href="https://github.com" target="_blank">Repo</a>
-      <a href="/swagger/index.html" target="_blank">Swagger</a>
-    </div>
-  </footer>
-
-  <script src="./main.js?v=3" defer></script>
-</body>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hrpc Developer</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='8' cy='16' r='5' fill='%233fb950'/><circle cx='16' cy='16' r='5' fill='%2358a6ff'/><circle cx='24' cy='16' r='5' fill='%238b5cf6'/></svg>" />
+    <script type="module" crossorigin src="/developer-static/developer/assets/index-cLByfi_U.js"></script>
+    <link rel="stylesheet" crossorigin href="/developer-static/developer/assets/index-BdQC1GxJ.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
 </html>

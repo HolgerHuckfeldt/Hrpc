@@ -1,6 +1,4 @@
-﻿using HrpcCore.Model.Messages;
-
-namespace HrpcCore.Model.Handler
+﻿namespace HrpcCore.Model.Handler
 {
     public interface IHrpcHandler
     {

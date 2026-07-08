@@ -1,10 +1,2 @@
-﻿namespace HrpcCore.Model.Messages
-{
-
-    public class HrpcParameter
-    {
-        public string ParameterName { get; set; } = string.Empty;
-        public string? Data { get; set; }
-    }
-
-}
+﻿// Removed: HrpcParameter has been consolidated into Hrpc.Common.Models.HrpcParameter.
+// See GlobalUsings.cs for the global type alias.

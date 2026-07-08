@@ -41,6 +41,12 @@ ScaffoldingReadMe.txt
 *~
 CodeCoverage/
 
+# IDE-specific files
+*.user
+*.bak
+*.suo
+.vs/
+
 # MSBuild Binary and Structured Log
 *.binlog
 
@@ -59,3 +65,11 @@ nunit-*.xml
 /Designer/Designer/node_modules/.svelte2tsx-language-server-files
 /Designer/Designer/node_modules/.vite
 /Designer/Designer/node_modules
+
+# Node (HrpcDeveloperUI, Svelte)
+node_modules/
+.vite/
+dist/
+
+# BenchmarkDotNet output
+BenchmarkDotNet.Artifacts/

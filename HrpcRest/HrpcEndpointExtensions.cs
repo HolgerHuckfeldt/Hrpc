@@ -1,4 +1,3 @@
-﻿using HrpcCore.Model.Messages;
 using HrpcCore.Services;
 
 namespace HrpcRest

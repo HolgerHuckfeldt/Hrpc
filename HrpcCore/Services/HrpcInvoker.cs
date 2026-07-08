@@ -1,13 +1,11 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 using HrpcCore.Attributes;
-using HrpcCore.Model.Messages;
 using System.Net;
-using HrpcCore.Model.Handler;
 using System.Text.Json.Nodes;
 using HrpcCore.Model.Messages.Mex;
 using HrpcCore.Services.Helper;
@@ -25,6 +23,7 @@ namespace HrpcCore.Services
         private readonly IServiceScopeFactory _serviceScopeFactory;
 
         private readonly ILogger<HrpcInvoker> _logger;
+        private readonly List<IHrpcInterceptor> _interceptors;
 
         private readonly JsonSerializerOptions _jsonSerializerOptions = new()
         {
@@ -33,11 +32,12 @@ namespace HrpcCore.Services
         };
 
 
-        public HrpcInvoker(IServiceScopeFactory serviceScopeFactory, ILogger<HrpcInvoker> logger)
+        public HrpcInvoker(IServiceScopeFactory serviceScopeFactory, ILogger<HrpcInvoker> logger, IEnumerable<IHrpcInterceptor>? interceptors = null)
         {
             _logger = logger;
             _serviceScopeFactory = serviceScopeFactory;
             _discoveryService = new HrpcDiscoveryService(_routeHandlers);
+            _interceptors = interceptors?.ToList() ?? new List<IHrpcInterceptor>();
         }
 
 
@@ -89,13 +89,22 @@ namespace HrpcCore.Services
             ExecutionMode mode = ExecutionMode.Parallel,
             CancellationToken ct = default)
         {
+            var requestList = requests.ToList();
+
+            // Auto-detect: if requests have DependencyMappings, use batch-based
+            // topological execution regardless of the specified mode.
+            if (requestList.Any(r => r.DependencyMapping != null && r.DependencyMapping.Count > 0))
+            {
+                return await ExecuteInDependencyBatches(requestList, context, ct);
+            }
+
             switch (mode)
             {
                 case ExecutionMode.Parallel:
-                    return await ExecuteInParallel(requests, context, ct);
+                    return await ExecuteInParallel(requestList, context, ct);
 
                 case ExecutionMode.Serial:
-                    return await ExecuteSequentially(requests, context, ct);
+                    return await ExecuteSequentially(requestList, context, ct);
 
                 default:
                     throw new ArgumentOutOfRangeException(nameof(mode));
@@ -104,19 +113,30 @@ namespace HrpcCore.Services
 
         public async Task<HrpcResponse?> InvokeDi(HrpcRequest request, HttpContext? context, CancellationToken ct = default)
         {
+            // Build the interceptor pipeline wrapping the actual execution
+            HrpcInvocationDelegate pipeline = (req, token) => ExecuteSingleInvocationSimple(req, context, token);
+
+            // Wrap interceptors in reverse order (last interceptor runs first)
+            for (int i = _interceptors.Count - 1; i >= 0; i--)
+            {
+                var interceptor = _interceptors[i];
+                var next = pipeline;
+                pipeline = (req, token) => interceptor.InvokeAsync(req, next, token);
+            }
+
             var stopwatch = Stopwatch.StartNew();
             _logger.LogTrace("Starting RPC call {Controller}.{Method} with request ID {RequestId}", request.Controller, request.Method, request.Id);
 
             HrpcResponse? response;
             try
             {
-                response = await ExecuteSingleInvocationSimple(request, context, ct);
+                response = await pipeline(request, ct);
                 _logger.LogDebug("RPC call {Controller}.{Method} completed. Status Code: {Code}", request.Controller, request.Method, response?.Code);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "RPC call {Controller}.{Method} failed.", request.Controller, request.Method);
-                response = InternalServerError($"Fehler in der Ausführung: {ex.Message}");
+                response = InternalServerError("An internal error occurred while processing the request.");
             }
             finally
             {
@@ -162,14 +182,17 @@ namespace HrpcCore.Services
                 var parameters = BuildParameters(parameterJson, invokeInfo.MethodInfo!.GetParameters(), ct);
                 if (parameters.Items == null) return parameters.Response;
 
+                // Inject binary data for byte[] parameters
+                InjectBinaryParameters(parameters.Items!, invokeInfo.MethodInfo.GetParameters(), request?.BinaryData);
+
                 var result = await ExecuteMethod(invokeInfo, controllerType, parameters.Items, ct);
                 if (result != null)
-                    result.Id = request?.Id ?? String.Empty;
+                    result.Id = request?.Id ?? string.Empty;
                 return result;
             }
             catch (Exception ex)
             {
-                return InternalServerError($"Fehler in der Ausführung: {ex.Message}");
+                return InternalServerError("An internal error occurred while processing the request.");
             }
         }
 
@@ -219,6 +242,56 @@ namespace HrpcCore.Services
 
 
         /// <summary>
+        /// Executes requests in topological batches: independent requests run in parallel,
+        /// dependent requests wait for their dependencies to complete.
+        /// </summary>
+        private async Task<IEnumerable<HrpcResponse?>> ExecuteInDependencyBatches(
+            List<HrpcRequest> requests,
+            HttpContext? context,
+            CancellationToken ct)
+        {
+            List<List<HrpcRequest>> batches;
+            try
+            {
+                batches = DependencyGraphBuilder.SortByDependencyBatches(requests);
+            }
+            catch (InvalidOperationException ex)
+            {
+                // Cycle detected – return error for all requests
+                return requests.Select(r => new HrpcResponse
+                {
+                    Code = (int)HttpStatusCode.BadRequest,
+                    Data = "Circular dependency detected in request batch.",
+                    Id = r.Id,
+                    Error = new HrpcError { Code = 400, Message = "Circular dependency detected in request batch.", RequestId = r.Id }
+                });
+            }
+
+            var allResponses = new List<HrpcResponse?>();
+
+            foreach (var batch in batches)
+            {
+                var batchResponses = await Task.WhenAll(
+                    batch.Select(request => ExecuteSingleInvocationWithDependencies(request, context, ct)));
+                allResponses.AddRange(batchResponses);
+            }
+
+            return allResponses;
+        }
+
+        /// <summary>
+        /// Executes a single invocation with dependency resolution from prior responses.
+        /// </summary>
+        private async Task<HrpcResponse?> ExecuteSingleInvocationWithDependencies(
+            HrpcRequest request,
+            HttpContext? context,
+            CancellationToken ct)
+        {
+            return await ExecuteSingleInvocation(request, context, ct);
+        }
+
+
+        /// <summary>
         /// Löst Alias-Platzhalter (@alias) in den Parametern eines Requests anhand der
         /// ExposedDependencies vorheriger Responses auf. Gibt BadRequest zurück, wenn
         /// ein Alias nicht auflösbar ist.
@@ -239,7 +312,7 @@ namespace HrpcCore.Services
             }
             catch (Exception ex)
             {
-                return (null, BadRequest($"Ungültige Parameter-JSON: {ex.Message}"));
+                return (null, BadRequest("Invalid parameter JSON format."));
             }
 
             if (parameterNode == null)
@@ -453,7 +526,7 @@ namespace HrpcCore.Services
             }
             catch (Exception ex)
             {
-                return InternalServerError($"Fehler in der Ausführung: {ex.Message}");
+                return InternalServerError("An internal error occurred while processing the request.");
             }
         }
 
@@ -507,7 +580,7 @@ namespace HrpcCore.Services
                             }
                             catch (Exception ex)
                             {
-                                return (null, BadRequest($"Parameter {name} kann nicht in {param.ParameterType} konvertiert werden: {ex.Message}"));
+                                return (null, BadRequest($"Parameter '{name}' cannot be converted to type '{param.ParameterType.Name}'."));
                             }
                         }
                         else
@@ -521,10 +594,30 @@ namespace HrpcCore.Services
             }
             catch (Exception ex)
             {
-                return (null, BadRequest($"Fehler bei der Parameterverarbeitung: {ex.Message}"));
+                return (null, BadRequest("Error processing request parameters."));
             }
         }
 
+        
+        /// <summary>
+        /// Injects binary data from HrpcRequest.BinaryData into byte[] parameters.
+        /// If a method has a byte[] parameter, it receives the raw binary payload
+        /// instead of a Base64-encoded JSON string.
+        /// </summary>
+        private static void InjectBinaryParameters(object?[] parameters, ParameterInfo[] methodParams, byte[]? binaryData)
+        {
+            if (binaryData == null || binaryData.Length == 0) return;
+
+            // Find the first byte[] parameter and inject the binary data
+            for (int i = 0; i < methodParams.Length; i++)
+            {
+                if (methodParams[i].ParameterType == typeof(byte[]))
+                {
+                    parameters[i] = binaryData;
+                    break; // Only inject into the first byte[] parameter
+                }
+            }
+        }
         private object? GetDefault(Type type)
         {
             return type.IsValueType ? Activator.CreateInstance(type) : null;
@@ -542,12 +635,54 @@ namespace HrpcCore.Services
             if (returnType == typeof(void))
                 return false;
 
+            // IAsyncEnumerable<T> always has results
+            if (returnType.IsGenericType && returnType.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>))
+                return true;
+
             if (typeof(Task).IsAssignableFrom(returnType))
             {
                 return returnType.IsGenericType;
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Returns true if the type is IAsyncEnumerable&lt;T&gt;.
+        /// </summary>
+        private static bool IsAsyncEnumerable(Type type)
+        {
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>))
+                return true;
+
+            // Check if the type implements IAsyncEnumerable<T> (e.g. compiler-generated state machines)
+            return type.GetInterfaces()
+                .Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>));
+        }
+
+        /// <summary>
+        /// Returns the element type of an IAsyncEnumerable&lt;T&gt;, or null if not applicable.
+        /// </summary>
+        private static Type? GetAsyncEnumerableElementType(Type type)
+        {
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>))
+                return type.GetGenericArguments()[0];
+
+            // Check interfaces for compiler-generated types
+            var iface = type.GetInterfaces()
+                .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>));
+            if (iface != null)
+                return iface.GetGenericArguments()[0];
+
+            // Also handle Task<IAsyncEnumerable<T>>
+            if (typeof(Task).IsAssignableFrom(type) && type.IsGenericType)
+            {
+                var taskResultType = type.GetGenericArguments()[0];
+                if (IsAsyncEnumerable(taskResultType))
+                    return GetAsyncEnumerableElementType(taskResultType);
+            }
+
+            return null;
         }
 
         private static Func<object, object?[], object?> CompileInvocation(Type controllerType, MethodInfo methodInfo)
@@ -635,22 +770,35 @@ namespace HrpcCore.Services
 
                     var result = compiled(instance, parameters!);
 
-                    if (invokeInfo.IsAsync)
+                    // Handle IAsyncEnumerable<T> directly (non-Task)
+                    if (IsAsyncEnumerable(invokeInfo.MethodInfo!.ReturnType) && result != null)
                     {
-                        if (result is Task taskResult)
-                        {
-                            await taskResult;
+                        var elementType = GetAsyncEnumerableElementType(invokeInfo.MethodInfo.ReturnType)!;
+                        var list = await ConsumeAsyncEnumerable(result, elementType, ct);
+                        return Ok(JsonSerializer.Serialize(list, _jsonSerializerOptions));
+                    }
 
-                            if (invokeInfo.HasResult)
+                    // Handle Task<IAsyncEnumerable<T>>
+                    if (invokeInfo.IsAsync && result is Task taskResult)
+                    {
+                        await taskResult;
+
+                        if (invokeInfo.HasResult)
+                        {
+                            var resultValue = GetTaskResult(taskResult);
+
+                            // Check if the Task result is IAsyncEnumerable<T>
+                            if (resultValue != null && IsAsyncEnumerable(resultValue.GetType()))
                             {
-                                var resultValue = GetTaskResult(taskResult);
-                                return ReturnResponse(resultValue, instance?.GetType());
+                                var elementType = GetAsyncEnumerableElementType(resultValue.GetType())!;
+                                var list = await ConsumeAsyncEnumerable(resultValue, elementType, ct);
+                                return Ok(JsonSerializer.Serialize(list, _jsonSerializerOptions));
                             }
 
-                            return Ok($"Vorgang abgeschlossen ({invokeInfo.MethodInfo.Name})");
+                            return ReturnResponse(resultValue, instance?.GetType());
                         }
 
-                        return InternalServerError($"Asynchrone Methode '{invokeInfo.MethodInfo.Name}' hat keinen Task zurückgegeben.");
+                        return Ok($"Vorgang abgeschlossen ({invokeInfo.MethodInfo.Name})");
                     }
 
                     return ReturnResponse(result, controllerType);
@@ -680,7 +828,34 @@ namespace HrpcCore.Services
 
             return null;
         }
+        /// <summary>
+        /// Consumes an IAsyncEnumerable<T> and collects all elements into a List<T>.
+        /// Uses a generic helper method to avoid reflection issues with compiler-generated state machines.
+        /// </summary>
+        private static async Task<object> ConsumeAsyncEnumerable(object asyncEnumerable, Type elementType, CancellationToken ct)
+        {
+            var helperType = typeof(AsyncEnumerableConsumer<>).MakeGenericType(elementType);
+            var method = helperType.GetMethod("Consume")!;
+            var task = (Task)method.Invoke(null, new[] { asyncEnumerable, ct })!;
+            await task;
+            return task.GetType().GetProperty("Result")!.GetValue(task)!;
+        }
 
+        /// <summary>
+        /// Generic helper class for consuming IAsyncEnumerable<T> without reflection.
+        /// </summary>
+        private static class AsyncEnumerableConsumer<T>
+        {
+            public static async Task<List<T>> Consume(IAsyncEnumerable<T> source, CancellationToken ct)
+            {
+                var list = new List<T>();
+                await foreach (var item in source.WithCancellation(ct))
+                {
+                    list.Add(item);
+                }
+                return list;
+            }
+        }
         #endregion
 
         #region Hilfsmethoden & Response-Fabriken
@@ -695,13 +870,20 @@ namespace HrpcCore.Services
             if (result is HrpcResponse hrpcResp)
                 return hrpcResp;
 
+            // Binary return: put byte[] into Content instead of Base64-encoding in Data
+            if (result is byte[] bytes)
+            {
+                var binResp = Ok(Convert.ToBase64String(bytes));
+                binResp.Content = bytes;
+                return binResp;
+            }
+
             try { return Ok(JsonSerializer.Serialize(result)); }
             catch
             {
-                var typeName = instanceType?.FullName ?? "?";
-                var resultTypeName = result.GetType().Name;
-                var errorMessage = $"Kann das Ergebnis von '{typeName}.{resultTypeName}' nicht serialisieren.";
-                return InternalServerError(errorMessage);
+                _logger.LogWarning("Failed to serialize result of type {ResultType} from controller {ControllerType}",
+                    result.GetType().Name, instanceType?.FullName);
+                return InternalServerError("Failed to serialize the response.");
             }
         }
 
@@ -728,18 +910,29 @@ namespace HrpcCore.Services
             => CreateResponse(HttpStatusCode.InternalServerError, message);
 
         private static HrpcResponse Forbidden()
-            => new() { Code = (int)HttpStatusCode.Forbidden };
+            => new() { Code = (int)HttpStatusCode.Forbidden, Error = new HrpcError { Code = 403, Message = "Forbidden" } };
 
         private static HrpcResponse MethodNotAllowed()
-            => new() { Code = (int)HttpStatusCode.MethodNotAllowed };
+            => new() { Code = (int)HttpStatusCode.MethodNotAllowed, Error = new HrpcError { Code = 405, Message = "Method Not Allowed" } };
 
         private HrpcResponse CreateResponse(HttpStatusCode code, string? data)
         {
-            return new HrpcResponse
+            var response = new HrpcResponse
             {
                 Code = (int)code,
                 Data = data
             };
+
+            if ((int)code is < 200 or > 299)
+            {
+                response.Error = new HrpcError
+                {
+                    Code = (int)code,
+                    Message = data ?? "Unknown error"
+                };
+            }
+
+            return response;
         }
 
         #endregion

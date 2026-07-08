@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 using System.Threading;
-using HrpcClient.Hrpc.Exceptions;
+// HrpcException is now provided via global using alias from GlobalUsings.cs
 
 namespace HrpcClient.Hrpc
 {
@@ -31,7 +31,7 @@ namespace HrpcClient.Hrpc
                 return default;
 
             var response = await Call(request, ct);
-            if (response is { Code: 200 } && !string.IsNullOrEmpty(response.Data))
+            if (response is { IsSuccess: true } && !string.IsNullOrEmpty(response.Data))
             {
                 try
                 {
@@ -42,9 +42,10 @@ namespace HrpcClient.Hrpc
                     throw new HrpcException("Fehler bei der Deserialisierung der Antwort.", ex);
                 }
             }
-            if (response != null && response.Code != 200)
+            if (response != null && !response.IsSuccess)
             {
-                throw new HrpcException($"Server antwortete mit Fehlercode {response.Code}: {response.Data}", null);
+                var error = response.Error ?? HrpcError.FromResponse(response);
+                throw new HrpcException(error, null);
             }
             return default;
         }

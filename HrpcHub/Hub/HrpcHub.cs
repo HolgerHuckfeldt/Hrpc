@@ -1,5 +1,4 @@
-﻿using HrpcCore.Model.Handler;
-using HrpcCore.Model.Messages;
+﻿using HrpcCore.Services;
 using Microsoft.AspNetCore.SignalR;
 
 namespace HrpcHub.Hub

@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="HrpcTests" />
+    <InternalsVisibleTo Include="HrpcBench" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Grpc.AspNetCore" Version="2.67.0" />
     <PackageReference Include="Grpc.Tools" Version="2.70.0">
       <PrivateAssets>all</PrivateAssets>
@@ -17,10 +22,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Protobuf Include="Grpc\customer.proto" GrpcServices="Server" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\HrpcCore\HrpcCore.csproj" />
     <ProjectReference Include="..\HrpcDeveloperUi\HrpcDeveloperUi.csproj" />
     <ProjectReference Include="..\HrpcHub\HrpcHub.csproj" />
     <ProjectReference Include="..\HrpcRest\HrpcRest.csproj" />
+    <ProjectReference Include="..\HrpcWebSocket\HrpcWebSocket.csproj" />
   </ItemGroup>
 
   <ItemGroup>
