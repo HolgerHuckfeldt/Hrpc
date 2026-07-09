@@ -592,13 +592,28 @@ namespace HrpcCore.Services
                     {
                         string alias = kv.Key;
                         string jsonPath = kv.Value;
-                        // Angenommen, ExtractValue gibt ein JsonNode oder string zurück
-                        var extracted = DependencyResolver.ExtractValue(result.Data, jsonPath);
-                        if (extracted != null)
-                            // ToJsonString (nicht ToString!) bewahrt den JSON-Typ: Zahl/Bool/Object
-                            // bleiben korrekt kodiert, damit die @alias-Substitution weiter unten
-                            // typgetreu injiziert wird (siehe ReplaceDependencyByAlias).
-                            exposed[alias] = extracted.ToJsonString();
+                        // ExtractValue parst result.Data als JSON. Für normale Results ist Data
+                        // gültiges JSON (JsonSerializer.Serialize), aber byte[]-Returns legen
+                        // nackten Base64-String in Data (Ok(Convert.ToBase64String(...))) — kein
+                        // gültiges JSON. JsonNode.Parse würde werfen und den Call zum 500 machen.
+                        // Da sich aus nicht-parsebarem Data kein Wert extrahieren lässt, wird der
+                        // Alias hier übersprungen (wie bei null-Extraktion) — der Consumer erhält
+                        // dann ein sauberes 400 (Unresolved dependencies), kein 500.
+                        try
+                        {
+                            var extracted = DependencyResolver.ExtractValue(result.Data, jsonPath);
+                            if (extracted != null)
+                                // ToJsonString (nicht ToString!) bewahrt den JSON-Typ: Zahl/Bool/Object
+                                // bleiben korrekt kodiert, damit die @alias-Substitution weiter unten
+                                // typgetreu injiziert wird (siehe ReplaceDependencyByAlias).
+                                exposed[alias] = extracted.ToJsonString();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex,
+                                "Dependency-Extraktion für Alias {Alias} (Pfad {Path}) fehlgeschlagen — Data ist kein parsebares JSON.",
+                                alias, jsonPath);
+                        }
                     }
                     result.ExposedDependencies = exposed;
                 }
