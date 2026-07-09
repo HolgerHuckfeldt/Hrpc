@@ -9,6 +9,9 @@
     <Authors>Hrpc</Authors>
     <Description>REST transport for Hrpc RPC framework</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/HolgerHuckfeldt/Hrpc</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>

@@ -10,7 +10,14 @@
     <Description>Core RPC engine: invoker, discovery, dependency resolver, interceptors</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/HolgerHuckfeldt/Hrpc</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
+
+  <!-- Root-README als Paket-README einpacken (PackageReadmeFile=README.md) -->
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="JsonPath.Net" Version="2.1.1" />
