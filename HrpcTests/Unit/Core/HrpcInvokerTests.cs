@@ -1097,5 +1097,266 @@ public class HrpcInvokerTests
         byId["s2"].Error.Should().NotBeNull();
     }
 
+    // --- Edge-Cases: weitere Primitives, geschachtelter Pfad, Dictionary, Nullable, Binär ---
+
+    /// <summary>
+    /// double durch eine Chain. System.Text.Json serialisiert double als JSON-Zahl; die
+    /// Substitution muss die Zahlform erhalten (wie bei decimal/int).
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Double_RoundtripsThroughAlias()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "EchoDouble",
+            new Dictionary<string, string> { { "pi", "$" } },
+            ("value", "3.14159"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoDouble",
+            ("value", "@pi"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<double>(byId["s2"].Data!).Should().Be(3.14159);
+    }
+
+    /// <summary>
+    /// float durch eine Chain. float wird als JSON-Zahl serialisiert; Wert so gewählt,
+    /// dass er ohne Präzisionsverlust round-trippt.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Float_RoundtripsThroughAlias()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "EchoFloat",
+            new Dictionary<string, string> { { "f", "$" } },
+            ("value", "1.5"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoFloat",
+            ("value", "@f"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<float>(byId["s2"].Data!).Should().Be(1.5f);
+    }
+
+    /// <summary>
+    /// DateTime durch eine Chain. DateTime wird als ISO-8601-JSON-String serialisiert;
+    /// die typgetreue Substitution muss die String-Form (mit Quotes) intakt halten
+    /// (analog string), sonst bricht Deserialize&lt;DateTime&gt;.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_DateTime_RoundtripsThroughAlias()
+    {
+        // Arrange — Unspecified-Kind, damit der Roundtrip ohne Offset-Verschiebung ist
+        var value = new DateTime(2026, 7, 9, 12, 0, 0, DateTimeKind.Unspecified);
+        var step1 = ChainRequest("s1", "DepChain", "EchoDateTime",
+            new Dictionary<string, string> { { "when", "$" } },
+            ("value", $"\"{value:O}\""));
+        var step2 = ChainRequest("s2", "DepChain", "EchoDateTime",
+            ("value", "@when"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<DateTime>(byId["s2"].Data!).Should().Be(value);
+    }
+
+    /// <summary>
+    /// Guid durch eine Chain. Guid wird als JSON-String serialisiert; String-Form muss
+    /// intakt transportiert werden.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Guid_RoundtripsThroughAlias()
+    {
+        // Arrange
+        var guid = Guid.Parse("12345678-1234-1234-1234-123456789abc");
+        var step1 = ChainRequest("s1", "DepChain", "EchoGuid",
+            new Dictionary<string, string> { { "g", "$" } },
+            ("value", $"\"{guid}\""));
+        var step2 = ChainRequest("s2", "DepChain", "EchoGuid",
+            ("value", "@g"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<Guid>(byId["s2"].Data!).Should().Be(guid);
+    }
+
+    /// <summary>
+    /// enum durch eine Chain. Default-Serialisierung ist die numerische Member-Value
+    /// (hier ChainPriority.High = 2); die Substitution behandelt das wie int.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Enum_RoundtripsThroughAlias()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "EchoPriority",
+            new Dictionary<string, string> { { "p", "$" } },
+            ("value", "2"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoPriority",
+            ("value", "@p"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<ChainPriority>(byId["s2"].Data!).Should().Be(ChainPriority.High);
+    }
+
+    /// <summary>
+    /// Ganze primitive Liste als Dependency: MakeIntList() → [10,20,30] exposes "$" als
+    /// "list"; EchoIntList(@list) muss die Liste intakt zurückgeben. Komplementiert den
+    /// Array-Element-Pfad-Test (dort wird nur $[1] extrahiert, hier die ganze List&lt;int&gt;
+    /// injiziert).
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_WholePrimitiveArray_InjectsIntoArrayParam()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "MakeIntList",
+            new Dictionary<string, string> { { "list", "$" } });
+        var step2 = ChainRequest("s2", "DepChain", "EchoIntList",
+            ("values", "@list"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        var values = JsonSerializer.Deserialize<List<int>>(byId["s2"].Data!);
+        values.Should().Equal(10, 20, 30);
+    }
+
+    /// <summary>
+    /// Geschachtelter JsonPath in einer Chain: MakeNestedDto(5,7) → {Id:5, Inner:{Id:7}};
+    /// exposes "$.Inner.Id" als "innerId"; EchoLong(@innerId) muss 7 liefern. Prüft
+    /// Multi-Level-Pfad-Extraktion (bisher nur flache $.Prop in Chains).
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_NestedPath_InjectsInnerId()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "MakeNestedDto",
+            new Dictionary<string, string> { { "innerId", "$.Inner.Id" } },
+            ("outerId", "5"), ("innerId", "7"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoLong",
+            ("value", "@innerId"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].ExposedDependencies!["innerId"].Should().Be("7");
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<long>(byId["s2"].Data!).Should().Be(7L);
+    }
+
+    /// <summary>
+    /// Dictionary als Dependency: MakeDict() → {"a":1,"b":2,"c":3} exposes "$" als "map";
+    /// EchoDict(@map) muss das Dictionary intakt zurückgeben. Prüft, dass ein JSON-Objekt
+    /// mit String-Keys in einen Dictionary-Parameter injiziert wird.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Dictionary_WholeResult_InjectsIntoDictParam()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "MakeDict",
+            new Dictionary<string, string> { { "map", "$" } });
+        var step2 = ChainRequest("s2", "DepChain", "EchoDict",
+            ("map", "@map"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        var map = JsonSerializer.Deserialize<Dictionary<string, int>>(byId["s2"].Data!);
+        map.Should().NotBeNull();
+        map!.Should().HaveCount(3);
+        map["b"].Should().Be(2);
+    }
+
+    /// <summary>
+    /// Nullable-Result: FindDto(-1) liefert null; exposes "$.Name". Ein null-Result
+    /// serialisiert zu Data="null" (gültiges JSON), aber $.Name extrahiert daraus nichts
+    /// → der Alias wird nicht in ExposedDependencies eingetragen (kein Crash, kein 500).
+    /// Der Consumer bekommt daher 400 (Unresolved dependencies).
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_NullResult_AliasNotExposed_ConsumerReturns400()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "FindDto",
+            new Dictionary<string, string> { { "name", "$.Name" } },
+            ("id", "-1"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoString",
+            ("value", "@name"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s1"].ExposedDependencies.Should().NotContainKey("name");
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.BadRequest);
+        byId["s2"].Error.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// Binär-Result als Dependency-Quelle: DownloadBytes() → byte[]; exposes "$".
+    /// byte[]-Returns legen nackten Base64-String in Data (kein gültiges JSON), daher
+    /// kann ExtractValue keinen Wert extrahieren — der Alias wird übersprungen (kein
+    /// 500, siehe Server-Fix). Zusätzlich sind byte[]-Parameter aus BinaryData gespeist,
+    /// nicht aus dem Data-Feld, sodass binäre Payloads über @alias nicht chainbar sind.
+    /// Dokumentiert die Designgrenze als sauberes 400 statt Server-Crash.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_BinaryResult_AliasNotExposed_ConsumerReturns400()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "DownloadBytes",
+            new Dictionary<string, string> { { "bytes", "$" } });
+        var step2 = ChainRequest("s2", "DepChain", "EchoBytes",
+            ("data", "@bytes"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert — step1 crasht nicht (Base64 ist kein JSON, Alias wird übersprungen)
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s1"].Content.Should().NotBeNull();
+        byId["s1"].ExposedDependencies.Should().NotContainKey("bytes");
+        // step2 bekommt den Alias nicht -> sauberes 400, kein 500
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.BadRequest);
+        byId["s2"].Error.Should().NotBeNull();
+    }
+
     #endregion
 }

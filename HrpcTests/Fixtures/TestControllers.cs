@@ -163,4 +163,70 @@ public class DependencyChainController
     /// <summary>Liefert eine feste int-Liste [10,20,30] als Quelle für Array-Element-Pfade ($[1]).</summary>
     [HrpcMethod("MakeIntList")]
     public List<int> MakeIntList() => new() { 10, 20, 30 };
+
+    // --- Weitere Primitives (Roundtrip) ---
+
+    [HrpcMethod("EchoDouble")]
+    public double EchoDouble(double value) => value;
+
+    [HrpcMethod("EchoFloat")]
+    public float EchoFloat(float value) => value;
+
+    [HrpcMethod("EchoDateTime")]
+    public DateTime EchoDateTime(DateTime value) => value;
+
+    [HrpcMethod("EchoGuid")]
+    public Guid EchoGuid(Guid value) => value;
+
+    [HrpcMethod("EchoPriority")]
+    public ChainPriority EchoPriority(ChainPriority value) => value;
+
+    // --- Ganze primitive Liste als Dependency (nicht nur Element-Extraktion) ---
+
+    /// <summary>Nimmt eine ganze List&lt;int&gt; als @alias und gibt sie unverändert zurück.</summary>
+    [HrpcMethod("EchoIntList")]
+    public List<int> EchoIntList(List<int> values) => values;
+
+    // --- Geschachtelter Pfad ($.Inner.Id) ---
+
+    [HrpcMethod("MakeNestedDto")]
+    public NestedDto MakeNestedDto(int outerId, int innerId) => new()
+    {
+        Id = outerId,
+        Inner = new() { Id = innerId, Name = "Inner" }
+    };
+
+    // --- Nullable-Result (FindDto liefert null für id <= 0) ---
+
+    [HrpcMethod("FindDto")]
+    public TestDto? FindDto(int id) => id > 0 ? new TestDto { Id = id, Name = "Found" } : null;
+
+    // --- Binär (byte[]) — dokumentiert die Chain-Grenze ---
+
+    [HrpcMethod("DownloadBytes")]
+    public byte[] DownloadBytes() => System.Text.Encoding.UTF8.GetBytes("chain-bytes");
+
+    [HrpcMethod("EchoBytes")]
+    public byte[] EchoBytes(byte[] data) => data;
+
+    // --- Dictionary als Dependency ---
+
+    [HrpcMethod("MakeDict")]
+    public Dictionary<string, int> MakeDict() => new() { { "a", 1 }, { "b", 2 }, { "c", 3 } };
+
+    [HrpcMethod("EchoDict")]
+    public Dictionary<string, int> EchoDict(Dictionary<string, int> map) => map;
+}
+
+/// <summary>Enum für den Enum-Roundtrip durch eine Chain (default-Serialisierung als Zahl).</summary>
+public enum ChainPriority { Low = 0, Medium = 1, High = 2 }
+
+/// <summary>
+/// Verschachtelter DataContract für Multi-Level-JsonPath-Tests ($.Inner.Id) in einer Chain.
+/// </summary>
+[HrpcDataContract]
+public class NestedDto
+{
+    public int Id { get; set; }
+    public TestDto Inner { get; set; } = new();
 }
