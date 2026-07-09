@@ -1,5 +1,5 @@
 import { fetchDiscovery as apiFetchDiscovery } from '../api/client';
-import type { DiscoveryInfo, ControllerMeta } from '../types/discovery';
+import type { DiscoveryInfo, ControllerMeta } from 'hrpc-client';
 
 class DiscoveryState {
   data = $state<DiscoveryInfo | null>(null);

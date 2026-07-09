@@ -1,36 +1,23 @@
-import type { DiscoveryInfo, HrpcRequest, HrpcMultiRequest, HrpcResponse } from '../types/discovery';
+// Dünne Fassade über dem offiziellen Hrpc TS-Client (hrpc-client).
+// Die DevUI dogfooded hier ihren eigenen Client statt einen handgestrickten
+// fetch-Wrapper zu pflegen. Signaturen bleiben identisch, damit Konsumenten
+// (EditorPane, discovery.svelte.ts, App.svelte) unverändert bleiben.
 
-const API_ROOT = '/api/hrpc';
+import { HrpcRestClient } from 'hrpc-client';
+import type { DiscoveryInfo, HrpcMultiRequest, HrpcRequest, HrpcResponse } from 'hrpc-client';
+
+// baseUrl "/" liefert relative Same-Origin-Pfade ("/api/hrpc/..."), sodass die
+// DevUI hinter jedem Proxy/Port läuft, ohne window.location zu bemühen.
+const client = new HrpcRestClient('/', { apiPath: 'api/hrpc' });
 
 export async function fetchDiscovery(): Promise<DiscoveryInfo> {
-  const res = await fetch(`${API_ROOT}/discovery`);
-  if (!res.ok) {
-    throw new Error(`Discovery failed: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
+  return client.discover();
 }
 
 export async function executeRequest(request: HrpcRequest): Promise<HrpcResponse> {
-  const res = await fetch(`${API_ROOT}/json`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
-  }
-  return res.json();
+  return client.call(request);
 }
 
 export async function executeBatch(request: HrpcMultiRequest): Promise<HrpcResponse[]> {
-  const res = await fetch(`${API_ROOT}/json/multi`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  });
-  if (!res.ok) {
-    throw new Error(`Batch request failed: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
+  return client.callBatch(request.requests, request.mode);
 }

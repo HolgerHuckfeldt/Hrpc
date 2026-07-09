@@ -1,4 +1,4 @@
-import type { ControllerMeta, MethodMeta, ParameterMeta, HrpcParameter } from '../types/discovery';
+import type { ControllerMeta, MethodMeta, ParameterMeta, HrpcParameter } from 'hrpc-client';
 import { formatJson } from '../utils/json';
 
 export type TabType = 'request' | 'codegen';

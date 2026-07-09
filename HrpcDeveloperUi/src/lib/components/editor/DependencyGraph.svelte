@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { HrpcRequest } from '../../types/discovery';
+  import type { HrpcRequest } from 'hrpc-client';
 
   let { requests = [] }: { requests: HrpcRequest[] } = $props();
 

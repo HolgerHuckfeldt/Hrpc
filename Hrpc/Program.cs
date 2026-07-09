@@ -3,6 +3,7 @@ using Hrpc.Hrpc;
 using Hrpc.Services;
 using HrpcHub.Extensions;
 using HrpcWebSocket;
+using HrpcDeveloperUi;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseStaticWebAssets();
@@ -62,12 +63,6 @@ app.UseRateLimiter();
 
 app.UseHttpsRedirection();
 
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
-        System.IO.Path.Combine(builder.Environment.ContentRootPath, "..", "HrpcDeveloperUi", "wwwroot")),
-    RequestPath = "/developer-static"
-});
 app.UseStaticFiles();
 app.UseDefaultFiles();
 
@@ -80,11 +75,7 @@ app.UseHrpc();
 
 app.MapRazorPages();
 
-app.MapGet("/developer", ctx =>
-{
-    ctx.Response.Redirect("/developer-static/developer/index.html");
-    return Task.CompletedTask;
-});
+app.MapHrpcDeveloperUi();
 
 app.UseWebSockets();
 app.UseHrpcWebSocket("/hrpcws");

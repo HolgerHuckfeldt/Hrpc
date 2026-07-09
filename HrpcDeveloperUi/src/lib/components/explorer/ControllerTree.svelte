@@ -1,7 +1,7 @@
 <script lang="ts">
   import { discoveryState } from '../../state/discovery.svelte.ts';
   import { tabState } from '../../state/tabs.svelte.ts';
-  import type { ControllerMeta, MethodMeta } from '../../types/discovery';
+  import type { ControllerMeta, MethodMeta } from 'hrpc-client';
 
   function isMethodActive(controller: ControllerMeta, method: MethodMeta): boolean {
     return tabState.activeTab?.controller?.name === controller.name && tabState.activeTab?.method?.methodName === method.methodName;

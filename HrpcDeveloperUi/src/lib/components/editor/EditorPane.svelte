@@ -3,7 +3,7 @@
   import { historyState } from '../../state/history.svelte.ts';
   import { executeRequest, executeBatch } from '../../api/client';
   import { formatJson } from '../../utils/json';
-  import { ExecutionMode, type HrpcRequest } from '../../types/discovery';
+  import { ExecutionMode, type HrpcRequest } from 'hrpc-client';
   import TabBar from './TabBar.svelte';
   import ParamEditor from './ParamEditor.svelte';
   import JsonEditor from './JsonEditor.svelte';

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { discoveryState } from '../../state/discovery.svelte.ts';
-  import type { ControllerMeta, MethodMeta, ParameterMeta, TypeMeta, PropertyMeta } from '../../types/discovery';
+  import type { ControllerMeta, MethodMeta, ParameterMeta, TypeMeta, PropertyMeta } from 'hrpc-client';
 
   let activeLang = $state<'ts' | 'cs'>('ts');
   let copied = $state('');

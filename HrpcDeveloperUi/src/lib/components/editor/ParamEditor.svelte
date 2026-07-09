@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ParameterMeta } from '../../types/discovery';
+  import type { ParameterMeta } from 'hrpc-client';
   import type { Tab } from '../../state/tabs.svelte.ts';
   import { tabState } from '../../state/tabs.svelte.ts';
 

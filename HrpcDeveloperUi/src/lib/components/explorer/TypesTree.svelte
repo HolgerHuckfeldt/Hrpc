@@ -1,6 +1,6 @@
 <script lang="ts">
   import { discoveryState } from '../../state/discovery.svelte.ts';
-  import type { TypeMeta, PropertyMeta } from '../../types/discovery';
+  import type { TypeMeta, PropertyMeta } from 'hrpc-client';
 
   let expandedTypes = $state<Set<string>>(new Set());
 

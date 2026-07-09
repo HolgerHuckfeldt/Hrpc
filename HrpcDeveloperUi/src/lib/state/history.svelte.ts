@@ -1,4 +1,4 @@
-import type { HrpcRequest, HrpcResponse } from '../types/discovery';
+import type { HrpcRequest, HrpcResponse } from 'hrpc-client';
 
 export interface HistoryEntry {
   id: string;

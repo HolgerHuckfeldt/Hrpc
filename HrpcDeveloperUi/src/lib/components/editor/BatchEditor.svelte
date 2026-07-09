@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ExecutionMode, type HrpcRequest } from '../../types/discovery';
+  import { ExecutionMode, type HrpcRequest } from 'hrpc-client';
   import { formatJson } from '../../utils/json';
 
   let {
