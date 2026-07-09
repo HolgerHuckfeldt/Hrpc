@@ -13,7 +13,7 @@ import { toBase64 } from "./request.js";
  *   .with([42, "x"])                // oder positional
  *   .withBinary(blob)               // -> binaryData (base64)
  *   .named("step1")                 // -> id
- *   .exposes("$.data", "newId")     // -> dependencyMapping
+ *   .exposes("$", "newId")         // -> dependencyMapping (ergebnisrelativer Pfad)
  *   .withAlias("@newId")            // Platzhalter, Server löst @newId auf
  *   .toRequest();
  * ```
@@ -67,6 +67,13 @@ export class HrpcCall {
    * Deklariert, dass diese Response den Wert unter `jsonPath` als `alias`
    * exposed (für Dependency-Chaining). Server-seitig aufgelöst; Folgerequests
    * nutzen `@alias` in ihrem `data`.
+   *
+   * `jsonPath` ist **ergebnisrelativ** — die Wurzel `$` ist das serialisierte
+   * Resultat (z. B. ein `int` oder ein `Customer`-Objekt), nicht der
+   * Response-Umschlag. Es gibt also keine `data`-Knoten-Ebene: nutze `$` für das
+   * ganze Resultat, `$.Id`/`$.Name` für Eigenschaften, `$[0].Id` für ein
+   * Listenelement. Ein Pfad wie `$.data` trifft nie (außer das Resultat hat
+   * selbst eine `data`-Eigenschaft).
    */
   exposes(jsonPath: string, alias: string): this {
     this._exposed.set(alias, jsonPath);

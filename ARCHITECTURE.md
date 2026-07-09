@@ -97,7 +97,7 @@ Hrpc is a protocol-agnostic RPC engine that sits between your business logic and
 6. Each level runs in parallel, levels run sequentially
 
 ### Dependency Chaining
-1. Request A declares `DependencyMapping: { "alias" → "$.data" }`
+1. Request A declares `DependencyMapping: { "alias" → "$" }` (result-relative JSON path; `$` is the whole result, `$.Property` a property, `$[0].Id` a list element)
    - After execution, the server extracts values from A's response using JsonPath
    - Extracted values are stored in `ExposedDependencies: { "alias" → value }`
 2. Request B uses `@alias` as a parameter placeholder

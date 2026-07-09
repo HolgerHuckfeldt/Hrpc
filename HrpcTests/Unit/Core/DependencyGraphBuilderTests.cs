@@ -48,8 +48,8 @@ public class DependencyGraphBuilderTests
         // Arrange: a -> b -> c (b depends on a, c depends on b)
         var requests = new List<HrpcRequest>
         {
-            CreateRequest("a", dependencyMapping: new Dictionary<string, string> { { "valA", "$.data" } }),
-            CreateRequest("b", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valA\"}]", dependencyMapping: new Dictionary<string, string> { { "valB", "$.data" } }),
+            CreateRequest("a", dependencyMapping: new Dictionary<string, string> { { "valA", "$" } }),
+            CreateRequest("b", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valA\"}]", dependencyMapping: new Dictionary<string, string> { { "valB", "$" } }),
             CreateRequest("c", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valB\"}]")
         };
 
@@ -72,9 +72,9 @@ public class DependencyGraphBuilderTests
         // Batch 3: d
         var requests = new List<HrpcRequest>
         {
-            CreateRequest("a", dependencyMapping: new Dictionary<string, string> { { "valA", "$.data" } }),
-            CreateRequest("b", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valA\"}]", dependencyMapping: new Dictionary<string, string> { { "valB", "$.data" } }),
-            CreateRequest("c", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valA\"}]", dependencyMapping: new Dictionary<string, string> { { "valC", "$.data" } }),
+            CreateRequest("a", dependencyMapping: new Dictionary<string, string> { { "valA", "$" } }),
+            CreateRequest("b", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valA\"}]", dependencyMapping: new Dictionary<string, string> { { "valB", "$" } }),
+            CreateRequest("c", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valA\"}]", dependencyMapping: new Dictionary<string, string> { { "valC", "$" } }),
             CreateRequest("d", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valB\"},{\"ParameterName\":\"y\",\"Data\":\"@valC\"}]")
         };
 
@@ -95,8 +95,8 @@ public class DependencyGraphBuilderTests
         // Arrange: a depends on b, b depends on a
         var requests = new List<HrpcRequest>
         {
-            CreateRequest("a", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valB\"}]", dependencyMapping: new Dictionary<string, string> { { "valA", "$.data" } }),
-            CreateRequest("b", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valA\"}]", dependencyMapping: new Dictionary<string, string> { { "valB", "$.data" } })
+            CreateRequest("a", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valB\"}]", dependencyMapping: new Dictionary<string, string> { { "valA", "$" } }),
+            CreateRequest("b", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valA\"}]", dependencyMapping: new Dictionary<string, string> { { "valB", "$" } })
         };
 
         // Act
@@ -123,7 +123,7 @@ public class DependencyGraphBuilderTests
         // Arrange: 3 independent requests + 1 dependent
         var requests = new List<HrpcRequest>
         {
-            CreateRequest("a", dependencyMapping: new Dictionary<string, string> { { "valA", "$.data" } }),
+            CreateRequest("a", dependencyMapping: new Dictionary<string, string> { { "valA", "$" } }),
             CreateRequest("indep1"),
             CreateRequest("indep2"),
             CreateRequest("dep", stringData: "[{\"ParameterName\":\"x\",\"Data\":\"@valA\"}]")

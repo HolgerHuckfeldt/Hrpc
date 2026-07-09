@@ -46,7 +46,7 @@ public class DependencyChainBenchmarks
                     Id = "step1",
                     DependencyMapping = new Dictionary<string, string>
                     {
-                        { "newCustomerId", "$.data" }
+                        { "newCustomerId", "$" }
                     }
                 },
                 new HrpcRequest
@@ -57,7 +57,7 @@ public class DependencyChainBenchmarks
                     Id = "step2",
                     DependencyMapping = new Dictionary<string, string>
                     {
-                        { "orderId", "$.data.orderId" }
+                        { "orderId", "$.OrderId" }
                     }
                 },
                 new HrpcRequest
@@ -88,7 +88,7 @@ public class DependencyChainBenchmarks
                     Id = "step1",
                     DependencyMapping = new Dictionary<string, string>
                     {
-                        { "newCustomerId", "$.data" }
+                        { "newCustomerId", "$" }
                     }
                 },
                 new HrpcRequest
@@ -99,7 +99,7 @@ public class DependencyChainBenchmarks
                     Id = "step2",
                     DependencyMapping = new Dictionary<string, string>
                     {
-                        { "orderId", "$.data.orderId" }
+                        { "orderId", "$.OrderId" }
                     }
                 },
                 new HrpcRequest

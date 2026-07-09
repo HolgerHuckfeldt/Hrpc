@@ -40,14 +40,14 @@ const customer = await rest.callJson<Customer>("Customer", "GetById", { id: 42 }
 const req = HrpcCall.init("Customer", "Create")
   .with({ name: "Alice" })
   .named("step1")
-  .exposes("$.data", "newId")
+  .exposes("$", "newId")
   .toRequest();
 const created = await rest.call(req);
 
 // --- Batch with dependency chaining (single roundtrip) ---
 const batch = HrpcCall.batch(
   [
-    HrpcCall.init("Customer", "Create").with({ name: "Alice" }).named("step1").exposes("$.data", "newId").toRequest(),
+    HrpcCall.init("Customer", "Create").with({ name: "Alice" }).named("step1").exposes("$", "newId").toRequest(),
     HrpcCall.init("Customer", "GetById").withAlias("@newId").named("step2").toRequest(),
   ],
   ExecutionMode.Serial, // Serial => @alias resolution between calls

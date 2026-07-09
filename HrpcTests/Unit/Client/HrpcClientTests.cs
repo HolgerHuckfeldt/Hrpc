@@ -71,13 +71,13 @@ public class HrpcCallTests
         // Act
         var call = HrpcCall.Init("Customer", "Add")
             .With("Alice")
-            .Exposes("$.data", "customerId");
+            .Exposes("$", "customerId");
 
         // Assert
         var request = call.ToRequest();
         request.DependencyMapping.Should().NotBeNull();
         request.DependencyMapping.Should().ContainKey("customerId");
-        request.DependencyMapping!["customerId"].Should().Be("$.data");
+        request.DependencyMapping!["customerId"].Should().Be("$");
     }
 
     [Fact]

@@ -33,6 +33,13 @@ namespace HrpcClient.Hrpc
         /// Gibt an, dass aus dem Ergebnis dieser Methode der Wert, der unter dem angegebenen JSON‑Path zu finden ist,
         /// unter dem Alias zur Verfügung gestellt wird.
         /// Beispiel: Exposes("$[0].Id", "firstId")
+        ///
+        /// Der JSON-Path ist **ergebnisrelativ** — die Wurzel ($) ist das Serialisierte
+        /// Resultat (z. B. ein Customer-Objekt oder ein int), NICHT der Response-Umschlag.
+        /// Es gibt also kein "data"-Knoten-Ebene. Verwende "$" für das ganze Resultat
+        /// (z. B. ein zurückgegebener int), "$.Id"/"$.Name" für Eigenschaften eines
+        /// Objekts oder "$[0].Id" für das erste Listenelement. Ein Pfad wie "$.data"
+        /// trifft daher nie (außer das Resultat hat selbst eine "data"-Eigenschaft).
         /// </summary>
         public HrpcCall Exposes(string jsonPath, string alias)
         {

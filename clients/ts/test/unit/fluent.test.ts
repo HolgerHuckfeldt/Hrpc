@@ -8,12 +8,12 @@ describe("HrpcCall", () => {
     const req = HrpcCall.init("Customer", "Add")
       .with({ name: "Alice" })
       .named("step1")
-      .exposes("$.data", "newId")
+      .exposes("$", "newId")
       .toRequest();
     expect(req.controller).toBe("Customer");
     expect(req.method).toBe("Add");
     expect(req.id).toBe("step1");
-    expect(req.dependencyMapping).toEqual({ newId: "$.data" });
+    expect(req.dependencyMapping).toEqual({ newId: "$" });
     expect(req.binaryData).toBeNull();
     expect(JSON.parse(req.stringData!)).toEqual([
       { parameterName: "name", data: '"Alice"', num: 0 },

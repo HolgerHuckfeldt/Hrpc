@@ -238,6 +238,11 @@ namespace HrpcCore.Services
                 var resolution = ResolveParameterValues(current, responses);
                 if (resolution.Error != null)
                 {
+                    // Error-Response muss die Request-Id tragen, damit Clients den
+                    // fehlerhaften Schritt korrelieren können — analog zum topologischen
+                    // Pfad (ExecuteSingleInvocationWithDependencies setzt err.Id ebenfalls).
+                    if (string.IsNullOrEmpty(resolution.Error.Id))
+                        resolution.Error.Id = current?.Id ?? string.Empty;
                     responses.TryAdd(current?.Id ?? String.Empty, resolution.Error);
                     continue;
                 }
@@ -290,11 +295,24 @@ namespace HrpcCore.Services
 
             var allResponses = new List<HrpcResponse?>();
 
+            // Aufgetürmte Responses VORHERIGER Batches — abhängige Requests lesen
+            // hieraus ihre @alias-Platzhalter (analog zu ExecuteSequentially). Innerhalb
+            // eines Batches sind die Requests per Kahn unabhängig, daher darf ein Batch
+            // nur die Responses früherer Batches sehen (die Writes erfolgen erst nach
+            // Task.WhenAll, also ohne Race innerhalb des Batches).
+            var priorResponses = new ConcurrentDictionary<string, HrpcResponse?>();
+
             foreach (var batch in batches)
             {
                 var batchResponses = await Task.WhenAll(
-                    batch.Select(request => ExecuteSingleInvocationWithDependencies(request, context, ct)));
-                allResponses.AddRange(batchResponses);
+                    batch.Select(request => ExecuteSingleInvocationWithDependencies(
+                        request, priorResponses, context, ct)));
+                foreach (var response in batchResponses)
+                {
+                    allResponses.Add(response);
+                    if (!string.IsNullOrEmpty(response?.Id))
+                        priorResponses.TryAdd(response.Id, response);
+                }
             }
 
             return allResponses;
@@ -302,15 +320,41 @@ namespace HrpcCore.Services
 
         /// <summary>
         /// Executes a single invocation with dependency resolution from prior responses.
+        /// Löst @alias-Platzhalter anhand von priorResponses auf (sofern vorhanden)
+        /// und baut einen effektiven Request mit ersetzten Parametern — identisch zum
+        /// Mechanismus in ExecuteSequentially. Ohne priorResponses (Wurzel-Batch) wird
+        /// der Request direkt ausgeführt.
         /// </summary>
         private async Task<HrpcResponse?> ExecuteSingleInvocationWithDependencies(
             HrpcRequest request,
+            ConcurrentDictionary<string, HrpcResponse?>? priorResponses,
             HttpContext? context,
             CancellationToken ct)
         {
-            var response = await ExecuteSingleInvocation(request, context, ct);
+            HrpcRequest effective = request;
+            if (priorResponses != null && !string.IsNullOrEmpty(request?.StringData))
+            {
+                var resolution = ResolveParameterValues(request, priorResponses);
+                if (resolution.Error != null)
+                {
+                    var err = resolution.Error;
+                    if (string.IsNullOrEmpty(err.Id))
+                        err.Id = request?.Id ?? string.Empty;
+                    return err;
+                }
+                effective = new HrpcRequest()
+                {
+                    Id = request!.Id,
+                    Controller = request.Controller,
+                    Method = request.Method,
+                    StringData = resolution.ResolvedJson,
+                    DependencyMapping = request.DependencyMapping,
+                };
+            }
+
+            var response = await ExecuteSingleInvocation(effective, context, ct);
             if (response != null && string.IsNullOrEmpty(response.Id))
-                response.Id = request?.Id ?? string.Empty;
+                response.Id = effective?.Id ?? string.Empty;
             return response;
         }
 
@@ -433,7 +477,17 @@ namespace HrpcCore.Services
                     string alias = strValue.Substring(1); // z. B. "firstId"
                     if (exposedDependencies.TryGetValue(alias, out var actualValue))
                     {
-                        // Ersetze den aktuellen Knoten durch den extrahierten Wert (als JsonValue)
+                        // actualValue ist die JSON-Form des extrahierten Werts (siehe
+                        // exposed[alias] = extracted.ToJsonString()) — z. B. "2" (int),
+                        // "\"hi\"" (string) oder "{...}" (Objekt). Das `data`-Feld von
+                        // HrpcParameter ist selbst ein string, der den JSON-serialisierten
+                        // Wert aufnimmt. Wir hüllen actualValue daher als JSON-String-Knoten
+                        // ein (JsonValue.Create), damit es beim erneuten Serialisieren als
+                        // String-Feld herauskommt und BuildParameters per
+                        // JsonSerializer.Deserialize<T>(data) den typgetreuen Wert
+                        // rekonstruiert. JsonNode.Parse würde stattdessen einen Number-/
+                        // Object-Knoten erzeugen — dann ist `data` kein string mehr und die
+                        // HrpcParameter-Deserialisierung schlägt fehl.
                         var newNode = JsonValue.Create(actualValue);
                         ReplaceInParent(node, newNode);
                     }
@@ -541,7 +595,10 @@ namespace HrpcCore.Services
                         // Angenommen, ExtractValue gibt ein JsonNode oder string zurück
                         var extracted = DependencyResolver.ExtractValue(result.Data, jsonPath);
                         if (extracted != null)
-                            exposed[alias] = extracted.ToString();
+                            // ToJsonString (nicht ToString!) bewahrt den JSON-Typ: Zahl/Bool/Object
+                            // bleiben korrekt kodiert, damit die @alias-Substitution weiter unten
+                            // typgetreu injiziert wird (siehe ReplaceDependencyByAlias).
+                            exposed[alias] = extracted.ToJsonString();
                     }
                     result.ExposedDependencies = exposed;
                 }

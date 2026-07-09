@@ -190,8 +190,8 @@ static async Task RunDependencyChainBenchmarks(BenchmarkFixture f)
         Mode = HrpcCommon.Models.ExecutionMode.Serial,
         Requests = new List<HrpcCommon.Models.HrpcRequest>
         {
-            new() { Controller = "Customer", Method = "AddCustomer", StringData = "[{\"ParameterName\":\"name\",\"Data\":\"\\\"Bench\\\"\"}]", Id = "s1", DependencyMapping = new() { { "cid", "$.data" } } },
-            new() { Controller = "Customer", Method = "GetCustomerById", StringData = "[{\"ParameterName\":\"id\",\"Data\":\"@cid\"}]", Id = "s2", DependencyMapping = new() { { "oid", "$.data.orderId" } } },
+            new() { Controller = "Customer", Method = "AddCustomer", StringData = "[{\"ParameterName\":\"name\",\"Data\":\"\\\"Bench\\\"\"}]", Id = "s1", DependencyMapping = new() { { "cid", "$" } } },
+            new() { Controller = "Customer", Method = "GetCustomerById", StringData = "[{\"ParameterName\":\"id\",\"Data\":\"@cid\"}]", Id = "s2", DependencyMapping = new() { { "oid", "$.OrderId" } } },
             new() { Controller = "Customer", Method = "GetOrderByOrderId", StringData = "[{\"ParameterName\":\"id\",\"Data\":\"@oid\"}]", Id = "s3" }
         }
     };

@@ -122,7 +122,7 @@ Batch of multiple requests in one roundtrip.
 {
   "requests": [
     { "controller": "Customer", "method": "Add", "stringData": "[...]", "id": "step1",
-      "dependencyMapping": { "newId": "$.data" } },
+      "dependencyMapping": { "newId": "$" } },
     { "controller": "Customer", "method": "GetById", "stringData": "[{\"ParameterName\":\"id\",\"Data\":\"@newId\"}]", "id": "step2" }
   ],
   "mode": 1
@@ -171,9 +171,13 @@ request body, `429` from the rate limiter, `499` for a cancelled request).
 
 ### Concept
 
-A request can **expose** values from its response using `dependencyMapping`:
-- `dependencyMapping: { "alias": "$.data" }` → extracts `$.data` from response, stores as `alias`
-- `dependencyMapping: { "orderId": "$.data.orderId" }` → extracts nested value
+A request can **expose** values from its response using `dependencyMapping`. The
+JSON path is **result-relative** — the root (`$`) is the serialized result (e.g. an
+`int`, a `Customer` object, a list), not the response envelope, so there is no
+`data` node to traverse:
+- `dependencyMapping: { "alias": "$" }` → extracts the whole result (e.g. an `int` id), stores as `alias`
+- `dependencyMapping: { "orderId": "$.OrderId" }` → extracts a property of an object result (PascalCase, as serialized server-side)
+- `dependencyMapping: { "first": "$[0].Id" }` → extracts from the first element of a list result
 
 A subsequent request can **use** exposed values with `@alias` placeholders:
 - `"stringData": "[{\"ParameterName\":\"id\",\"Data\":\"@orderId\"}]"`

@@ -69,7 +69,7 @@ Hrpc was designed from the ground up for RPC — not as a REST wrapper, but as a
 
 1. **Method-oriented, not resource-oriented**: `[HrpcController("Customer")]` + `[HrpcMethod("AddOrder")]` — no URL routing, no HTTP verbs to choose, no DTO mapping
 2. **Batch calls**: Send 10 RPC calls in one roundtrip — the server executes them and returns 10 responses
-3. **Dependency chaining** (GraphQL-inspired): One request exposes values via `Exposes("$.data", "orderId")`, the next uses `WithAlias("@orderId")` — the server resolves dependencies in a single roundtrip
+3. **Dependency chaining** (GraphQL-inspired): One request exposes values via `Exposes("$", "orderId")` (result-relative JSON path), the next uses `WithAlias("@orderId")` — the server resolves dependencies in a single roundtrip
 4. **Multi-transport**: REST for compatibility, WebSocket for low-latency persistent connections, SignalR for browser clients — same API, different wire protocols
 5. **Expression-Tree invocation**: Methods are pre-compiled to delegates at registration time — no reflection per call
 
@@ -167,7 +167,7 @@ var batch = new HrpcMultiRequest
     {
         HrpcCall.Init("Customer", "Create")
             .With("Alice").Named("step1")
-            .Exposes("$.data", "newId")
+            .Exposes("$", "newId")
             .ToRequest(),
         HrpcCall.Init("Customer", "GetById")
             .WithAlias("@newId")

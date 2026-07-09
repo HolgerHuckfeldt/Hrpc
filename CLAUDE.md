@@ -80,7 +80,7 @@ All transports deserialize the incoming `HrpcRequest`/`HrpcMultiRequest` and del
 - `HrpcRestJsonClient`: `HttpClient`-based, `IDisposable`.
 - `HrpcWebSocketClient`: persistent `ClientWebSocket` connection, `SemaphoreSlim` for thread safety, `IAsyncDisposable`.
 - `HrpcSignalrClient`: SignalR hub connection with auto-reconnect and exponential backoff.
-- `HrpcCall`: fluent builder — `.Init("Controller", "Method").With(args).Named("id").Exposes("$.data", "alias").WithAlias("@alias", "default").ToRequest()`.
+- `HrpcCall`: fluent builder — `.Init("Controller", "Method").With(args).Named("id").Exposes("$", "alias").WithAlias("@alias", "default").ToRequest()`. The `Exposes` JSON path is **result-relative** (`$` = whole result, `$.Property`, `$[0].Id`); there is no `$.data` envelope level.
 
 ### Key Attributes (defined in `HrpcCommon`)
 
@@ -99,7 +99,7 @@ Parameters are sent as `HrpcParameter[]` (name+data pairs), matched by parameter
 
 ### Dependency Chaining
 
-Request A declares `DependencyMapping: { "alias" → "$.data.path" }`. After execution, values are extracted via JsonPath and stored in `ExposedDependencies`. Request B uses `@alias` as a parameter placeholder — the server resolves it before execution. This enables multiple dependent calls in a single roundtrip.
+Request A declares `DependencyMapping: { "alias" → "$.Path" }` (a **result-relative** JsonPath — `$` is the whole serialized result, e.g. `$`, `$.Id`, `$[0].Id`; there is no `$.data` envelope level). After execution, values are extracted via `DependencyResolver.ExtractValue(result.Data, jsonPath)` (parsed against the result JSON) and stored in `ExposedDependencies`. Request B uses `@alias` as a parameter placeholder — the server resolves it before execution (`ResolveParameterValues` → `ReplaceDependencyByAlias`). Both the Serial (`ExecuteSequentially`) and the auto-detect topological-batch (`ExecuteInDependencyBatches`) paths resolve aliases against prior responses. This enables multiple dependent calls in a single roundtrip.
 
 ### Registration Flow
 

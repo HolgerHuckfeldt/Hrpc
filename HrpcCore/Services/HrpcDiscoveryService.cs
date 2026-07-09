@@ -85,10 +85,12 @@ namespace HrpcCore.Services
                         methodMeta.ReturnType = $"List<{GetFriendlyTypeName(genericArg)}>";
                         // Registriere das Generic-Argument, also z. B. Order
                         RegisterType(genericArg, discovery.Types);
-                        // Falls das Generic-Argument als HrpcDataContract markiert ist, setze die Nested-Definition
+                        // Falls das Generic-Argument als HrpcDataContract markiert ist, setze die Nested-Definition.
+                        // Primitive Generic-Argumente (z. B. List<int>) werden von RegisterType nicht registriert
+                        // und haben daher keine TypeDefinition — in diesem Fall bleibt ReturnTypeDefinition null.
                         string key = genericArg.FullName ?? genericArg.Name;
-                        if (key != null)
-                            methodMeta.ReturnTypeDefinition = discovery.Types[key];
+                        if (key != null && discovery.Types.TryGetValue(key, out var returnTypeDef))
+                            methodMeta.ReturnTypeDefinition = returnTypeDef;
                     }
                     // Für nicht-generische Rückgabetypen (außer void)
                     else if (!effectiveReturnType.Equals(typeof(void)) &&
@@ -122,9 +124,11 @@ namespace HrpcCore.Services
                             var genericArg = param.ParameterType.GetGenericArguments()[0];
                             paramMeta.ParameterType = $"List<{GetFriendlyTypeName(genericArg)}>";
                             RegisterType(genericArg, discovery.Types);
+                            // Primitive Generic-Argumente (z. B. List<int>) werden nicht registriert und
+                            // haben keine TypeDefinition — siehe Sonderfall beim Rückgabetyp oben.
                             string key = genericArg.FullName ?? genericArg.Name;
-                            if (key != null)
-                                paramMeta.TypeDefinition = discovery.Types[key];
+                            if (key != null && discovery.Types.TryGetValue(key, out var paramTypeDef))
+                                paramMeta.TypeDefinition = paramTypeDef;
                         }
                         else if (param.ParameterType.IsClass && param.ParameterType != typeof(string) &&
                                  param.ParameterType.IsDefined(typeof(HrpcDataContractAttribute), false))

@@ -55,7 +55,7 @@ Antwort:
       "method": "AddCustomer",
       "stringData": "[{\"parameterName\":\"name\",\"data\":\"\\\"Max\\\"\"}]",
       "id": "create",
-      "dependencyMapping": { "newId": "$.data" }
+      "dependencyMapping": { "newId": "$" }
     },
     {
       "controller": "Customer",
