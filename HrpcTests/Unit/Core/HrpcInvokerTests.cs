@@ -139,6 +139,55 @@ public class HrpcInvokerTests
         response.Data.Should().Contain("Hello World");
     }
 
+    // Weg A: Eine Controller-Methode, die ein HrpcResponse-Objekt zurückgibt
+    // (HrpcResults.Error/Ok), muss der Invoker UNVERÄNDERT durchreichen — Code,
+    // Data und strukturiertes Error bleiben erhalten (kein Re-Wrap als 200).
+    [Fact]
+    public async Task InvokeDi_ControllerReturnsHrpcResults_Error_IsPassedThroughVerbatim()
+    {
+        var request = CreateRequest("TestInvoker", "GetOr404", ("id", "99"));
+
+        var response = await _invoker.InvokeDi(request, null);
+
+        response.Should().NotBeNull();
+        response!.Code.Should().Be(404);
+        response.IsSuccess.Should().BeFalse();
+        response.Data.Should().Be("Customer '99' not found.");
+        response.Error.Should().NotBeNull();
+        response.Error!.Code.Should().Be(404);
+        response.Error.Message.Should().Be("Customer '99' not found.");
+        response.Id.Should().Be("TestInvoker.GetOr404");
+    }
+
+    [Fact]
+    public async Task InvokeDi_ControllerReturnsHrpcResults_Ok_IsPassedThroughVerbatim()
+    {
+        var request = CreateRequest("TestInvoker", "GetOr404", ("id", "5"));
+
+        var response = await _invoker.InvokeDi(request, null);
+
+        response.Should().NotBeNull();
+        response!.Code.Should().Be(200);
+        response.IsSuccess.Should().BeTrue();
+        response.Error.Should().BeNull();
+        // Ok(object) serialisiert PascalCase (wie der Invoker-Erfolgs-Pfad).
+        response.Data.Should().Contain("\"Id\":5");
+        response.Data.Should().Contain("\"Name\":\"Found\"");
+    }
+
+    [Fact]
+    public async Task InvokeDi_ControllerReturnsHrpcResults_BadRequest_CarriesDetails()
+    {
+        var request = CreateRequest("TestInvoker", "ValidationProblem", ("input", "\"\""));
+
+        var response = await _invoker.InvokeDi(request, null);
+
+        response!.Code.Should().Be(400);
+        response.IsSuccess.Should().BeFalse();
+        response.Data.Should().Be("input must not be empty.");
+        response.Error!.Details.Should().Be("ParameterName=input");
+    }
+
     [Fact]
     public async Task InvokeDi_VoidMethod_ReturnsNoContent()
     {

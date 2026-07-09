@@ -165,6 +165,54 @@ request body, `429` from the rate limiter, `499` for a cancelled request).
 > `HrpcError.requestId` is populated from the originating request `id` on every
 > non-2xx response, so clients can correlate failures even in batch calls.
 
+### Returning Errors from a Controller Method
+
+A controller method has two ways to signal a non-success outcome, and they are
+**not** interchangeable.
+
+**Return an `HrpcResponse` with a non-2xx `Code` — recommended for business /
+domain errors.** The invoker passes a returned `HrpcResponse` through verbatim
+(`HrpcInvoker.ReturnResponse`: `if (result is HrpcResponse) return it;`), so the
+exact `Code`, `Data`, and `Error` reach the client. Use the `HrpcResults` factory
+(`HrpcCommon.Results`) so both `Data` (the human message) and the structured
+`HrpcError` are set consistently:
+
+```csharp
+using HrpcCommon.Results;
+
+[HrpcMethod("GetById")]
+public HrpcResponse GetById(int id)
+{
+    var customer = _repo.Find(id);
+    if (customer is null)
+        return HrpcResults.NotFound($"Customer '{id}' not found.");
+    return HrpcResults.Ok(customer);
+}
+```
+
+`HrpcResults` API: `Ok(object?|string|byte[])`, `NoContent()`,
+`Error(code, message, details?)`, plus convenience `BadRequest` / `Unauthorized`
+/ `NotFound` / `Conflict` / `InternalServerError`, and an RFC-7807
+`Error(ProblemDetails)` overload (CamelCase JSON in `Data`; `title`/`detail`
+mirrored onto `HrpcError.Message`/`.Details`). The message is **not** gated by
+`EnableDetailedErrors` — it is yours and reaches the client in every environment.
+
+**Throw an exception — only for unexpected / internal failures.** Any thrown
+exception is mapped to `500` with a **generic** message (`"An internal error
+occurred…"`) and never leaks the exception text; the stack trace is placed in
+`error.details` only when `EnableDetailedErrors` is on (Development). Throwing is
+therefore wrong for validation or "not found": the client would see only the
+generic 500 and never your message. Note that throwing `HrpcException` from a
+controller does **not** propagate its `HrpcError.Code` — the server has no
+`catch(HrpcException)`; every throw becomes a generic 500. To control the code,
+return `HrpcResults.Error(...)`.
+
+**Client side.** The C# `HrpcClientBase.Call<T>` throws `HrpcException` on
+non-2xx, carrying `HrpcError` (from `response.Error`, or synthesized from `Data`
+via `HrpcError.FromResponse`). The TS `hrpc-client` `call()` returns the raw
+`HrpcResponse` (`isSuccess:false`, does not throw); `callJson<T>()` /
+`callBinary()` throw `HrpcError`.
+
 ---
 
 ## Dependency Chaining

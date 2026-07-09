@@ -1,5 +1,6 @@
 using HrpcCommon.Attribute;
 using HrpcCommon.Models;
+using HrpcCommon.Results;
 using HrpcCore.Attributes;
 
 namespace HrpcTests.Fixtures;
@@ -42,6 +43,21 @@ public class TestInvokerController
 
     [HrpcMethod("NoParams")]
     public string NoParams() => "Hello World";
+
+    // Controller-Methoden, die direkt ein HrpcResponse-Objekt zurückgeben (Weg A:
+    // strukturierte Domain-Fehler statt werfen). Der Invoker gibt die Response
+    // unverändert durch (HrpcInvoker.ReturnResponse: result is HrpcResponse).
+    [HrpcMethod("GetOr404")]
+    public HrpcResponse GetOr404(int id)
+        => id == 99
+            ? HrpcResults.NotFound($"Customer '{id}' not found.")
+            : HrpcResults.Ok(new TestDto { Id = id, Name = "Found" });
+
+    [HrpcMethod("ValidationProblem")]
+    public HrpcResponse ValidationProblem(string input)
+        => string.IsNullOrWhiteSpace(input)
+            ? HrpcResults.BadRequest("input must not be empty.", "ParameterName=input")
+            : HrpcResults.Ok(input);
 
     [HrpcMethod("Secured")]
     [HrpcAuthorise]

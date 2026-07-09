@@ -97,6 +97,13 @@ Parameters are sent as `HrpcParameter[]` (name+data pairs), matched by parameter
 
 `HrpcResponse` carries `Code` (HTTP-like status), `Data` (JSON result), `Content` (binary), `ExposedDependencies` (for chaining), and `HrpcError` on failure. Clients throw `HrpcException` on non-2xx responses.
 
+### Error Handling
+
+Controllers signal non-success two ways — use the right one:
+- **Business/domain errors → return `HrpcResponse`** via the `HrpcResults` factory (`HrpcCommon.Results`): `HrpcResults.NotFound("…")`, `HrpcResults.BadRequest("…")`, `HrpcResults.Error(code, message, details?)`, `HrpcResults.Ok(obj)`. The invoker passes a returned `HrpcResponse` through verbatim (`ReturnResponse`), so your `Code`+`Data`+`Error` reach the client. The message is **not** gated by `EnableDetailedErrors`.
+- **Unexpected/internal failures → throw**. Any throw becomes a generic `500` (no message leak); the stack only lands in `error.details` when `EnableDetailedErrors` (Development) is on.
+- Do **not** throw `HrpcException` to set a custom code — the server has no `catch(HrpcException)`; it becomes generic 500. Control the code via `HrpcResults.Error(...)`.
+
 ### Dependency Chaining
 
 Request A declares `DependencyMapping: { "alias" → "$.Path" }` (a **result-relative** JsonPath — `$` is the whole serialized result, e.g. `$`, `$.Id`, `$[0].Id`; there is no `$.data` envelope level). After execution, values are extracted via `DependencyResolver.ExtractValue(result.Data, jsonPath)` (parsed against the result JSON) and stored in `ExposedDependencies`. Request B uses `@alias` as a parameter placeholder — the server resolves it before execution (`ResolveParameterValues` → `ReplaceDependencyByAlias`). Both the Serial (`ExecuteSequentially`) and the auto-detect topological-batch (`ExecuteInDependencyBatches`) paths resolve aliases against prior responses. This enables multiple dependent calls in a single roundtrip.

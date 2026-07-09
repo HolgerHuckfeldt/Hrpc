@@ -130,6 +130,37 @@ HrpcError {
 
 Clients werfen `HrpcException` mit `HrpcError` bei non-2xx-Antworten.
 
+### Fehler aus einem Controller zurückgeben
+
+Zwei Wege — nicht austauschbar:
+
+- **Business-/Domain-Fehler → `HrpcResponse` zurückgeben** (empfohlen). Der Invoker
+  reicht eine zurückgegebene `HrpcResponse` unverändert durch
+  (`HrpcInvoker.ReturnResponse`: `if (result is HrpcResponse) return it;`), sodass
+  `Code` + `Data` + `Error` 1:1 beim Client ankommen. Fabrik `HrpcResults`
+  (`HrpcCommon.Results`) belegt `Data` (Mensch-lesbare Message) **und** das
+  strukturierte `HrpcError` konsistent:
+  ```csharp
+  using HrpcCommon.Results;
+  [HrpcMethod("GetById")]
+  public HrpcResponse GetById(int id)
+  {
+      var c = _repo.Find(id);
+      if (c is null) return HrpcResults.NotFound($"Customer '{id}' not found.");
+      return HrpcResults.Ok(c);
+  }
+  ```
+  API: `Ok(object?|string|byte[])`, `NoContent()`, `Error(code, message, details?)`,
+  Convenience `BadRequest`/`Unauthorized`/`NotFound`/`Conflict`/`InternalServerError`,
+  RFC-7807-Überladung `Error(ProblemDetails)`. Die Message ist **nicht** an
+  `EnableDetailedErrors` gekoppelt — sie kommt in jeder Umgebung beim Client an.
+- **Unerwartetes/internes Versagen → werfen**. Jede Exception wird zu `500` mit
+  **generischer** Message (kein Leak); der Stacktrace steht nur in `Error.Details`,
+  wenn `EnableDetailedErrors` an ist (Development). Für Validierung/"not found" also
+  falsch — der Client sähe nur das generische 500. `HrpcException` zu werfen
+  **propagiert keinen Code** (der Server hat kein `catch(HrpcException)`); Code per
+  `HrpcResults.Error(...)` steuern.
+
 ## Attribute
 
 | Attribut | Ziel | Zweck |
