@@ -62,7 +62,12 @@ export class HrpcRestClient {
     }
     this._baseUrl = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
     this._apiPath = (options.apiPath ?? "api/hrpc").replace(/^\/+|\/+$/g, "");
-    this._fetch = options.fetch ?? fetch;
+    // Globales `fetch` unbinded speichern und später als `this._fetch(...)` rufen
+    // würde im Browser "Illegal invocation" werfen — Browser-fetch verlangt
+    // `window`/`globalThis` als Receiver. An `globalThis` binden macht den Default
+    // in Browser und Node (undici prüft den Receiver nicht) gleichermaßen sicher.
+    // Injiziertes `options.fetch` (Tests) bleibt unangetastet.
+    this._fetch = options.fetch ?? fetch.bind(globalThis);
     this._headers = { ...(options.headers ?? {}) };
     this._bearer = options.bearer;
     this._callTimeout = options.callTimeout;

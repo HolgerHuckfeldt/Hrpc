@@ -30,6 +30,11 @@ class DiscoveryState {
     try {
       this.data = await apiFetchDiscovery();
     } catch (err) {
+      // Fehler NICHT nur in den Error-State schreiben — sonst ist er in der
+      // Browser-Console unsichtbar und ein stillschlagender Fetch (CORS/CSP/
+      // gemischte Content-/Netzwerkfehler) lässt die DevUI ohne Diagnose dumm
+      // stehen. Stack ins Console, message in den Error-Text (Explorer-Pane).
+      console.error('[Hrpc DevUI] Discovery-Fetch fehlgeschlagen:', err);
       this.error = err instanceof Error ? err.message : 'Discovery failed';
     } finally {
       this.loading = false;
