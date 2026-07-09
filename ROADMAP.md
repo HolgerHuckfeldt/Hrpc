@@ -118,6 +118,53 @@ ist die v1-Story; dieser Feature macht sie zur Build-Time-Sicherung. Keine
 Protokolländerung am Bestand (außer im optionalen Gate-Pfad), keine
 Inkompatibilität für bestehende Clients.
 
+### Proof-of-Concept: `spikes/LinqProvider/` (Stand 2026-07-08)
+
+Ein Expression-Tree-getypter RPC-Proxy-Spike validiert die Machbarkeit des
+getypteten Client-Modells end-to-end gegen die Sample-App:
+
+- `client.Build((ICustomerService c) => c.GetCustomerById(id))` → korrekter
+  `HrpcRequest` aus dem `MethodCallExpression` (Controller/Methode aus
+  Vertrags-Attributen, Parameter aus der Signatur).
+- **Typsichere Dep-Verdrahtung** über `Dep<T>`-Marker + `Arg<T>`-Wrapper mit
+  impliziten Konvertierungen: ein `Dep<string>` an einer `Arg<int>`-Stelle ist
+  ein Compile-Fehler, kein Laufzeit-500.
+- `Expose(x => x.Name)` → ergebnisrelativer JsonPath `$.Name`.
+- `ContractGenerator` erzeugt C#-Verträge aus `discovery.json` (Modell „c").
+
+**Fazit: technisch gangbar, aber nicht in v1 ausgebaut.** Der Spike hat die
+Daseinsberechtigung indirekt schon bewiesen — die getypte Verdrahtung hat die
+drei Server-Bugs im Dependency-Chaining (`$.data`-Konvention, typgetreue
+`@alias`-Substitution, nicht auflösender topologischer Batch-Pfad) überhaupt
+erst sichtbar gemacht, weil sie einen numerischen Chain end-to-end ausführt.
+Ehrlich eingeordnet ist der ROI aber begrenzt: der untypisierte
+`HrpcCall`-Builder funktioniert, Methoden-/Parameterfehler fallen in der
+Entwicklung ohnehin sofort zur Laufzeit auf, und der größte Gewinn (typisierte
+Dep-Verdrahtung) deckt den engsten Fall (Batch-Chains). Der Codegen +
+`Arg<T>`-Tax rechtfertigt sich nur als opt-in.
+
+**Aus dem Spike zu lösende Punkte für ein v1.x:**
+
+- **Kein `IQueryable` nötig.** Der Spike ist ein getypter Proxy, kein Query-
+  Provider — das IQueryable-Monad-Problem entfällt. Beim Entwurf darauf achten,
+  keine unnötige Komplexität aus dem LINQ-Vorbild zu übernehmen.
+- **Alias-Lexik ist server-seitig restriktiv.** `DependencyGraphBuilder.ExtractAliases`
+  bricht an `.`/`#` u. ä. (nur `[A-Za-z0-9_]`). Der Spike sanitisiert
+  generierte Aliase client-seitig; sauberer wäre, den Server freier extrahieren
+  zu lassen — als Server-Change vorm Generator-Release prüfen.
+- **`Arg<T>` nur wo nötig.** Der Spike wickelt jeden Parameter in `Arg<T>`; ein
+  Produkt würde das nur an Dep-empfangenden Positionen tun, um die API nicht
+  zu überladen.
+- **Konstanten-Faltung + Caching** der Argument-Evaluation (`Expression.Lambda(arg).Compile().DynamicInvoke()`
+  pro Call ist für heiße Loops zu teuer).
+- **Durchreichung** von Cancellation, `IAsyncEnumerable`, `byte[]` — der
+  untypisierte `IHrpcClient` kann das schon; die getypte Schicht muss es spiegeln.
+
+Details und vollständige Entscheidung im Spike unter
+[`spikes/LinqProvider/README.md`](spikes/LinqProvider/README.md). Der Spike ist
+bewusst *nicht* Teil von `Hrpc.sln` — er läuft isoliert:
+`dotnet test spikes/LinqProvider/Hrpc.Spike.LinqProvider.csproj`.
+
 ---
 
 ## Später (v1.x+, unsortiert)
