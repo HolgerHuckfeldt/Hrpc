@@ -105,3 +105,62 @@ public class NestedContactController
     [HrpcMethod("Add")]
     public string Add(string name) => $"added {name}";
 }
+
+/// <summary>
+/// Deterministischer Controller für Dependency-Chain-Tests. Jede Methode ist
+/// ein reiner Roundtrip/Producer ohne externe Zustände, sodass das @alias-Walking
+/// pro Datentyp isoliert und deterministisch geprüft werden kann — unabhängig
+/// vom zustandsbehafteten, langsamem CustomerService des Sample-Apps.
+/// </summary>
+[HrpcController("DepChain")]
+public class DependencyChainController
+{
+    // --- Skalare Roundtrips (Producer + Consumer in einer Methode) ---
+
+    [HrpcMethod("EchoBool")]
+    public bool EchoBool(bool value) => value;
+
+    [HrpcMethod("EchoLong")]
+    public long EchoLong(long value) => value;
+
+    [HrpcMethod("EchoDecimal")]
+    public decimal EchoDecimal(decimal value) => value;
+
+    [HrpcMethod("EchoString")]
+    public string EchoString(string value) => value;
+
+    // --- Objekt (TestDto) ---
+
+    [HrpcMethod("MakeDto")]
+    public TestDto MakeDto(int id, string name) => new() { Id = id, Name = name };
+
+    /// <summary>Nimmt ein ganzes TestDto als @alias und gibt es unverändert zurück.</summary>
+    [HrpcMethod("EchoDto")]
+    public TestDto EchoDto(TestDto dto) => dto;
+
+    /// <summary>Nimmt ein ganzes TestDto als @alias und extrahiert dessen Id.</summary>
+    [HrpcMethod("GetDtoId")]
+    public int GetDtoId(TestDto dto) => dto.Id;
+
+    // --- Arrays / Collections ---
+
+    [HrpcMethod("MakeDtoList")]
+    public List<TestDto> MakeDtoList() => new()
+    {
+        new() { Id = 1, Name = "One" },
+        new() { Id = 2, Name = "Two" },
+        new() { Id = 3, Name = "Three" }
+    };
+
+    /// <summary>Nimmt eine ganze List&lt;TestDto&gt; als @alias und gibt sie unverändert zurück.</summary>
+    [HrpcMethod("EchoDtoList")]
+    public List<TestDto> EchoDtoList(List<TestDto> dtos) => dtos;
+
+    /// <summary>Nimmt eine ganze List&lt;TestDto&gt; als @alias und liefert deren Länge.</summary>
+    [HrpcMethod("CountDtoList")]
+    public int CountDtoList(List<TestDto> dtos) => dtos.Count;
+
+    /// <summary>Liefert eine feste int-Liste [10,20,30] als Quelle für Array-Element-Pfade ($[1]).</summary>
+    [HrpcMethod("MakeIntList")]
+    public List<int> MakeIntList() => new() { 10, 20, 30 };
+}

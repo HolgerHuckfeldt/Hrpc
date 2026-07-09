@@ -24,6 +24,7 @@ public class HrpcInvokerTests
         services.AddLogging();
         services.AddTransient<TestInvokerController>();
         services.AddTransient<NestedContactController>();
+        services.AddTransient<DependencyChainController>();
         _serviceProvider = services.BuildServiceProvider();
 
         var scopeFactory = _serviceProvider.GetRequiredService<IServiceScopeFactory>();
@@ -31,6 +32,7 @@ public class HrpcInvokerTests
         _invoker = new HrpcInvoker(scopeFactory, logger);
         _invoker.Register<TestInvokerController>();
         _invoker.Register<NestedContactController>();
+        _invoker.Register<DependencyChainController>();
     }
 
     private static HrpcRequest CreateRequest(string controller, string method,
@@ -762,6 +764,337 @@ public class HrpcInvokerTests
             response.Data.Should().NotContain("Fehler in der Ausführung");
             response.Data.Should().NotContain("Exception");
         }
+    }
+
+    #endregion
+
+    #region Dependency Chains (@alias-Walking)
+
+    /// <summary>
+    /// Baut einen Chain-Request mit eindeutiger Id. Die Parameter werden als
+    /// HrpcParameter[] serialisiert; jsonValue ist jeweils die JSON-Form des Werts
+    /// (z. B. "7", "true", "\"hi\"", "{\"Id\":7}").
+    /// </summary>
+    private static HrpcRequest ChainRequest(string id, string controller, string method,
+        params (string name, string jsonValue)[] parameters)
+        => ChainRequest(id, controller, method, null, parameters);
+
+    /// <summary>
+    /// Wie oben, zusätzlich mit DependencyMapping (Alias → ergebnisrelativer JsonPath).
+    /// mapping steht positionell vor den params, sodass Tuple-Werte nicht versehentlich
+    /// an mapping gebunden werden.
+    /// </summary>
+    private static HrpcRequest ChainRequest(string id, string controller, string method,
+        Dictionary<string, string>? mapping,
+        params (string name, string jsonValue)[] parameters)
+    {
+        var paramList = parameters.Select(p => new HrpcParameter
+        {
+            ParameterName = p.name,
+            Data = p.jsonValue
+        }).ToList();
+        return new HrpcRequest
+        {
+            Controller = controller,
+            Method = method,
+            StringData = JsonSerializer.Serialize(paramList),
+            Id = id,
+            DependencyMapping = mapping
+        };
+    }
+
+    private static readonly JsonSerializerOptions _caseInsensitiveOpts = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    /// <summary>
+    /// Wahrheitswert durch eine Chain: EchoBool(true) exposes "$" als "flag";
+    /// EchoBool(@flag) muss true liefern. Prüft, dass bool weder zu "true"(string)
+    /// noch zu 1 kollabiert — die typgetreue Substitution muss JsonValue.Create nutzen.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Bool_RoundtripsThroughAlias()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "EchoBool",
+            new Dictionary<string, string> { { "flag", "$" } },
+            ("value", "true"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoBool",
+            ("value", "@flag"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<bool>(byId["s2"].Data!).Should().BeTrue();
+    }
+
+    /// <summary>
+    /// long-Wert jenseits des int-Bereichs durch eine Chain. Stellt sicher, dass die
+    /// numerische Substitution die volle long-Präzision erhält (kein int-Verlust).
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Long_RoundtripsThroughAlias()
+    {
+        // Arrange — 9_000_000_000 liegt außerhalb von int32
+        var step1 = ChainRequest("s1", "DepChain", "EchoLong",
+            new Dictionary<string, string> { { "big", "$" } },
+            ("value", "9000000000"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoLong",
+            ("value", "@big"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<long>(byId["s2"].Data!).Should().Be(9_000_000_000L);
+    }
+
+    /// <summary>
+    /// decimal durch eine Chain. Decimal wird von System.Text.Json als JSON-Zahl
+    /// serialisiert; die Substitution muss die Zahlform (nicht den String "12.5")
+    /// erhalten, sonst bricht Deserialize&lt;decimal&gt;.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Decimal_RoundtripsThroughAlias()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "EchoDecimal",
+            new Dictionary<string, string> { { "price", "$" } },
+            ("value", "12.5"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoDecimal",
+            ("value", "@price"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<decimal>(byId["s2"].Data!).Should().Be(12.5m);
+    }
+
+    /// <summary>
+    /// Ganzes Objekt als Dependency: MakeDto(7,"Alice") exposes "$" als "dto";
+    /// EchoDto(@dto) muss das Objekt mit Id=7 zurückgeben. Prüft, dass die
+    /// Substitution ein JSON-Objekt intakt in einen Objekt-Parameter injiziert
+    /// (ToJsonString des Objects + JSON-String-Hülle + Deserialize&lt;TestDto&gt;).
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Object_WholeResult_InjectsIntoObjectParam()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "MakeDto",
+            new Dictionary<string, string> { { "dto", "$" } },
+            ("id", "7"), ("name", "\"Alice\""));
+        var step2 = ChainRequest("s2", "DepChain", "EchoDto",
+            ("dto", "@dto"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].ExposedDependencies.Should().ContainKey("dto");
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        var dto = JsonSerializer.Deserialize<TestDto>(byId["s2"].Data!, _caseInsensitiveOpts);
+        dto.Should().NotBeNull();
+        dto!.Id.Should().Be(7);
+        dto.Name.Should().Be("Alice");
+    }
+
+    /// <summary>
+    /// Property-Pfad auf einem Objekt-Result: MakeDto(7,"Alice") exposes "$.Id" als
+    /// "id"; MakeDto(@id,"Bob") muss ein neues Dto mit Id=7 liefern. Prüft int-Extraktion
+    /// via ergebnisrelativem Pfad (kein $.data-Envelope) und typgetreue int-Injection.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_ObjectPropertyPath_Int_InjectsIntoIntParam()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "MakeDto",
+            new Dictionary<string, string> { { "id", "$.Id" } },
+            ("id", "7"), ("name", "\"Alice\""));
+        var step2 = ChainRequest("s2", "DepChain", "MakeDto",
+            ("id", "@id"), ("name", "\"Bob\""));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].ExposedDependencies!["id"].Should().Be("7");
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        var dto = JsonSerializer.Deserialize<TestDto>(byId["s2"].Data!, _caseInsensitiveOpts);
+        dto!.Id.Should().Be(7);
+        dto.Name.Should().Be("Bob");
+    }
+
+    /// <summary>
+    /// Ganze Collection als Dependency: MakeDtoList() exposes "$" als "dtos";
+    /// CountDtoList(@dtos) muss 3 liefern. Prüft, dass ein JSON-Array intakt in einen
+    /// List&lt;T&gt;-Parameter injiziert wird (ToJsonString des Arrays + Hülle).
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_Array_WholeResult_InjectsIntoArrayParam()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "MakeDtoList",
+            new Dictionary<string, string> { { "dtos", "$" } });
+        var step2 = ChainRequest("s2", "DepChain", "CountDtoList",
+            ("dtos", "@dtos"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<int>(byId["s2"].Data!).Should().Be(3);
+    }
+
+    /// <summary>
+    /// Array-Element-Pfad als Dependency-Quelle: MakeIntList() → [10,20,30];
+    /// exposes "$[1]" als "second"; EchoLong(@second) muss 20 liefern. Prüft die
+    /// JsonPath-Index-Extraktion innerhalb einer Chain (bisher nur am nackten Array
+    /// im Resolver-Unit-Test geprüft, nie in einer echten Chain).
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_ArrayElementPath_InjectsExtractedElement()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "MakeIntList",
+            new Dictionary<string, string> { { "second", "$[1]" } });
+        var step2 = ChainRequest("s2", "DepChain", "EchoLong",
+            ("value", "@second"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].ExposedDependencies!["second"].Should().Be("20");
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<long>(byId["s2"].Data!).Should().Be(20L);
+    }
+
+    /// <summary>
+    /// Mehrere @alias-Platzhalter in einen Request aus zwei verschiedenen Vorläufern
+    /// (Diamond-Verbraucher): step1 exposes "$.Id" als "id", step2 exposes "$.Name" als
+    /// "name", step3 MakeDto(@id, @name) kombiniert beide. Prüft das Zusammenführen der
+    /// ExposedDependencies aller Vorläufer-Batches in einem Aufruf.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_MultipleAliases_OneRequest_ConsumesTwoProducers()
+    {
+        // Arrange — step1 und step2 sind unabhängig (Batch 1), step3 verbraucht beide (Batch 2)
+        var step1 = ChainRequest("s1", "DepChain", "MakeDto",
+            new Dictionary<string, string> { { "id", "$.Id" } },
+            ("id", "7"), ("name", "\"Alice\""));
+        var step2 = ChainRequest("s2", "DepChain", "MakeDto",
+            new Dictionary<string, string> { { "name", "$.Name" } },
+            ("id", "99"), ("name", "\"Bob\""));
+        var step3 = ChainRequest("s3", "DepChain", "MakeDto",
+            ("id", "@id"), ("name", "@name"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2, step3 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s3"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s3"].Error.Should().BeNull();
+        var dto = JsonSerializer.Deserialize<TestDto>(byId["s3"].Data!, _caseInsensitiveOpts);
+        dto!.Id.Should().Be(7);      // aus step1
+        dto.Name.Should().Be("Bob"); // aus step2
+    }
+
+    /// <summary>
+    /// Nicht auflösbarer @alias-Platzhalter: step2 referenziert "@nonexistent", den
+    /// kein Vorläufer exposed. Erwartet einen BadRequest (400) für step2 — keinen 500
+    /// und keine geworfene Exception. Regression-Guard für ResolveParameterValues.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_UnresolvedAlias_ReturnsBadRequest_NoThrow()
+    {
+        // Arrange — step1 exposed "id", step2 fragt aber "@nonexistent" ab
+        var step1 = ChainRequest("s1", "DepChain", "MakeDto",
+            new Dictionary<string, string> { { "id", "$.Id" } },
+            ("id", "7"), ("name", "\"Alice\""));
+        var step2 = ChainRequest("s2", "DepChain", "EchoLong",
+            ("value", "@nonexistent"));
+
+        // Act — darf nicht werfen
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.BadRequest);
+        byId["s2"].Error.Should().NotBeNull();
+    }
+
+    /// <summary>
+    /// Dokumentiert das Auto-Detect-Verhalten: sobald ein Request ein DependencyMapping
+    /// deklariert, routed InvokeDi IMMER auf den topologischen Batch-Pfad — auch wenn
+    /// Mode=Serial angefordert wurde. Die Chain muss daher trotzdem korrekt auflösen.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_ModeSerial_WithMapping_RoutesTopologicallyAndResolves()
+    {
+        // Arrange — Mode.Serial wird angefordert, aber das Mapping erzwingt topologisch
+        var step1 = ChainRequest("s1", "DepChain", "EchoLong",
+            new Dictionary<string, string> { { "big", "$" } },
+            ("value", "42"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoLong",
+            ("value", "@big"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null, ExecutionMode.Serial)).ToList();
+
+        // Assert — topologischer Pfad löst den Alias trotz Mode=Serial auf
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+        JsonSerializer.Deserialize<long>(byId["s2"].Data!).Should().Be(42L);
+    }
+
+    /// <summary>
+    /// Dokumentiert die Kehrseite: der echte Serial-Pfad (ExecuteSequentially) ist nur
+    /// erreichbar, wenn KEIN Request ein DependencyMapping hat — dann kann aber kein
+    /// Vorläufer ExposedDependencies produzieren, sodass ein @alias zwingend unresolved
+    /// ist. Serial-Mode + Chain ohne Mapping ist daher ein Fehler, kein Erfolgspfad.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_SerialPath_WithoutMapping_AliasIsUnresolved()
+    {
+        // Arrange — kein Mapping → echter Serial-Pfad; step1 exponiert nichts
+        var step1 = ChainRequest("s1", "DepChain", "EchoLong",
+            ("value", "42"));
+        var step2 = ChainRequest("s2", "DepChain", "EchoLong",
+            ("value", "@big"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null, ExecutionMode.Serial)).ToList();
+
+        // Assert — Serial-Pfad kann @big nicht auflösen → 400, kein 500
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.BadRequest);
+        byId["s2"].Error.Should().NotBeNull();
     }
 
     #endregion
