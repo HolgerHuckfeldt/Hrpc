@@ -76,7 +76,11 @@
 
   onMount(() => {
     loadSizes();
-    tabState.createTab({ title: 'Welcome', requestText: '[]', params: [] });
+    // Welcome-Tab nur beim allerersten Start (kein persistierter Tab-Zustand);
+    // sonst werden persistierte Tabs aus localStorage wiederhergestellt.
+    if (tabState.tabs.length === 0) {
+      tabState.createTab({ title: 'Welcome', requestText: '[]', params: [] });
+    }
     discoveryState.fetchDiscovery();
   });
 </script>

@@ -18,10 +18,45 @@ export interface Tab {
   log: string;
 }
 
+const STORAGE_KEY = 'hrpc-tabs';
+
 let counter = 0;
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 6)}-${counter++}`;
+}
+
+// --- Persistenz -----------------------------------------------------------
+// `Tab` ist rein serialisierbar (controller/method sind Discovery-Snapshots),
+// daher kann der komplette Tab-Zustand als JSON in localStorage liegen und beim
+// Start wiederhergestellt werden. try/catch wie bei theme/history/auth.
+
+interface StoredTabs {
+  tabs: Tab[];
+  activeTabId: string | null;
+}
+
+function loadFromStorage(): StoredTabs {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<StoredTabs>;
+      if (Array.isArray(parsed.tabs)) {
+        return { tabs: parsed.tabs as Tab[], activeTabId: parsed.activeTabId ?? null };
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return { tabs: [], activeTabId: null };
+}
+
+function saveToStorage(tabs: Tab[], activeTabId: string | null): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tabs, activeTabId }));
+  } catch {
+    /* ignore */
+  }
 }
 
 function defaultValueForType(typeName: string): unknown {
@@ -77,11 +112,18 @@ function buildDefaultPayload(params: (ParameterMeta & { value: unknown })[]): Hr
 }
 
 class TabState {
-  tabs = $state<Tab[]>([]);
-  activeTabId = $state<string | null>(null);
+  // Initial aus localStorage; beim allerersten Start (kein Storage) leer →
+  // App.svelte onMount legt dann genau einen Welcome-Tab an.
+  tabs = $state<Tab[]>(loadFromStorage().tabs);
+  activeTabId = $state<string | null>(loadFromStorage().activeTabId);
 
   get activeTab(): Tab | undefined {
     return this.tabs.find((t) => t.id === this.activeTabId);
+  }
+
+  /** Persistiert den aktuellen Tab-Zustand. Aufruf aus jedem Mutator. */
+  persist(): void {
+    saveToStorage(this.tabs, this.activeTabId);
   }
 
   createTab(partial: Partial<Tab> = {}): Tab {
@@ -102,6 +144,7 @@ class TabState {
     };
     this.tabs.push(tab);
     this.activeTabId = tab.id;
+    this.persist();
     return tab;
   }
 
@@ -110,6 +153,7 @@ class TabState {
     const existing = this.tabs.find((t) => t.type === 'codegen');
     if (existing) {
       this.activeTabId = existing.id;
+      this.persist();
       return existing;
     }
     const tab: Tab = {
@@ -128,6 +172,7 @@ class TabState {
     };
     this.tabs.push(tab);
     this.activeTabId = tab.id;
+    this.persist();
     return tab;
   }
 
@@ -140,10 +185,12 @@ class TabState {
       const fallback = this.tabs[Math.max(0, idx - 1)];
       this.activeTabId = fallback.id;
     }
+    this.persist();
   }
 
   switchTab(id: string) {
     this.activeTabId = id;
+    this.persist();
   }
 
   openMethodTab(controller: ControllerMeta, method: MethodMeta) {
@@ -152,6 +199,7 @@ class TabState {
     );
     if (existing) {
       this.activeTabId = existing.id;
+      this.persist();
       return existing;
     }
     const params = method.parameters.map((p) => ({ ...p, value: defaultValueForParam(p) }));
@@ -168,6 +216,7 @@ class TabState {
   syncRequestFromParams(tab: Tab) {
     const payload = buildDefaultPayload(tab.params);
     tab.requestText = formatJson(payload);
+    this.persist();
   }
 
   syncParamsFromEditor(tab: Tab, editorText: string) {
@@ -186,9 +235,42 @@ class TabState {
         }
       }
       tab.requestText = editorText;
+      this.persist();
     } catch {
       /* ignore parse errors */
     }
+  }
+
+  /**
+   * Zentrale Stelle für das Schreiben eines Call-Ergebnisses in den Tab. Wird
+   * von EditorPane nach einem erfolgreichen Single/Batch-Call gerufen, damit
+   * jeder Ergebnis-Write auch persistiert wird (statt direkter Feld-Schreibs).
+   */
+  applyResult(
+    tab: Tab,
+    result: { code?: number | null; id?: string | null; data?: unknown; isSuccess?: boolean; error?: { message?: string } | null },
+    duration: string,
+    responseText: string,
+    status: string,
+    log = '',
+  ): void {
+    tab.duration = duration;
+    tab.status = status;
+    tab.respIdText = result.id ?? '-';
+    tab.responseText = responseText;
+    tab.log = log;
+    this.persist();
+  }
+
+  /**
+   * Ersetzt den Tab-Zustand durch einen importierten Workspace. Validiert das
+   * Array, übernimmt tabs + activeTabId (falls enthalten) und persistiert.
+   */
+  restoreFromWorkspace(tabs: Tab[], activeTabId: string | null): void {
+    if (!Array.isArray(tabs)) return;
+    this.tabs = tabs;
+    this.activeTabId = activeTabId && tabs.some((t) => t.id === activeTabId) ? activeTabId : (tabs[0]?.id ?? null);
+    this.persist();
   }
 }
 

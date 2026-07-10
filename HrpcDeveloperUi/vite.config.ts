@@ -1,11 +1,16 @@
 import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
-export default defineConfig({
+// Modus-abhängige Pfade:
+// - default (eingebettet): base = /developer-static/developer/ (Static-Web-Asset-
+//   Pfad der NuGet-Pakets), outDir = wwwroot/developer (wird vom csproj gepackt).
+// - standalone: base = ./ (relative Assets) → läuft von beliebigem Host/Pfad
+//   (GitHub Pages, lokaler serve), outDir = dist-standalone (npm-Paket/Deploy).
+export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
-  base: '/developer-static/developer/',
+  base: mode === 'standalone' ? './' : '/developer-static/developer/',
   build: {
-    outDir: 'wwwroot/developer',
+    outDir: mode === 'standalone' ? 'dist-standalone' : 'wwwroot/developer',
     emptyOutDir: true,
   },
   server: {
@@ -17,4 +22,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

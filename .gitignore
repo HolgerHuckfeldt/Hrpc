@@ -72,6 +72,8 @@ nunit-*.xml
 node_modules/
 .vite/
 dist/
+# Standalone-Build der DevUI (regenerierbares Artifact für npm/GitHub Pages)
+dist-standalone/
 
 # BenchmarkDotNet output
 BenchmarkDotNet.Artifacts/

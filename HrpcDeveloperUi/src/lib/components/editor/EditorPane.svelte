@@ -46,11 +46,15 @@
     try {
       const response = await executeRequest(request);
       const duration = `${Math.round(performance.now() - start)} ms`;
-      tab.duration = duration;
-      tab.status = String(response.code ?? '-');
-      tab.respIdText = response.id ?? '-';
-      tab.responseText = formatJson(response.data ?? response);
-      tab.log = response.isSuccess ? '' : `Error ${response.code}: ${response.error?.message ?? ''}`;
+      // Ergebnis zentral über tabState.applyResult schreiben → inkl. Persistenz.
+      tabState.applyResult(
+        tab,
+        response,
+        duration,
+        formatJson(response.data ?? response),
+        String(response.code ?? '-'),
+        response.isSuccess ? '' : `Error ${response.code}: ${response.error?.message ?? ''}`,
+      );
 
       historyState.addEntry({
         id: `${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
@@ -61,9 +65,14 @@
       });
     } catch (err) {
       const duration = `${Math.round(performance.now() - start)} ms`;
-      tab.duration = duration;
-      tab.status = 'Error';
-      tab.log = err instanceof Error ? err.message : String(err);
+      tabState.applyResult(
+        tab,
+        { id: null },
+        duration,
+        tab.responseText,
+        'Error',
+        err instanceof Error ? err.message : String(err),
+      );
 
       historyState.addEntry({
         id: `${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
@@ -91,19 +100,26 @@
       const tab = tabState.activeTab;
       if (tab) {
         const duration = `${Math.round(performance.now() - start)} ms`;
-        tab.duration = duration;
-        tab.status = 'Batch OK';
-        tab.respIdText = `${responses.length} responses`;
-        tab.responseText = formatJson(responses);
-        tab.log = '';
+        tabState.applyResult(
+          tab,
+          { id: null },
+          duration,
+          formatJson(responses),
+          'Batch OK',
+        );
       }
     } catch (err) {
       const tab = tabState.activeTab;
       if (tab) {
         const duration = `${Math.round(performance.now() - start)} ms`;
-        tab.duration = duration;
-        tab.status = 'Error';
-        tab.log = err instanceof Error ? err.message : String(err);
+        tabState.applyResult(
+          tab,
+          { id: null },
+          duration,
+          tab.responseText,
+          'Error',
+          err instanceof Error ? err.message : String(err),
+        );
       }
     } finally {
       running = false;
@@ -131,6 +147,7 @@
     tab.status = '-';
     tab.respIdText = '-';
     tab.duration = '-- ms';
+    tabState.persist();
   }
 
   function defaultValueForType(typeName: string): unknown {
