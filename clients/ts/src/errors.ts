@@ -38,16 +38,13 @@ export class HrpcError extends Error {
 
   /**
    * Baut einen HrpcError aus einer nicht-erfolgreichen Response. Ist ein
-   * strukturiertes `error` vorhanden, wird es genutzt; sonst wird eines aus
-   * `code`/`data` abgeleitet (Spiegel von C# HrpcError.FromResponse).
+   * strukturiertes `error` vorhanden, wird es genutzt; sonst generischer Text
+   * aus `code` (Spiegel von C# HrpcError.FromResponse — Data trägt seit dem
+   * Single-Pass-Fix keine Fehlertexte mehr, die wohnen in error.message).
    */
   static fromResponse(response: HrpcResponse): HrpcError {
     if (response.error) return HrpcError.fromBody(response.error);
-    const message =
-      typeof response.data === "string" && response.data.length > 0
-        ? response.data
-        : `Hrpc call failed with code ${response.code}.`;
-    return new HrpcError(response.code, message, {
+    return new HrpcError(response.code, `Hrpc call failed with code ${response.code}.`, {
       requestId: response.id,
     });
   }

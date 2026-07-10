@@ -1,5 +1,6 @@
 using FluentAssertions;
 using HrpcCore.Services.Helper;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Xunit;
 
@@ -17,7 +18,7 @@ public class DependencyResolverTests
         var json = "{\"Id\":42,\"Name\":\"Test\"}";
 
         // Act
-        var result = DependencyResolver.ExtractValue(json, "$.Id");
+        var result = DependencyResolver.ExtractValue(JsonDocument.Parse(json).RootElement.Clone(), "$.Id");
 
         // Assert
         result.Should().NotBeNull();
@@ -31,7 +32,7 @@ public class DependencyResolverTests
         var json = "{\"Customer\":{\"Id\":7,\"Name\":\"Alice\"}}";
 
         // Act
-        var result = DependencyResolver.ExtractValue(json, "$.Customer.Id");
+        var result = DependencyResolver.ExtractValue(JsonDocument.Parse(json).RootElement.Clone(), "$.Customer.Id");
 
         // Assert
         result.Should().NotBeNull();
@@ -45,7 +46,7 @@ public class DependencyResolverTests
         var json = "[10,20,30]";
 
         // Act
-        var result = DependencyResolver.ExtractValue(json, "$[1]");
+        var result = DependencyResolver.ExtractValue(JsonDocument.Parse(json).RootElement.Clone(), "$[1]");
 
         // Assert
         result.Should().NotBeNull();
@@ -59,7 +60,7 @@ public class DependencyResolverTests
         var json = "{\"Name\":\"Hello\"}";
 
         // Act
-        var result = DependencyResolver.ExtractValue(json, "$.Name");
+        var result = DependencyResolver.ExtractValue(JsonDocument.Parse(json).RootElement.Clone(), "$.Name");
 
         // Assert
         result.Should().NotBeNull();
@@ -73,7 +74,7 @@ public class DependencyResolverTests
         var json = "{\"Id\":1}";
 
         // Act
-        var result = DependencyResolver.ExtractValue(json, "$.NonExistent");
+        var result = DependencyResolver.ExtractValue(JsonDocument.Parse(json).RootElement.Clone(), "$.NonExistent");
 
         // Assert
         result.Should().BeNull();
@@ -86,7 +87,7 @@ public class DependencyResolverTests
         var json = "42";
 
         // Act
-        var result = DependencyResolver.ExtractValue(json, "$");
+        var result = DependencyResolver.ExtractValue(JsonDocument.Parse(json).RootElement.Clone(), "$");
 
         // Assert
         result.Should().NotBeNull();

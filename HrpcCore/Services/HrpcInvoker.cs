@@ -4,6 +4,7 @@ using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
+using System.Text.Encodings.Web;
 using HrpcCore.Attributes;
 using System.Net;
 using System.Text.Json.Nodes;
@@ -33,10 +34,15 @@ namespace HrpcCore.Services
         /// </summary>
         public bool EnableDetailedErrors { get; set; }
 
+        // camelCase + relaxed Encoder: Der Payload wird jetzt strukturiert (JsonElement)
+        // in Data abgelegt und von den Transporten in einem Pass roh serialisiert —
+        // kein Double-Wrapping mehr. UnsafeRelaxed verhindert dennoch `"`-Escaping im
+        // Mantel (z. B. in ExposedDependencies-Strings oder Fehlermeldungen).
         private readonly JsonSerializerOptions _jsonSerializerOptions = new()
         {
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
 
 
@@ -298,7 +304,6 @@ namespace HrpcCore.Services
                 return requests.Select(r => new HrpcResponse
                 {
                     Code = (int)HttpStatusCode.BadRequest,
-                    Data = "Circular dependency detected in request batch.",
                     Id = r.Id,
                     Error = new HrpcError { Code = 400, Message = "Circular dependency detected in request batch.", RequestId = r.Id }
                 });
@@ -595,24 +600,20 @@ namespace HrpcCore.Services
                 if (result != null)
                     result.Id = request.Id;
 
-                if (request.DependencyMapping != null && result?.Data != null)
+                if (request.DependencyMapping != null && result?.Data.HasValue == true)
                 {
                     var exposed = new Dictionary<string, string>();
-                    // Verwenden Sie hier z. B. Ihre bestehende Hilfsklasse DependencyResolver
+                    // DependencyResolver extrahiert Werte aus dem strukturierten Data (JsonElement).
+                    // byte[]-Returns liegen nicht mehr in Data (sondern in Content) → HasValue ist
+                    // dort false und der Block wird sauber übersprungen (kein 500 durch unparsebares
+                    // Base64 mehr — der alte Sonderfall entfällt mit dem Single-Pass-Modell).
                     foreach (var kv in request.DependencyMapping)
                     {
                         string alias = kv.Key;
                         string jsonPath = kv.Value;
-                        // ExtractValue parst result.Data als JSON. Für normale Results ist Data
-                        // gültiges JSON (JsonSerializer.Serialize), aber byte[]-Returns legen
-                        // nackten Base64-String in Data (Ok(Convert.ToBase64String(...))) — kein
-                        // gültiges JSON. JsonNode.Parse würde werfen und den Call zum 500 machen.
-                        // Da sich aus nicht-parsebarem Data kein Wert extrahieren lässt, wird der
-                        // Alias hier übersprungen (wie bei null-Extraktion) — der Consumer erhält
-                        // dann ein sauberes 400 (Unresolved dependencies), kein 500.
                         try
                         {
-                            var extracted = DependencyResolver.ExtractValue(result.Data, jsonPath);
+                            var extracted = DependencyResolver.ExtractValue(result.Data.Value, jsonPath);
                             if (extracted != null)
                                 // ToJsonString (nicht ToString!) bewahrt den JSON-Typ: Zahl/Bool/Object
                                 // bleiben korrekt kodiert, damit die @alias-Substitution weiter unten
@@ -622,7 +623,7 @@ namespace HrpcCore.Services
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex,
-                                "Dependency-Extraktion für Alias {Alias} (Pfad {Path}) fehlgeschlagen — Data ist kein parsebares JSON.",
+                                "Dependency-Extraktion für Alias {Alias} (Pfad {Path}) fehlgeschlagen — Data lässt sich nicht auflösen.",
                                 alias, jsonPath);
                         }
                     }
@@ -914,7 +915,7 @@ namespace HrpcCore.Services
                     {
                         var elementType = GetAsyncEnumerableElementType(invokeInfo.MethodInfo.ReturnType)!;
                         var list = await ConsumeAsyncEnumerable(result, elementType, ct);
-                        return Ok(JsonSerializer.Serialize(list, _jsonSerializerOptions));
+                        return Ok(JsonSerializer.SerializeToUtf8Bytes(list, _jsonSerializerOptions));
                     }
 
                     // Handle Task<IAsyncEnumerable<T>>
@@ -931,7 +932,7 @@ namespace HrpcCore.Services
                             {
                                 var elementType = GetAsyncEnumerableElementType(resultValue.GetType())!;
                                 var list = await ConsumeAsyncEnumerable(resultValue, elementType, ct);
-                                return Ok(JsonSerializer.Serialize(list, _jsonSerializerOptions));
+                                return Ok(JsonSerializer.SerializeToUtf8Bytes(list, _jsonSerializerOptions));
                             }
 
                             return ReturnResponse(resultValue, instance?.GetType());
@@ -1009,20 +1010,22 @@ namespace HrpcCore.Services
 
         private HrpcResponse ReturnResponse(object? result, Type? instanceType)
         {
-            if (result is null) return Ok(string.Empty);
+            // null-Ergebnis → 200 mit leerem Data (kein 204 — die Methode hat erfolgreich
+            // kein Ergebnis geliefert, das ist ein anderer Zustand als void/Task).
+            if (result is null) return Ok((byte[]?)null);
 
             if (result is HrpcResponse hrpcResp)
                 return hrpcResp;
 
-            // Binary return: put byte[] into Content instead of Base64-encoding in Data
+            // Binary return: Bytes landen ausschließlich in Content (kein Base64-String
+            // mehr in Data → keine doppelte Belegung, kein Parse-Problem im Dep-Pfad).
             if (result is byte[] bytes)
-            {
-                var binResp = Ok(Convert.ToBase64String(bytes));
-                binResp.Content = bytes;
-                return binResp;
-            }
+                return new HrpcResponse { Code = (int)HttpStatusCode.OK, Content = bytes };
 
-            try { return Ok(JsonSerializer.Serialize(result)); }
+            // Single-Pass: object → rohe UTF-8-Bytes (kein JsonDocument-Baum). Der
+            // Transport-Converter schreibt DataBytes via WriteRawValue direkt in den
+            // Wire. Data bleibt null und wird nur bei Dep-Chaining lazy gelesen.
+            try { return Ok(JsonSerializer.SerializeToUtf8Bytes(result, _jsonSerializerOptions)); }
             catch
             {
                 _logger.LogWarning("Failed to serialize result of type {ResultType} from controller {ControllerType}",
@@ -1045,19 +1048,26 @@ namespace HrpcCore.Services
         #region Response-Generierung
 
         private HrpcResponse BadRequest(string message, HttpStatusCode code = HttpStatusCode.BadRequest)
-            => CreateResponse(code, message);
+            => CreateError(code, message);
 
-        private HrpcResponse Ok(string? data)
-            => CreateResponse(HttpStatusCode.OK, data);
+        // Erfolg: strukturierter Ergebniswert in Data (roh, ein Pass — kein Double-Wrapping).
+        // Der Bulk-Pfad nutzt Ok(byte[]) mit rohen UTF-8-Bytes (DataBytes); Data bleibt
+        // null und wird erst lazy materialisiert, wenn ein Reader (Dep-Chaining, Tests)
+        // darauf zugreift. Ok(JsonElement?) bleibt für den Legacy/Spezial-Pfad.
+        private HrpcResponse Ok(JsonElement? data)
+            => new() { Code = (int)HttpStatusCode.OK, Data = data };
+
+        private HrpcResponse Ok(byte[]? dataBytes)
+            => new() { Code = (int)HttpStatusCode.OK, DataBytes = dataBytes };
 
         private HrpcResponse NoContent()
             => new() { Code = (int)HttpStatusCode.NoContent };
 
         private HrpcResponse Unauthorized()
-            => CreateResponse(HttpStatusCode.Unauthorized, "Unauthorized.");
+            => CreateError(HttpStatusCode.Unauthorized, "Unauthorized.");
 
         private HrpcResponse InternalServerError(string message)
-            => CreateResponse(HttpStatusCode.InternalServerError, message);
+            => CreateError(HttpStatusCode.InternalServerError, message);
 
         /// <summary>
         /// Erzeugt eine 500-Response. Die Message bleibt generisch (kein Leak in Produktion);
@@ -1066,30 +1076,28 @@ namespace HrpcCore.Services
         /// </summary>
         private HrpcResponse InternalServerError(string message, Exception? ex)
         {
-            var response = CreateResponse(HttpStatusCode.InternalServerError, message);
+            var response = CreateError(HttpStatusCode.InternalServerError, message);
             if (ex != null && EnableDetailedErrors && response.Error != null)
                 response.Error.Details = ex.ToString();
             return response;
         }
 
-        private HrpcResponse CreateResponse(HttpStatusCode code, string? data)
+        /// <summary>
+        /// Fehler-Response: Data bleibt null (Fehler tragen nur Code + Error-Objekt),
+        /// die Message wohnt in Error.Message. Kein String-Payload in Data mehr.
+        /// </summary>
+        private HrpcResponse CreateError(HttpStatusCode code, string? message)
         {
-            var response = new HrpcResponse
+            return new HrpcResponse
             {
                 Code = (int)code,
-                Data = data
-            };
-
-            if ((int)code is < 200 or > 299)
-            {
-                response.Error = new HrpcError
+                Data = null,
+                Error = new HrpcError
                 {
                     Code = (int)code,
-                    Message = data ?? "Unknown error"
-                };
-            }
-
-            return response;
+                    Message = message ?? "Unknown error"
+                }
+            };
         }
 
         #endregion

@@ -1,3 +1,4 @@
+using MessagePack;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 // HrpcException is provided via global using alias from GlobalUsings.cs
@@ -46,7 +47,14 @@ public class HrpcSignalrClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
             });
 
         if (useMessagePack)
-            builder.AddMessagePackProtocol();
+        {
+            // Custom Resolver (server-seitig gespiegelt): JsonElement (HrpcResponse.Data
+            // seit dem Single-Pass-Fix) wird als native MessagePack-Tokens serialisiert —
+            // keine Double-Wrapping-Tax. Gleicher Source wie HrpcHub (je eigene MP-Version).
+            builder.AddMessagePackProtocol(o =>
+                o.SerializerOptions = MessagePackSerializerOptions.Standard
+                    .WithResolver(HrpcCommon.MessagePack.JsonElementResolver.Instance));
+        }
 
         builder.WithAutomaticReconnect(new[]
         {

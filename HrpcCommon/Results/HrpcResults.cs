@@ -1,4 +1,6 @@
 using System.Net;
+using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using HrpcCommon.Models;
@@ -26,19 +28,23 @@ namespace HrpcCommon.Results;
 /// </remarks>
 public static class HrpcResults
 {
-    // ProblemDetails (RFC 7807) wird mit CamelCase serialisiert — das ist das
-    // kanonische Wire-Format des Standards (type/title/status/detail/instance).
+    // camelCase + relaxed Encoder (wie der Invoker). ProblemDetails (RFC 7807) wird
+    // kanonisch in CamelCase serialisiert; UnsafeRelaxed verhindert `"`-Escaping.
     private static readonly JsonSerializerOptions CamelCaseJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
     /// <summary>
     /// 200 OK mit JSON-serialisiertem Ergebnis. <paramref name="result"/> wird
-    /// mit den Default-Options serialisiert (PascalCase — identisch zum Framework-
-    /// Pfad im Invoker, der rohe Objekte ebenfalls per <c>JsonSerializer.Serialize</c>
-    /// ohne camelCase-Policy serialisiert). <c>null</c> ergibt 204 No Content.
+    /// strukturiert (camelCase, relaxed Encoder) als rohe UTF-8-Bytes in
+    /// <see cref="HrpcResponse.DataBytes"/> abgelegt — identisch zum Framework-Pfad
+    /// im Invoker, sodass Controller- und Default-Serialisierung dasselbe Wire-Bild
+    /// ergeben. Der Transport-Converter schreibt die Bytes in einem Pass (kein
+    /// JsonDocument-Baum). <see cref="HrpcResponse.Data"/> bleibt null und wird erst
+    /// lazy materialisiert, wenn ein Reader zugreift. <c>null</c> ergibt 204 No Content.
     /// </summary>
     public static HrpcResponse Ok(object? result)
     {
@@ -46,30 +52,32 @@ public static class HrpcResults
         return new HrpcResponse
         {
             Code = 200,
-            Data = JsonSerializer.Serialize(result),
+            DataBytes = JsonSerializer.SerializeToUtf8Bytes(result, CamelCaseJsonOptions),
         };
     }
 
     /// <summary>
-    /// 200 OK mit bereits JSON-serialisiertem String (oder beliebigem Rohtext in
-    /// <see cref="HrpcResponse.Data"/>). Nützlich, wenn der Caller selbst
-    /// serialisiert (z. B. mit abweichenden Options).
+    /// 200 OK mit bereits JSON-serialisiertem String. Der String wird als rohe
+    /// UTF-8-Bytes in <see cref="HrpcResponse.DataBytes"/> abgelegt und vom
+    /// Transport-Converter in einem Pass in den Wire geschrieben — <b>erfordert
+    /// gültiges JSON</b> (Wire-Break gegenüber der alten String-through-Data-Semantik).
+    /// Nützlich, wenn der Caller selbst serialisiert.
     /// </summary>
     public static HrpcResponse Ok(string jsonData) => new()
     {
         Code = 200,
-        Data = jsonData,
+        DataBytes = Encoding.UTF8.GetBytes(jsonData),
     };
 
     /// <summary>
-    /// 200 OK mit binärem Ergebnis: Base64 in <see cref="HrpcResponse.Data"/> und
-    /// die Rohbytes in <see cref="HrpcResponse.Content"/> (Spiegel des Invoker-
-    /// byte[]-Pfads).
+    /// 200 OK mit binärem Ergebnis: die Rohbytes ausschließlich in
+    /// <see cref="HrpcResponse.Content"/> (kein Base64-String mehr in Data → keine
+    /// doppelte Belegung, kein Parse-Problem im Dependency-Pfad). Spiegel des
+    /// Invoker-byte[]-Pfads.
     /// </summary>
     public static HrpcResponse Ok(byte[] binary) => new()
     {
         Code = 200,
-        Data = Convert.ToBase64String(binary),
         Content = binary,
     };
 
@@ -77,11 +85,10 @@ public static class HrpcResults
     public static HrpcResponse NoContent() => new() { Code = 204 };
 
     /// <summary>
-    /// Non-2xx-Fehlerantwort. <paramref name="message"/> wird sowohl in
-    /// <see cref="HrpcResponse.Data"/> als auch als <see cref="HrpcError.Message"/>
-    /// abgelegt: einfache Clients lesen <c>response.data</c>, strukturierte Clients
-    /// <c>response.error</c>; der C#-Client synthetisiert bei fehlendem
-    /// <see cref="HrpcError"/> zusätzlich aus <c>Data</c> — hier beides konsistent.
+    /// Non-2xx-Fehlerantwort. <paramref name="message"/> wohnt ausschließlich in
+    /// <see cref="HrpcError.Message"/> (Data bleibt null) — strukturierte Clients
+    /// lesen <c>response.error.message</c>, der C#-Client wirft
+    /// <c>HrpcException.Error.Message</c>, der JS/TS-Client <c>response.error.message</c>.
     /// </summary>
     /// <param name="code">HTTP-like Status-Code (400, 401, 404, 409, 500, …).</param>
     /// <param name="message">Mensch-lesbare Fehlernachricht (sichtbar beim Client).</param>
@@ -91,7 +98,7 @@ public static class HrpcResults
     public static HrpcResponse Error(int code, string message, string? details = null) => new()
     {
         Code = code,
-        Data = message,
+        Data = null,
         Error = new HrpcError
         {
             Code = code,
@@ -126,16 +133,17 @@ public static class HrpcResults
 
     /// <summary>
     /// Non-2xx-Fehlerantwort im RFC-7807-ProblemDetails-Stil. <paramref name="problem"/>
-    /// wird als CamelCase-JSON nach <see cref="HrpcResponse.Data"/> serialisiert
-    /// (kanonisch für Interop); zusätzlich werden <see cref="HrpcError.Message"/> =
-    /// <c>title</c> und <see cref="HrpcError.Details"/> = <c>detail</c> belegt, damit
-    /// einfache Clients weiterhin eine Klartext-Message sehen und ProblemDetails-
-    /// kundige Clients das vollständige Objekt in <c>Data</c> lesen.
+    /// wird strukturiert (CamelCase) als <see cref="JsonElement"/> in
+    /// <see cref="HrpcResponse.Data"/> serialisiert (kanonisch für Interop); zusätzlich
+    /// werden <see cref="HrpcError.Message"/> = <c>title</c> und
+    /// <see cref="HrpcError.Details"/> = <c>detail</c> belegt, damit einfache Clients
+    /// eine Klartext-Message sehen und ProblemDetails-kundige Clients das vollständige
+    /// Objekt in <c>Data</c> lesen.
     /// </summary>
     public static HrpcResponse Error(ProblemDetails problem) => new()
     {
         Code = problem.Status,
-        Data = JsonSerializer.Serialize(problem, CamelCaseJsonOptions),
+        Data = JsonSerializer.SerializeToElement(problem, CamelCaseJsonOptions),
         Error = new HrpcError
         {
             Code = problem.Status,

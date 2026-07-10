@@ -11,10 +11,10 @@ describe("HrpcError", () => {
     expect(e.requestId).toBe("x");
   });
 
-  it("fromResponse leitet aus code/data ab, wenn kein error-Feld", () => {
-    const e = HrpcError.fromResponse({ code: 500, data: "boom", isSuccess: false });
+  it("fromResponse nutzt Fallback-Message, wenn kein error-Feld (Data trägt seit Single-Pass-Fix keine Fehlertexte)", () => {
+    const e = HrpcError.fromResponse({ code: 500, isSuccess: false });
     expect(e.code).toBe(500);
-    expect(e.message).toBe("boom");
+    expect(e.message).toBe("Hrpc call failed with code 500.");
   });
 
   it("fromResponse bevorzugt strukturiertes error-Feld", () => {

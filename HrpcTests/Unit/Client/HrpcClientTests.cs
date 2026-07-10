@@ -516,7 +516,7 @@ public class HrpcErrorTests
         var response = new HrpcResponse
         {
             Code = 404,
-            Data = "Not found",
+            Error = new HrpcError { Code = 404, Message = "Not found" },
             Id = "req-123"
         };
 
@@ -540,7 +540,7 @@ public class HrpcErrorTests
 
         // Assert
         error.Code.Should().Be(500);
-        error.Message.Should().Be("Unknown error");
+        error.Message.Should().Be("Hrpc call failed with code 500.");
     }
 
     [Fact]

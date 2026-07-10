@@ -20,9 +20,9 @@ public class HrpcResultsTests
         resp.Code.Should().Be(200);
         resp.IsSuccess.Should().BeTrue();
         resp.Error.Should().BeNull();
-        // Default-Options = PascalCase (wie der Invoker-Pfad).
-        resp.Data.Should().Contain("\"Id\":7");
-        resp.Data.Should().Contain("\"Name\":\"Alice\"");
+        // Default-Options = camelCase (wie der Invoker-Pfad).
+        resp.Data.Value.GetRawText().Should().Contain("\"id\":7");
+        resp.Data.Value.GetRawText().Should().Contain("\"name\":\"Alice\"");
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class HrpcResultsTests
         var resp = HrpcResults.Ok("{\"id\":42}");
 
         resp.Code.Should().Be(200);
-        resp.Data.Should().Be("{\"id\":42}");
+        resp.Data.Value.GetRawText().Should().Be("{\"id\":42}");
     }
 
     [Fact]
@@ -53,7 +53,8 @@ public class HrpcResultsTests
 
         resp.Code.Should().Be(200);
         resp.Content.Should().BeEquivalentTo(bytes);
-        resp.Data.Should().Be(Convert.ToBase64String(bytes));
+        // Bytes liegen ausschließlich in Content (kein Base64-String mehr in Data).
+        resp.Data.Should().BeNull();
     }
 
     [Fact]
@@ -73,8 +74,8 @@ public class HrpcResultsTests
 
         resp.Code.Should().Be(404);
         resp.IsSuccess.Should().BeFalse();
-        // Data und Error.Message konsistent belegt (beide Wege abgedeckt).
-        resp.Data.Should().Be("Customer '99' not found.");
+        // Data ist bei Fehlern null; die Message wohnt ausschließlich in Error.Message.
+        resp.Data.Should().BeNull();
         resp.Error.Should().NotBeNull();
         resp.Error!.Code.Should().Be(404);
         resp.Error.Message.Should().Be("Customer '99' not found.");
@@ -137,13 +138,13 @@ public class HrpcResultsTests
         resp.Code.Should().Be(404);
         resp.IsSuccess.Should().BeFalse();
 
-        // RFC 7807: CamelCase-Keys im Data-JSON.
-        using var doc = JsonDocument.Parse(resp.Data!);
-        doc.RootElement.TryGetProperty("type", out _).Should().BeTrue();
-        doc.RootElement.TryGetProperty("title", out _).Should().BeTrue();
-        doc.RootElement.TryGetProperty("status", out _).Should().BeTrue();
-        doc.RootElement.TryGetProperty("detail", out _).Should().BeTrue();
-        doc.RootElement.GetProperty("status").GetInt32().Should().Be(404);
+        // RFC 7807: CamelCase-Keys im Data-JSON (Data ist jetzt JsonElement).
+        var doc = resp.Data.Value;
+        doc.TryGetProperty("type", out _).Should().BeTrue();
+        doc.TryGetProperty("title", out _).Should().BeTrue();
+        doc.TryGetProperty("status", out _).Should().BeTrue();
+        doc.TryGetProperty("detail", out _).Should().BeTrue();
+        doc.GetProperty("status").GetInt32().Should().Be(404);
 
         // Title/Detail zusätzlich auf HrpcError gespiegelt (einfache Clients).
         resp.Error!.Message.Should().Be("Customer not found.");

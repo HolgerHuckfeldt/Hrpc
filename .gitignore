@@ -75,3 +75,6 @@ dist/
 
 # BenchmarkDotNet output
 BenchmarkDotNet.Artifacts/
+
+# Bench-Run-Logs (regenerierbar, s. run-bench-stable.sh)
+bench-*.log

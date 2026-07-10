@@ -180,8 +180,8 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         var content = await response.Content.ReadAsStringAsync();
         var hrpcResp = JsonSerializer.Deserialize<HrpcResponse>(content, _jsonOpts);
         hrpcResp!.Code.Should().Be(200);
-        hrpcResp.Data.Should().Contain("\"Greet\":\"Hi\"");
-        hrpcResp.Data.Should().Contain("\"Id\":1");
+        hrpcResp.Data.Value.GetRawText().Should().Contain("\"greet\":\"Hi\"");
+        hrpcResp.Data.Value.GetRawText().Should().Contain("\"id\":1");
     }
 
     [Fact]
@@ -201,8 +201,8 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         var content = await response.Content.ReadAsStringAsync();
         var hrpcResp = JsonSerializer.Deserialize<HrpcResponse>(content, _jsonOpts);
         hrpcResp!.Code.Should().Be(200);
-        hrpcResp.Data.Should().Contain("\"Greet\":\"Hola\"");
-        hrpcResp.Data.Should().Contain("\"Id\":2");
+        hrpcResp.Data.Value.GetRawText().Should().Contain("\"greet\":\"Hola\"");
+        hrpcResp.Data.Value.GetRawText().Should().Contain("\"id\":2");
     }
 
     /// <summary>
@@ -266,14 +266,14 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         byId["chain-step2"].Error.Should().BeNull();
         // Der @newId-Platzhalter muss durch die numerische Id aus step1 ersetzt worden
         // sein — sonst läge hier ein 500 (NullRef bei int-Unboxing) oder ein 400 vor.
-        byId["chain-step2"].Data.Should().Contain("\"Name\":\"DepChainIT\"");
+        byId["chain-step2"].Data.Value.GetRawText().Should().Contain("\"name\":\"DepChainIT\"");
     }
 
     /// <summary>
     /// Drei-Stufen-Chain, die zusätzlich zur numerischen ($) auch eine String-Dependency
-    /// über einen ergebnisrelativen Eigenschafts-Pfad ($.Name) prüft:
+    /// über einen ergebnisrelativen Eigenschafts-Pfad ($.name) prüft:
     ///   step1: AddCustomer("SrcNameIT") -> int id; expose newId = "$"
-    ///   step2: GetCustomerById(@newId) -> Customer { Name }; expose srcName = "$.Name"
+    ///   step2: GetCustomerById(@newId) -> Customer { Name }; expose srcName = "$.name"
     ///   step3: AddCustomer(@srcName)   -> int id (zweiter Kunde mit gleichem Namen)
     /// Stellt sicher, dass die typgetreue Substitution auch String-Werte intakt
     /// transportiert — der JSON-String "\"SrcNameIT\"" (mit Quotes) muss erhalten
@@ -303,7 +303,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
                 new() { ParameterName = "id", Data = "@newId" }
             }),
             Id = "str-step2",
-            DependencyMapping = new Dictionary<string, string> { { "srcName", "$.Name" } }
+            DependencyMapping = new Dictionary<string, string> { { "srcName", "$.name" } }
         };
         var step3 = new HrpcRequest
         {
@@ -334,7 +334,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         byId["str-step1"].Code.Should().Be(200);
         byId["str-step2"].Code.Should().Be(200);
         byId["str-step2"].ExposedDependencies.Should().NotBeNull();
-        // $.Name liefert den JSON-String "\"SrcNameIT\"" (mit Quotes) — nur so
+        // $.name liefert den JSON-String "\"SrcNameIT\"" (mit Quotes) — nur so
         // übersteht die Substitution für ein string-Ziel intakt.
         byId["str-step2"].ExposedDependencies!["srcName"].Should().Be("\"SrcNameIT\"");
 
@@ -343,7 +343,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         // würde hier in einem 400/500 enden.
         byId["str-step3"].Code.Should().Be(200);
         byId["str-step3"].Error.Should().BeNull();
-        byId["str-step3"].Data.Should().NotBeNullOrEmpty();
+        byId["str-step3"].Data.Should().NotBeNull();
     }
 
     /// <summary>
@@ -393,7 +393,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         var byId = responses!.ToDictionary(r => r.Id ?? string.Empty);
         byId["obj-s2"].Code.Should().Be(200);
         byId["obj-s2"].Error.Should().BeNull();
-        var dto = JsonSerializer.Deserialize<TestDto>(byId["obj-s2"].Data!, _jsonOpts);
+        var dto = byId["obj-s2"].Data.Value.Deserialize<TestDto>(_jsonOpts);
         dto!.Id.Should().Be(7);
         dto.Name.Should().Be("Alice");
     }
@@ -440,12 +440,12 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         var byId = responses!.ToDictionary(r => r.Id ?? string.Empty);
         byId["arr-s2"].Code.Should().Be(200);
         byId["arr-s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<int>(byId["arr-s2"].Data!).Should().Be(3);
+        byId["arr-s2"].Data.Value.Deserialize<int>().Should().Be(3);
     }
 
     /// <summary>
     /// Mehrere @alias-Platzhalter in einen Request aus zwei Vorläufern über HTTP
-    /// (Diamond-Verbraucher): step1 exposes "$.Id" als "id", step2 exposes "$.Name" als
+    /// (Diamond-Verbraucher): step1 exposes "$.id" als "id", step2 exposes "$.name" als
     /// "name", step3 MakeDto(@id, @name) kombiniert beide.
     /// </summary>
     [Fact]
@@ -462,7 +462,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
                 new() { ParameterName = "name", Data = "\"Alice\"" }
             }),
             Id = "ma-s1",
-            DependencyMapping = new Dictionary<string, string> { { "id", "$.Id" } }
+            DependencyMapping = new Dictionary<string, string> { { "id", "$.id" } }
         };
         var step2 = new HrpcRequest
         {
@@ -474,7 +474,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
                 new() { ParameterName = "name", Data = "\"Bob\"" }
             }),
             Id = "ma-s2",
-            DependencyMapping = new Dictionary<string, string> { { "name", "$.Name" } }
+            DependencyMapping = new Dictionary<string, string> { { "name", "$.name" } }
         };
         var step3 = new HrpcRequest
         {
@@ -503,7 +503,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         var byId = responses!.ToDictionary(r => r.Id ?? string.Empty);
         byId["ma-s3"].Code.Should().Be(200);
         byId["ma-s3"].Error.Should().BeNull();
-        var dto = JsonSerializer.Deserialize<TestDto>(byId["ma-s3"].Data!, _jsonOpts);
+        var dto = byId["ma-s3"].Data.Value.Deserialize<TestDto>(_jsonOpts);
         dto!.Id.Should().Be(7);
         dto.Name.Should().Be("Bob");
     }
@@ -527,7 +527,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
                 new() { ParameterName = "name", Data = "\"Alice\"" }
             }),
             Id = "un-s1",
-            DependencyMapping = new Dictionary<string, string> { { "id", "$.Id" } }
+            DependencyMapping = new Dictionary<string, string> { { "id", "$.id" } }
         };
         var step2 = new HrpcRequest
         {
@@ -605,7 +605,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         var byId = responses!.ToDictionary(r => r.Id ?? string.Empty);
         byId["se-s2"].Code.Should().Be(200);
         byId["se-s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<long>(byId["se-s2"].Data!).Should().Be(42L);
+        byId["se-s2"].Data.Value.Deserialize<long>().Should().Be(42L);
     }
 
 }

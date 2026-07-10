@@ -99,7 +99,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Contain("Hello Hrpc");
+        response.Data.Value.GetRawText().Should().Contain("Hello Hrpc");
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Be("7");
+        response.Data.Value.GetRawText().Should().Be("7");
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Contain("Hello World");
+        response.Data.Value.GetRawText().Should().Contain("Hello World");
     }
 
     // Weg A: Eine Controller-Methode, die ein HrpcResponse-Objekt zurückgibt
@@ -152,7 +152,8 @@ public class HrpcInvokerTests
         response.Should().NotBeNull();
         response!.Code.Should().Be(404);
         response.IsSuccess.Should().BeFalse();
-        response.Data.Should().Be("Customer '99' not found.");
+        // Data ist bei Fehlern null; Message wohnt in Error.Message.
+        response.Data.Should().BeNull();
         response.Error.Should().NotBeNull();
         response.Error!.Code.Should().Be(404);
         response.Error.Message.Should().Be("Customer '99' not found.");
@@ -170,9 +171,9 @@ public class HrpcInvokerTests
         response!.Code.Should().Be(200);
         response.IsSuccess.Should().BeTrue();
         response.Error.Should().BeNull();
-        // Ok(object) serialisiert PascalCase (wie der Invoker-Erfolgs-Pfad).
-        response.Data.Should().Contain("\"Id\":5");
-        response.Data.Should().Contain("\"Name\":\"Found\"");
+        // Ok(object) serialisiert camelCase (wie der Invoker-Erfolgs-Pfad).
+        response.Data.Value.GetRawText().Should().Contain("\"id\":5");
+        response.Data.Value.GetRawText().Should().Contain("\"name\":\"Found\"");
     }
 
     [Fact]
@@ -184,7 +185,8 @@ public class HrpcInvokerTests
 
         response!.Code.Should().Be(400);
         response.IsSuccess.Should().BeFalse();
-        response.Data.Should().Be("input must not be empty.");
+        // Data bei Fehlern null; Message in Error.Message.
+        response.Error!.Message.Should().Be("input must not be empty.");
         response.Error!.Details.Should().Be("ParameterName=input");
     }
 
@@ -217,8 +219,8 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Contain("\"Id\":42");
-        response.Data.Should().Contain("\"Name\":\"Test\"");
+        response.Data.Value.GetRawText().Should().Contain("\"id\":42");
+        response.Data.Value.GetRawText().Should().Contain("\"name\":\"Test\"");
     }
 
     #endregion
@@ -238,7 +240,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Contain("Async Hello");
+        response.Data.Value.GetRawText().Should().Contain("Async Hello");
     }
 
     [Fact]
@@ -254,7 +256,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Be("30");
+        response.Data.Value.GetRawText().Should().Be("30");
     }
 
     [Fact]
@@ -374,7 +376,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Be("7");
+        response.Data.Value.GetRawText().Should().Be("7");
     }
 
     [Fact]
@@ -402,7 +404,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Contain("hello");
+        response.Data.Value.GetRawText().Should().Contain("hello");
     }
 
     [Fact]
@@ -428,7 +430,8 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.BadRequest);
-        response.Data.Should().Contain("Duplicate");
+        // Fehler-Message wohnt in Error.Message (Data bei Fehlern null).
+        response.Error!.Message.Should().Contain("Duplicate");
     }
 
     [Fact]
@@ -443,7 +446,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Be("3");
+        response.Data.Value.GetRawText().Should().Be("3");
     }
 
     [Fact]
@@ -477,7 +480,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Contain("added alice");
+        response.Data.Value.GetRawText().Should().Contain("added alice");
     }
 
     #endregion
@@ -560,7 +563,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Contain("5 bytes");
+        response.Data.Value.GetRawText().Should().Contain("5 bytes");
     }
 
     [Fact]
@@ -607,7 +610,7 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
-        response.Data.Should().Be("8");
+        response.Data.Value.GetRawText().Should().Be("8");
     }
 
     #endregion
@@ -628,7 +631,7 @@ public class HrpcInvokerTests
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
         response.Data.Should().NotBeNull();
-        var numbers = JsonSerializer.Deserialize<List<int>>(response.Data!);
+        var numbers = response.Data.Value.Deserialize<List<int>>();
         numbers.Should().NotBeNull();
         numbers.Should().HaveCount(5);
         numbers.Should().BeEquivalentTo(new[] { 0, 1, 2, 3, 4 });
@@ -648,7 +651,7 @@ public class HrpcInvokerTests
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.OK);
         response.Data.Should().NotBeNull();
-        var numbers = JsonSerializer.Deserialize<List<int>>(response.Data!);
+        var numbers = response.Data.Value.Deserialize<List<int>>();
         numbers.Should().NotBeNull();
         numbers.Should().HaveCount(3);
         numbers.Should().BeEquivalentTo(new[] { 0, 1, 2 });
@@ -727,8 +730,10 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.NotFound);
-        response.Data.Should().NotContain("Fehler");
-        response.Data.Should().NotContain("Exception");
+        // Data bei Fehlern null (kein Leak); generische Message ohne interne Details.
+        response.Data.Should().BeNull();
+        response.Error!.Message.Should().NotContain("Fehler").And.NotContain("Exception");
+        response.Error?.Details.Should().BeNull();
     }
 
     [Fact]
@@ -743,8 +748,10 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.BadRequest);
-        response.Data.Should().NotContain("Fehler");
-        response.Data.Should().NotContain("Exception");
+        // Data bei Fehlern null (kein Leak); generische Message ohne interne Details.
+        response.Data.Should().BeNull();
+        response.Error!.Message.Should().NotContain("Fehler").And.NotContain("Exception");
+        response.Error?.Details.Should().BeNull();
     }
 
     [Fact]
@@ -765,8 +772,10 @@ public class HrpcInvokerTests
         // Assert
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.BadRequest);
-        response.Data.Should().NotContain("Exception");
-        response.Data.Should().NotContain("JsonException");
+        // Data bei Fehlern null (kein Leak); generische Message ohne interne Details.
+        response.Data.Should().BeNull();
+        response.Error!.Message.Should().NotContain("Exception").And.NotContain("JsonException");
+        response.Error?.Details.Should().BeNull();
     }
 
     [Fact]
@@ -784,9 +793,10 @@ public class HrpcInvokerTests
         response.Should().NotBeNull();
         response!.Code.Should().Be((int)HttpStatusCode.BadRequest);
         // Should mention the parameter name but NOT leak stack traces
-        response.Data.Should().Contain("a");
-        response.Data.Should().NotContain("at ");
-        response.Data.Should().NotContain("stack");
+        response.Error!.Message.Should().Contain("a");
+        response.Error!.Message.Should().NotContain("at ");
+        response.Error!.Message.Should().NotContain("stack");
+        response.Error?.Details.Should().BeNull();
     }
 
     [Fact]
@@ -810,8 +820,8 @@ public class HrpcInvokerTests
         // Even on success, verify error responses don't leak
         if (response!.Code >= 400)
         {
-            response.Data.Should().NotContain("Fehler in der Ausführung");
-            response.Data.Should().NotContain("Exception");
+            response.Data.Should().BeNull();
+            response.Error?.Details.Should().BeNull();
         }
     }
 
@@ -880,7 +890,7 @@ public class HrpcInvokerTests
         byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<bool>(byId["s2"].Data!).Should().BeTrue();
+        byId["s2"].Data.Value.Deserialize<bool>().Should().BeTrue();
     }
 
     /// <summary>
@@ -904,7 +914,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<long>(byId["s2"].Data!).Should().Be(9_000_000_000L);
+        byId["s2"].Data.Value.Deserialize<long>().Should().Be(9_000_000_000L);
     }
 
     /// <summary>
@@ -929,7 +939,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<decimal>(byId["s2"].Data!).Should().Be(12.5m);
+        byId["s2"].Data.Value.Deserialize<decimal>().Should().Be(12.5m);
     }
 
     /// <summary>
@@ -956,14 +966,14 @@ public class HrpcInvokerTests
         byId["s1"].ExposedDependencies.Should().ContainKey("dto");
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        var dto = JsonSerializer.Deserialize<TestDto>(byId["s2"].Data!, _caseInsensitiveOpts);
+        var dto = byId["s2"].Data.Value.Deserialize<TestDto>(_caseInsensitiveOpts);
         dto.Should().NotBeNull();
         dto!.Id.Should().Be(7);
         dto.Name.Should().Be("Alice");
     }
 
     /// <summary>
-    /// Property-Pfad auf einem Objekt-Result: MakeDto(7,"Alice") exposes "$.Id" als
+    /// Property-Pfad auf einem Objekt-Result: MakeDto(7,"Alice") exposes "$.id" als
     /// "id"; MakeDto(@id,"Bob") muss ein neues Dto mit Id=7 liefern. Prüft int-Extraktion
     /// via ergebnisrelativem Pfad (kein $.data-Envelope) und typgetreue int-Injection.
     /// </summary>
@@ -972,7 +982,7 @@ public class HrpcInvokerTests
     {
         // Arrange
         var step1 = ChainRequest("s1", "DepChain", "MakeDto",
-            new Dictionary<string, string> { { "id", "$.Id" } },
+            new Dictionary<string, string> { { "id", "$.id" } },
             ("id", "7"), ("name", "\"Alice\""));
         var step2 = ChainRequest("s2", "DepChain", "MakeDto",
             ("id", "@id"), ("name", "\"Bob\""));
@@ -985,7 +995,7 @@ public class HrpcInvokerTests
         byId["s1"].ExposedDependencies!["id"].Should().Be("7");
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        var dto = JsonSerializer.Deserialize<TestDto>(byId["s2"].Data!, _caseInsensitiveOpts);
+        var dto = byId["s2"].Data.Value.Deserialize<TestDto>(_caseInsensitiveOpts);
         dto!.Id.Should().Be(7);
         dto.Name.Should().Be("Bob");
     }
@@ -1011,7 +1021,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<int>(byId["s2"].Data!).Should().Be(3);
+        byId["s2"].Data.Value.Deserialize<int>().Should().Be(3);
     }
 
     /// <summary>
@@ -1037,12 +1047,12 @@ public class HrpcInvokerTests
         byId["s1"].ExposedDependencies!["second"].Should().Be("20");
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<long>(byId["s2"].Data!).Should().Be(20L);
+        byId["s2"].Data.Value.Deserialize<long>().Should().Be(20L);
     }
 
     /// <summary>
     /// Mehrere @alias-Platzhalter in einen Request aus zwei verschiedenen Vorläufern
-    /// (Diamond-Verbraucher): step1 exposes "$.Id" als "id", step2 exposes "$.Name" als
+    /// (Diamond-Verbraucher): step1 exposes "$.id" als "id", step2 exposes "$.name" als
     /// "name", step3 MakeDto(@id, @name) kombiniert beide. Prüft das Zusammenführen der
     /// ExposedDependencies aller Vorläufer-Batches in einem Aufruf.
     /// </summary>
@@ -1051,10 +1061,10 @@ public class HrpcInvokerTests
     {
         // Arrange — step1 und step2 sind unabhängig (Batch 1), step3 verbraucht beide (Batch 2)
         var step1 = ChainRequest("s1", "DepChain", "MakeDto",
-            new Dictionary<string, string> { { "id", "$.Id" } },
+            new Dictionary<string, string> { { "id", "$.id" } },
             ("id", "7"), ("name", "\"Alice\""));
         var step2 = ChainRequest("s2", "DepChain", "MakeDto",
-            new Dictionary<string, string> { { "name", "$.Name" } },
+            new Dictionary<string, string> { { "name", "$.name" } },
             ("id", "99"), ("name", "\"Bob\""));
         var step3 = ChainRequest("s3", "DepChain", "MakeDto",
             ("id", "@id"), ("name", "@name"));
@@ -1066,7 +1076,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s3"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s3"].Error.Should().BeNull();
-        var dto = JsonSerializer.Deserialize<TestDto>(byId["s3"].Data!, _caseInsensitiveOpts);
+        var dto = byId["s3"].Data.Value.Deserialize<TestDto>(_caseInsensitiveOpts);
         dto!.Id.Should().Be(7);      // aus step1
         dto.Name.Should().Be("Bob"); // aus step2
     }
@@ -1081,7 +1091,7 @@ public class HrpcInvokerTests
     {
         // Arrange — step1 exposed "id", step2 fragt aber "@nonexistent" ab
         var step1 = ChainRequest("s1", "DepChain", "MakeDto",
-            new Dictionary<string, string> { { "id", "$.Id" } },
+            new Dictionary<string, string> { { "id", "$.id" } },
             ("id", "7"), ("name", "\"Alice\""));
         var step2 = ChainRequest("s2", "DepChain", "EchoLong",
             ("value", "@nonexistent"));
@@ -1118,7 +1128,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<long>(byId["s2"].Data!).Should().Be(42L);
+        byId["s2"].Data.Value.Deserialize<long>().Should().Be(42L);
     }
 
     /// <summary>
@@ -1169,7 +1179,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<double>(byId["s2"].Data!).Should().Be(3.14159);
+        byId["s2"].Data.Value.Deserialize<double>().Should().Be(3.14159);
     }
 
     /// <summary>
@@ -1193,7 +1203,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<float>(byId["s2"].Data!).Should().Be(1.5f);
+        byId["s2"].Data.Value.Deserialize<float>().Should().Be(1.5f);
     }
 
     /// <summary>
@@ -1219,7 +1229,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<DateTime>(byId["s2"].Data!).Should().Be(value);
+        byId["s2"].Data.Value.Deserialize<DateTime>().Should().Be(value);
     }
 
     /// <summary>
@@ -1244,7 +1254,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<Guid>(byId["s2"].Data!).Should().Be(guid);
+        byId["s2"].Data.Value.Deserialize<Guid>().Should().Be(guid);
     }
 
     /// <summary>
@@ -1268,7 +1278,7 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<ChainPriority>(byId["s2"].Data!).Should().Be(ChainPriority.High);
+        byId["s2"].Data.Value.Deserialize<ChainPriority>().Should().Be(ChainPriority.High);
     }
 
     /// <summary>
@@ -1293,13 +1303,13 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        var values = JsonSerializer.Deserialize<List<int>>(byId["s2"].Data!);
+        var values = byId["s2"].Data.Value.Deserialize<List<int>>();
         values.Should().Equal(10, 20, 30);
     }
 
     /// <summary>
     /// Geschachtelter JsonPath in einer Chain: MakeNestedDto(5,7) → {Id:5, Inner:{Id:7}};
-    /// exposes "$.Inner.Id" als "innerId"; EchoLong(@innerId) muss 7 liefern. Prüft
+    /// exposes "$.inner.id" als "innerId"; EchoLong(@innerId) muss 7 liefern. Prüft
     /// Multi-Level-Pfad-Extraktion (bisher nur flache $.Prop in Chains).
     /// </summary>
     [Fact]
@@ -1307,7 +1317,7 @@ public class HrpcInvokerTests
     {
         // Arrange
         var step1 = ChainRequest("s1", "DepChain", "MakeNestedDto",
-            new Dictionary<string, string> { { "innerId", "$.Inner.Id" } },
+            new Dictionary<string, string> { { "innerId", "$.inner.id" } },
             ("outerId", "5"), ("innerId", "7"));
         var step2 = ChainRequest("s2", "DepChain", "EchoLong",
             ("value", "@innerId"));
@@ -1320,7 +1330,7 @@ public class HrpcInvokerTests
         byId["s1"].ExposedDependencies!["innerId"].Should().Be("7");
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        JsonSerializer.Deserialize<long>(byId["s2"].Data!).Should().Be(7L);
+        byId["s2"].Data.Value.Deserialize<long>().Should().Be(7L);
     }
 
     /// <summary>
@@ -1344,24 +1354,24 @@ public class HrpcInvokerTests
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s2"].Error.Should().BeNull();
-        var map = JsonSerializer.Deserialize<Dictionary<string, int>>(byId["s2"].Data!);
+        var map = byId["s2"].Data.Value.Deserialize<Dictionary<string, int>>();
         map.Should().NotBeNull();
         map!.Should().HaveCount(3);
         map["b"].Should().Be(2);
     }
 
     /// <summary>
-    /// Nullable-Result: FindDto(-1) liefert null; exposes "$.Name". Ein null-Result
-    /// serialisiert zu Data="null" (gültiges JSON), aber $.Name extrahiert daraus nichts
-    /// → der Alias wird nicht in ExposedDependencies eingetragen (kein Crash, kein 500).
-    /// Der Consumer bekommt daher 400 (Unresolved dependencies).
+    /// Nullable-Result: FindDto(-1) liefert null; exposes "$.name". Ein null-Result
+    /// liefert Data=null (kein JsonElement) → der Capture-Block wird übersprungen und
+    /// ExposedDependencies bleibt null (kein Crash, kein 500). Der Consumer bekommt
+    /// daher 400 (Unresolved dependencies).
     /// </summary>
     [Fact]
     public async Task DependencyChain_NullResult_AliasNotExposed_ConsumerReturns400()
     {
         // Arrange
         var step1 = ChainRequest("s1", "DepChain", "FindDto",
-            new Dictionary<string, string> { { "name", "$.Name" } },
+            new Dictionary<string, string> { { "name", "$.name" } },
             ("id", "-1"));
         var step2 = ChainRequest("s2", "DepChain", "EchoString",
             ("value", "@name"));
@@ -1372,18 +1382,19 @@ public class HrpcInvokerTests
         // Assert
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
-        byId["s1"].ExposedDependencies.Should().NotContainKey("name");
+        byId["s1"].ExposedDependencies.Should().BeNull();
         byId["s2"].Code.Should().Be((int)HttpStatusCode.BadRequest);
         byId["s2"].Error.Should().NotBeNull();
     }
 
     /// <summary>
     /// Binär-Result als Dependency-Quelle: DownloadBytes() → byte[]; exposes "$".
-    /// byte[]-Returns legen nackten Base64-String in Data (kein gültiges JSON), daher
-    /// kann ExtractValue keinen Wert extrahieren — der Alias wird übersprungen (kein
-    /// 500, siehe Server-Fix). Zusätzlich sind byte[]-Parameter aus BinaryData gespeist,
-    /// nicht aus dem Data-Feld, sodass binäre Payloads über @alias nicht chainbar sind.
-    /// Dokumentiert die Designgrenze als sauberes 400 statt Server-Crash.
+    /// byte[]-Returns liegen seit dem Single-Pass-Fix ausschließlich in Content; Data
+    /// ist null → der Capture-Block wird übersprungen und ExposedDependencies bleibt
+    /// null (kein 500 durch unparsebares Base64 mehr). Zusätzlich sind byte[]-Parameter
+    /// aus BinaryData gespeist, nicht aus dem Data-Feld, sodass binäre Payloads über
+    /// @alias nicht chainbar sind. Dokumentiert die Designgrenze als sauberes 400 statt
+    /// Server-Crash.
     /// </summary>
     [Fact]
     public async Task DependencyChain_BinaryResult_AliasNotExposed_ConsumerReturns400()
@@ -1397,11 +1408,11 @@ public class HrpcInvokerTests
         // Act
         var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
 
-        // Assert — step1 crasht nicht (Base64 ist kein JSON, Alias wird übersprungen)
+        // Assert — step1 crasht nicht (Data ist null, Alias wird übersprungen)
         var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
         byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
         byId["s1"].Content.Should().NotBeNull();
-        byId["s1"].ExposedDependencies.Should().NotContainKey("bytes");
+        byId["s1"].ExposedDependencies.Should().BeNull();
         // step2 bekommt den Alias nicht -> sauberes 400, kein 500
         byId["s2"].Code.Should().Be((int)HttpStatusCode.BadRequest);
         byId["s2"].Error.Should().NotBeNull();

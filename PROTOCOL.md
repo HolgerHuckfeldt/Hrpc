@@ -76,7 +76,7 @@ Result of a method invocation.
 ```json
 {
   "code": 200,
-  "data": "{\"id\":42,\"name\":\"Alice\"}",
+  "data": { "id": 42, "name": "Alice" },
   "content": null,
   "id": "Customer.GetById",
   "exposedDependencies": null,
@@ -87,12 +87,25 @@ Result of a method invocation.
 | Field | Type | Description |
 |-------|------|-------------|
 | `code` | int | HTTP-like status code (200, 400, 401, 404, 500, etc.) |
-| `data` | string\|null | JSON-encoded result (or error message if code != 2xx) |
-| `content` | base64\|null | Optional binary response |
+| `data` | any (JSON value)\|null | The method result serialized **directly as a structured JSON value** — an object, array, string, number, or boolean, exactly as `System.Text.Json` (camelCase) would emit it. Type-preserving: a `string` result arrives as a JSON string (`"Alice"`), an `int` as a JSON number (`42`), an object as `{...}`. It is **not** a JSON-encoded string blob and there is no `$.data` envelope level. `null` on `204` (no content) and on non-2xx (the error message lives in `error.message`, not here). |
+| `content` | base64\|null | Binary response for `byte[]`-returning methods (the bytes live exclusively here — never duplicated as a base64 string in `data`) |
 | `id` | string\|null | Correlates with request ID |
-| `exposedDependencies` | object\|null | Map of alias → value for dependency chaining |
+| `exposedDependencies` | object\|null | Map of alias → value (each value is a JSON-encoded scalar/structure) for dependency chaining |
 | `error` | object\|null | Structured error (when code != 2xx) |
-| `isSuccess` | bool | Derived: true if code is 200-299 (not serialized) |
+| `isSuccess` | bool | Derived: true if code is 200-299 (not serialized — clients compute it from `code`) |
+
+> **`data` is raw, not wrapped.** Because `data` is emitted in one pass straight from the
+> serialized result, a cross-platform client reads it as a native JSON value directly —
+> no `JSON.parse(data)` / `json.loads(data)` step. A `string` result is a JSON string on
+> the wire, so a client binding `data` to a `string` target receives it as-is; an object
+> result binds to an object. The C# `Call<T>` deserializes the raw `data` bytes into `T`
+> in a single pass; the TS `hrpc-client` casts the already-parsed `data` to `T`.
+
+> **Wire key order** (REST + WebSocket, JSON): `code`, `data`, `content`, `id`,
+> `exposedDependencies`, `error`. Parsers read by name and tolerate reordered keys.
+> Over SignalR/MessagePack the same six fields travel as a positional array in
+> `[Key]` order: `[code, data, content, id, exposedDependencies, error]`; `data` is
+> encoded as native MessagePack tokens (JSON→MessagePack 1:1, no string wrapping).
 
 ### HrpcError
 
@@ -174,8 +187,8 @@ A controller method has two ways to signal a non-success outcome, and they are
 domain errors.** The invoker passes a returned `HrpcResponse` through verbatim
 (`HrpcInvoker.ReturnResponse`: `if (result is HrpcResponse) return it;`), so the
 exact `Code`, `Data`, and `Error` reach the client. Use the `HrpcResults` factory
-(`HrpcCommon.Results`) so both `Data` (the human message) and the structured
-`HrpcError` are set consistently:
+(`HrpcCommon.Results`) so the human message lands in the structured `HrpcError`
+while `Data` stays `null` (the message does **not** travel in `data`):
 
 ```csharp
 using HrpcCommon.Results;
@@ -190,10 +203,13 @@ public HrpcResponse GetById(int id)
 }
 ```
 
-`HrpcResults` API: `Ok(object?|string|byte[])`, `NoContent()`,
+`HrpcResults` API: `Ok(object?)` (result serialized to a raw JSON value in
+`data`), `Ok(string jsonData)` (a **pre-serialized JSON string** taken as-is —
+requires valid JSON; stored as raw bytes, no re-parse), `Ok(byte[] binary)`
+(bytes in `content`, `data` null), `NoContent()` (204, `data` null),
 `Error(code, message, details?)`, plus convenience `BadRequest` / `Unauthorized`
 / `NotFound` / `Conflict` / `InternalServerError`, and an RFC-7807
-`Error(ProblemDetails)` overload (CamelCase JSON in `Data`; `title`/`detail`
+`Error(ProblemDetails)` overload (CamelCase JSON in `data`; `title`/`detail`
 mirrored onto `HrpcError.Message`/`.Details`). The message is **not** gated by
 `EnableDetailedErrors` — it is yours and reaches the client in every environment.
 
@@ -208,8 +224,9 @@ controller does **not** propagate its `HrpcError.Code` — the server has no
 return `HrpcResults.Error(...)`.
 
 **Client side.** The C# `HrpcClientBase.Call<T>` throws `HrpcException` on
-non-2xx, carrying `HrpcError` (from `response.Error`, or synthesized from `Data`
-via `HrpcError.FromResponse`). The TS `hrpc-client` `call()` returns the raw
+non-2xx, carrying `HrpcError` (from `response.Error`, or synthesized from
+`response.Code` via `HrpcError.FromResponse`, which reads
+`response.Error?.Message`). The TS `hrpc-client` `call()` returns the raw
 `HrpcResponse` (`isSuccess:false`, does not throw); `callJson<T>()` /
 `callBinary()` throw `HrpcError`.
 
@@ -244,7 +261,11 @@ A subsequent request can **use** exposed values with `@alias` placeholders:
    `"Circular dependency detected in request batch."` and the offending request's `id`
    in `error.requestId`.
 5. **JsonPath**: Values are extracted using [JsonPath](https://goessner.net/articles/JsonPath/)
-   expressions against the response `data` field (which is a JSON string, parsed first).
+   expressions against the response `data` value. Because `data` is a structured JSON
+   value (not a string blob), the path is evaluated directly against it; `$` is the whole
+   result, `$.Property` a field, `$[0].Id` an array element. Extracted values are
+   re-encoded as JSON in `exposedDependencies` (so the type is preserved for the `@alias`
+   substitution into the next request's parameters).
 
 ---
 
@@ -280,8 +301,11 @@ Content-Type: application/json
 
 {
   "code": 200,
-  "data": "{\"id\":42,\"name\":\"Alice\"}",
-  "id": "Customer.GetById"
+  "data": { "id": 42, "name": "Alice" },
+  "content": null,
+  "id": "Customer.GetById",
+  "exposedDependencies": null,
+  "error": null
 }
 ```
 
@@ -372,10 +396,12 @@ interface HrpcRequest {
 
 interface HrpcResponse {
   code: number;
-  data: string | null;
+  data: unknown | null; // structured JSON value — NOT a string blob, no JSON.parse needed
+  content?: string | null; // base64 for byte[] results
   id: string | null;
   error: { code: number; message: string; details?: string; requestId?: string | null } | null;
   exposedDependencies?: Record<string, string> | null;
+  isSuccess: boolean; // derived client-side from code (server does not send it)
 }
 
 async function hrpcCall(
@@ -403,12 +429,15 @@ async function hrpcCall(
     body: JSON.stringify(request),
   });
 
-  return resp.json();
+  const r = (await resp.json()) as HrpcResponse;
+  r.isSuccess = r.code >= 200 && r.code <= 299; // server omits isSuccess
+  return r;
 }
 
-// Usage
+// Usage — data is already a structured value (the Customer object), no JSON.parse
 const result = await hrpcCall("https://localhost:5001", "Customer", "GetById", { id: 42 });
-const customer = JSON.parse(result.data!);
+const customer = result.data as { id: number; name: string };
+console.log(customer.name);
 ```
 
 ## Python Client Example
@@ -429,11 +458,13 @@ def hrpc_call(url: str, controller: str, method: str, params: dict[str, Any], id
         "id": id or f"{controller}.{method}",
     }
     response = requests.post(f"{url}/api/hrpc/json", json=request)
-    return response.json()
+    r = response.json()
+    r["isSuccess"] = 200 <= r.get("code", 0) <= 299  # server omits isSuccess
+    return r
 
-# Usage
+# Usage — data is already a structured value (the Customer object), no json.loads
 result = hrpc_call("https://localhost:5001", "Customer", "GetById", {"id": 42})
-customer = json.loads(result["data"])
+customer = result["data"]  # dict, directly usable
 print(customer["name"])
 ```
 

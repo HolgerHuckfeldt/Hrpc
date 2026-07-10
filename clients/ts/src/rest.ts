@@ -222,7 +222,6 @@ export class HrpcRestClient {
         return {
           code: response.status,
           id: (body as HrpcRequest)?.id ?? null,
-          data: `HTTP Error: ${response.status} | ${text}`,
           content: null,
           exposedDependencies: null,
           error: {
@@ -265,7 +264,6 @@ export class HrpcRestClient {
           {
             code: response.status,
             id: firstId ?? null,
-            data: `HTTP Error: ${response.status} | ${text}`,
             content: null,
             exposedDependencies: null,
             error: {
@@ -297,14 +295,12 @@ export class HrpcRestClient {
 
 // --- Shared Helpers ---
 
-/** Deserialisiert response.data als T; wirft bei Nicht-2xx HrpcError (Spiegel Call<T>). */
+/** Gibt response.data als T zurück; wirft bei Nicht-2xx HrpcError (Spiegel Call<T>).
+ *  Seit dem Single-Pass-Fix ist data bereits ein strukturierter Wert (kein JSON-String
+ *  mehr) — kein client-seitiges JSON.parse nötig. */
 function parseData<T>(response: HrpcResponse): T | null {
-  if (response.isSuccess && typeof response.data === "string" && response.data.length > 0) {
-    try {
-      return JSON.parse(response.data) as T;
-    } catch (err) {
-      throw new HrpcError(0, "Failed to deserialize the response.", { cause: err });
-    }
+  if (response.isSuccess && response.data != null) {
+    return response.data as T;
   }
   if (!response.isSuccess) throw HrpcError.fromResponse(response);
   return null; // 204 / void

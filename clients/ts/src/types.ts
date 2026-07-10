@@ -11,6 +11,18 @@ export enum ExecutionMode {
   Serial = 1,
 }
 
+/** Lebenszyklus-Zustand des WebSocket-Clients (Spiegel von C# HrpcConnectionState). */
+export enum HrpcConnectionState {
+  /** 0 — keine aktive Verbindung (vor dem ersten Connect oder nach erschöpftem Reconnect). */
+  Disconnected = 0,
+  /** 1 — Verbindungsaufbau läuft. */
+  Connecting = 1,
+  /** 2 — Verbindung steht; Calls können gesendet werden. */
+  Connected = 2,
+  /** 3 — unerwarteter Disconnect; Hintergrund-Reconnect mit Backoff läuft. */
+  Reconnecting = 3,
+}
+
 /** Strukturierter Fehler im HrpcResponse.error-Feld (code != 2xx). */
 export interface HrpcErrorBody {
   code: number;
@@ -52,8 +64,9 @@ export interface HrpcMultiRequest {
 export interface HrpcResponse {
   /** Logischer Status-Code (im Body, nicht HTTP-Status). 200–299 = Erfolg. */
   code: number;
-  /** JSON-String des Results (null bei 204/void). */
-  data?: string | null;
+  /** Strukturierter Ergebniswert (roh, null bei 204/void/Fehler). Seit dem
+   *  Single-Pass-Fix kein JSON-String mehr, sondern der geparste Wert. */
+  data?: unknown | null;
   /** base64-kodiertes Binary-Result (für byte[]-Rückgaben). */
   content?: string | null;
   /** Korrelations-Id (spiegelt request.id). */

@@ -35,10 +35,15 @@ namespace HrpcClient.Hrpc
             if (theResult is not { IsSuccess: true })
                 return default;
 
-            if (string.IsNullOrEmpty(theResult.Data))
+            // Single-Pass Fast-Path: DataBytes direkt in T (kein JsonElement-Baum),
+            // Fallback über Data wie in HrpcClientBase.Call<T>.
+            if (theResult.DataBytes is { } dataBytes && dataBytes.Length > 0)
+                return JsonSerializer.Deserialize<T>(dataBytes, JsonOptions);
+
+            if (!theResult.Data.HasValue)
                 return default;
 
-            return JsonSerializer.Deserialize<T>(theResult.Data, JsonOptions);
+            return theResult.Data.Value.Deserialize<T>(JsonOptions);
         }
 
         /// <summary>

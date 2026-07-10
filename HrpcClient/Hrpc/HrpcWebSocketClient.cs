@@ -10,50 +10,87 @@ namespace HrpcClient.Hrpc;
 /// <summary>
 /// Hrpc-Client über reine WebSockets (RFC 6455) mit ID-basierter
 /// Request/Response-Korrelation für parallele Calls.
+///
+/// Auto-Reconnect: Droppt die Verbindung unerwartet (Server-Close,
+/// Transportfehler), verbindet der Client im Hintergrund mit exponentiellem
+/// Backoff automatisch wieder (spiegelt SignalRs <c>WithAutomaticReconnect</c>
+/// nach). In-Flight-Calls beim Drop werden abgelehnt (SignalR-Parität); neue
+/// Calls während des Reconnects warten auf dieselbe in-flight Verbindung.
+/// Explizites <see cref="DisposeAsync"/> ist terminal — kein Reconnect.
 /// </summary>
 public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
 {
-    private readonly ClientWebSocket _webSocket;
+    /// <summary>
+    /// Standard-Backoff-Intervalle (Spiegel von SignalR): 2,2,5,5,10,10,30,30s,
+    /// 1min,1min,5min. Nach dem letzten Interval gibt der Reconnect auf
+    /// (<see cref="HrpcConnectionState.Disconnected"/>).
+    /// </summary>
+    public static readonly TimeSpan[] DefaultReconnectDelays =
+    {
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(5),
+        TimeSpan.FromSeconds(10),
+        TimeSpan.FromSeconds(10),
+        TimeSpan.FromSeconds(30),
+        TimeSpan.FromSeconds(30),
+        TimeSpan.FromMinutes(1),
+        TimeSpan.FromMinutes(1),
+        TimeSpan.FromMinutes(5),
+    };
+
+    private ClientWebSocket _webSocket;
     private readonly Uri _uri;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly SemaphoreSlim _connectLock = new(1, 1);
     private readonly ConcurrentDictionary<string, ITcsHolder> _pendingRequests = new();
     private readonly ILogger<HrpcWebSocketClient>? _logger;
+
+    private readonly Func<ClientWebSocket>? _socketFactory;
+    private readonly bool _autoReconnect;
+    private readonly TimeSpan[] _reconnectDelays;
+    private readonly Action<HrpcConnectionState>? _onStateChanged;
+
+    private readonly TimeSpan? _callTimeout;
     private CancellationTokenSource? _readerCts;
     private Task? _readerTask;
     private int _requestCounter;
-    private readonly TimeSpan? _callTimeout;
+
+    private HrpcConnectionState _state = HrpcConnectionState.Disconnected;
+    private Task? _reconnectTask;
+    private CancellationTokenSource? _reconnectCts;
+    private bool _disposed;
 
     /// <summary>
     /// Non-generic interface to store TaskCompletionSource instances of different types.
+    /// SetResult nimmt ein bereits geparstes Ergebnisobjekt (HrpcResponse bzw.
+    /// List&lt;HrpcResponse?&gt;) — das Parsing passiert zentral in DispatchResponse via
+    /// HrpcResponseParser (ein Pass, DataBytes statt JsonDocument-Baum), nicht mehr
+    /// pro Holder via JsonSerializer.Deserialize(string).
     /// </summary>
     private interface ITcsHolder
     {
-        void SetResult(string json);
+        void SetResult(object result);
         void SetException(Exception ex);
         void SetCanceled();
     }
 
-    private class TcsHolder<T>(JsonSerializerOptions options) : ITcsHolder
+    private sealed class TcsHolder<T> : ITcsHolder
     {
         public readonly TaskCompletionSource<T> Tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly JsonSerializerOptions _options = options;
 
-        public void SetResult(string json)
-        {
-            // Mit den transportweit einheitlichen (case-insensitiven) Options
-            // deserialisieren — sonst binden camelCase-Server-Responses nicht.
-            var result = JsonSerializer.Deserialize<T>(json, _options);
-            Tcs.TrySetResult(result!);
-        }
-
+        public void SetResult(object result) => Tcs.TrySetResult((T)result!);
         public void SetException(Exception ex) => Tcs.TrySetException(ex);
         public void SetCanceled() => Tcs.SetCanceled();
     }
 
     public HrpcWebSocketClient(string serverBaseUrl, ClientWebSocket? webSocket = null,
         string? wsPath = "hrpcws", TimeSpan? callTimeout = null,
-        ILogger<HrpcWebSocketClient>? logger = null)
+        ILogger<HrpcWebSocketClient>? logger = null,
+        bool autoReconnect = true, TimeSpan[]? reconnectDelays = null,
+        Func<ClientWebSocket>? socketFactory = null,
+        Action<HrpcConnectionState>? onStateChanged = null)
         : base()
     {
         if (string.IsNullOrWhiteSpace(serverBaseUrl))
@@ -65,27 +102,55 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
         var path = (wsPath ?? "hrpcws").Trim('/');
         _uri = new Uri($"{wsScheme}://{hostAndPath}/{path}");
 
-        _webSocket = webSocket ?? new ClientWebSocket();
+        _socketFactory = socketFactory;
+        _webSocket = webSocket ?? CreateSocket();
         _callTimeout = callTimeout;
         _logger = logger;
+
+        _autoReconnect = autoReconnect;
+        _reconnectDelays = reconnectDelays ?? DefaultReconnectDelays;
+        if (_reconnectDelays.Length == 0)
+            _autoReconnect = false; // leeres Array schaltet Reconnect explizit aus
+        _onStateChanged = onStateChanged;
     }
+
+    /// <summary>Aktueller Verbindungs-Zustand (Observer-Oberfläche für UI/Logs).</summary>
+    public HrpcConnectionState State => _state;
 
     /// <summary>
     /// Stellt die WebSocket-Verbindung her und startet den Hintergrund-Reader.
+    /// Ein geschlossener/abgebrochener Socket wird zuvor durch einen frischen
+    /// ersetzt (geschlossene Sockets sind nicht reusing-fähig).
     /// </summary>
     public async Task ConnectAsync(CancellationToken ct = default)
     {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(HrpcWebSocketClient));
+
         if (_webSocket.State == WebSocketState.Open)
             return;
 
-        if (_webSocket.State == WebSocketState.Closed || _webSocket.State == WebSocketState.Aborted)
-            throw new InvalidOperationException("WebSocket wurde bereits geschlossen. Erstellen Sie eine neue Instanz.");
+        // Geschlossener/abgebrochener Socket kann nicht wiederverwendet werden → frisch erzeugen.
+        if (_webSocket.State is WebSocketState.Closed or WebSocketState.Aborted)
+        {
+            var dead = _webSocket;
+            _webSocket = CreateSocket();
+            try { dead.Dispose(); } catch { /* ignore */ }
+        }
 
-        await _webSocket.ConnectAsync(_uri, ct);
+        SetState(HrpcConnectionState.Connecting);
+        try
+        {
+            await _webSocket.ConnectAsync(_uri, ct);
+        }
+        catch
+        {
+            SetState(HrpcConnectionState.Disconnected);
+            throw;
+        }
 
-        // Start background reader
-        _readerCts = new CancellationTokenSource();
-        _readerTask = Task.Run(() => ReadLoopAsync(_readerCts.Token), CancellationToken.None);
+        StartReader();
+        SetState(HrpcConnectionState.Connected);
     }
 
     public override async Task<HrpcResponse?> Call(HrpcRequest? request, CancellationToken ct = default)
@@ -108,6 +173,22 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
 
     private async Task EnsureConnectedAsync(CancellationToken ct)
     {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(HrpcWebSocketClient));
+        if (_webSocket.State == WebSocketState.Open)
+            return;
+
+        // Läuft ein Hintergrund-Reconnect? Darauf warten (nicht selbst verbinden),
+        // damit parallele Calls denselben in-flight Reconnect teilen.
+        var reconnect = _reconnectTask;
+        if (reconnect != null && _state == HrpcConnectionState.Reconnecting)
+        {
+            try { await reconnect.WaitAsync(ct); }
+            catch (OperationCanceledException) { /* ct abgebrochen — unten neu bewerten */ }
+            if (_webSocket.State == WebSocketState.Open)
+                return;
+        }
+
         if (_webSocket.State == WebSocketState.Open)
             return;
 
@@ -149,7 +230,7 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
             requestId = NextId();
         }
 
-        var holder = new TcsHolder<T>(JsonOptions);
+        var holder = new TcsHolder<T>();
         _pendingRequests[requestId] = holder;
 
         // Call-Timeout: verknüpftes CTS, das sowohl das Senden als auch das Warten abbricht.
@@ -207,10 +288,13 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
     /// <summary>
     /// Background loop that reads all WebSocket messages and dispatches
     /// them to the correct pending request by matching the response ID.
+    /// Beim Ende (Close/Fehler) werden alle pending Calls abgelehnt und ein
+    /// Hintergrund-Reconnect angestoßen (außer bei Dispose).
     /// </summary>
     private async Task ReadLoopAsync(CancellationToken ct)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(1024 * 4);
+        Exception? terminalError = null;
 
         try
         {
@@ -228,8 +312,8 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
                         await _webSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "Ack", CancellationToken.None);
-                        CancelAllPending(new WebSocketException("WebSocket connection closed by server."));
-                        return;
+                        terminalError = new WebSocketException("WebSocket connection closed by server.");
+                        break;
                     }
 
                     if (result.MessageType == WebSocketMessageType.Text && result.Count > 0)
@@ -239,69 +323,58 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
                 }
                 while (!result.EndOfMessage);
 
+                if (terminalError != null)
+                    break;
+
                 if (messageBuffer.Length == 0)
                     continue;
 
-                var message = Encoding.UTF8.GetString(messageBuffer.GetBuffer(), 0, (int)messageBuffer.Length);
-                if (string.IsNullOrWhiteSpace(message))
-                    continue;
+                // Roh-Bytes über den Live-MemoryStream-Puffer (kein String-Intermediat,
+                // keine Kopie — der Parser kopiert nur den DataBytes-Slice, den er behält).
+                // Der MemoryStream lebt bis zum Iterationsende (using var), also über den
+                // synchronen Dispatch-Aufruf hinaus.
+                var messageBytes = messageBuffer.GetBuffer().AsMemory(0, (int)messageBuffer.Length);
 
-                DispatchResponse(message);
+                DispatchResponse(messageBytes);
             }
         }
         catch (OperationCanceledException)
         {
-            // Normal shutdown
+            // Normal shutdown (Dispose) — kein Reconnect.
         }
         catch (Exception ex)
         {
-            CancelAllPending(ex);
+            terminalError = ex;
         }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+
+        // Alle pending Calls ablehnen (Spiegel SignalR: in-flight wirft beim Drop).
+        CancelAllPending(terminalError ?? new WebSocketException("WebSocket connection closed."));
+
+        // Unerwartetes Ende (nicht Dispose) → Hintergrund-Reconnect.
+        StartReconnect();
     }
 
     /// <summary>
-    /// Parses the response JSON, extracts the ID, and completes the matching TCS.
+    /// Parst die Response-Bytes EINMAL via <see cref="HrpcResponseParser"/> (erfasst
+    /// ID, Envelope und DataBytes in einem Pass — kein JsonDocument-Baum), extrahiert
+    /// die Korrelations-Id und löst den passenden pending Call auf. Single-Responses
+    /// korrelieren per <c>id</c>; Batch-Antworten (JSON-Array) über die Id des ersten
+    /// Elements (Server sendet pro-Request-Ids seit v1).
     /// </summary>
-    private void DispatchResponse(string message)
+    private void DispatchResponse(ReadOnlyMemory<byte> messageBytes)
     {
         try
         {
-            using var doc = JsonDocument.Parse(message);
-            var root = doc.RootElement;
+            var (result, responseId) = ParseMessage(messageBytes);
 
-            string? responseId = null;
-            // TryGetProperty verlangt ein Object-Root — auf einem Array (Batch-Response)
-            // wirft es InvalidOperationException. Also nur bei Object nach "id" suchen;
-            // Arrays werden unten im Batch-Zweig über das erste Element gematcht.
-            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("id", out var idProp))
-            {
-                responseId = idProp.GetString();
-            }
-
-            // Match by ID first
             if (responseId != null && _pendingRequests.TryGetValue(responseId, out var holder))
             {
-                holder.SetResult(message);
+                holder.SetResult(result);
                 return;
-            }
-
-            // Array (batch): über das erste Element matchen (Server erhält pro-Request-Id nach v1).
-            if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0)
-            {
-                var first = root[0];
-                if (first.TryGetProperty("id", out var firstIdProp))
-                {
-                    var firstId = firstIdProp.GetString();
-                    if (firstId != null && _pendingRequests.TryGetValue(firstId, out var batchHolder))
-                    {
-                        batchHolder.SetResult(message);
-                        return;
-                    }
-                }
             }
 
             // Kein Match -> NICHT raten (B3: stille Fehlzuordnung). Verwerfen + loggen;
@@ -314,6 +387,29 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Parst die Wire-Bytes in eine einzelne <see cref="HrpcResponse"/> (Object-Wurzel)
+    /// oder eine Batch-Liste (Array-Wurzel) und liefert die Korrelations-Id (bei Batch
+    /// die Id des ersten Elements). Ein Pass, DataBytes statt JsonElement-Baum.
+    /// </summary>
+    private static (object Result, string? Id) ParseMessage(ReadOnlyMemory<byte> messageBytes)
+    {
+        var span = messageBytes.Span;
+        var reader = new Utf8JsonReader(span, new JsonReaderOptions());
+        if (!reader.Read())
+            throw new JsonException("Leere WebSocket-Nachricht.");
+
+        if (reader.TokenType == JsonTokenType.StartArray)
+        {
+            var list = HrpcResponseParser.ParseArray(span);
+            var firstId = list.Count > 0 ? list[0]?.Id : null;
+            return (list, firstId);
+        }
+
+        var resp = HrpcResponseParser.Parse(span);
+        return (resp, resp.Id);
+    }
+
     private void CancelAllPending(Exception ex)
     {
         foreach (var kv in _pendingRequests)
@@ -323,10 +419,138 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
         _pendingRequests.Clear();
     }
 
+    private ClientWebSocket CreateSocket()
+    {
+        if (_socketFactory != null)
+            return _socketFactory();
+        return new ClientWebSocket();
+    }
+
+    /// <summary>
+    /// Startet (sofern aktiv und nicht bereits laufend) einen Hintergrund-Reader
+    /// auf dem aktuellen Socket und ersetzt einen zuvor laufenden Reader.
+    /// </summary>
+    private void StartReader()
+    {
+        // Vorherigen Reader aufräumen (beim Reconnect ist er ohnehin beendet).
+        var oldCts = _readerCts;
+        _readerCts = new CancellationTokenSource();
+        _readerTask = Task.Run(() => ReadLoopAsync(_readerCts.Token), CancellationToken.None);
+        if (oldCts != null)
+        {
+            try { oldCts.Cancel(); } catch { /* ignore */ }
+            try { oldCts.Dispose(); } catch { /* ignore */ }
+        }
+    }
+
+    /// <summary>
+    /// Stößt den Hintergrund-Reconnect an (idempotent). No-op bei Dispose,
+    /// deaktiviertem Reconnect oder bereits laufendem Reconnect.
+    /// </summary>
+    private void StartReconnect()
+    {
+        if (_disposed || !_autoReconnect)
+            return;
+        if (_reconnectTask != null && !_reconnectTask.IsCompleted)
+            return;
+
+        SetState(HrpcConnectionState.Reconnecting);
+        _reconnectCts?.Dispose();
+        _reconnectCts = new CancellationTokenSource();
+        var token = _reconnectCts.Token;
+        _reconnectTask = ReconnectLoopAsync(token);
+    }
+
+    private async Task ReconnectLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            for (var i = 0; i < _reconnectDelays.Length; i++)
+            {
+                if (_disposed)
+                    return;
+
+                try
+                {
+                    await Task.Delay(_reconnectDelays[i], ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                if (_disposed)
+                    return;
+
+                await _connectLock.WaitAsync(ct);
+                try
+                {
+                    if (_disposed)
+                        return;
+                    // Jemand anderem (lazy Connect) hat bereits verbunden.
+                    if (_webSocket.State == WebSocketState.Open)
+                        return;
+
+                    // Frischen Socket erzeugen (der alte ist Closed/Aborted).
+                    var socket = CreateSocket();
+                    try
+                    {
+                        await socket.ConnectAsync(_uri, ct);
+                        _webSocket = socket;
+                        StartReader();
+                        SetState(HrpcConnectionState.Connected);
+                        _logger?.LogInformation("WebSocket reconnect nach {Attempt} Versuch(en) wiederhergestellt.", i + 1);
+                        return; // Erfolg
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        try { socket.Dispose(); } catch { /* ignore */ }
+                        throw; // Abbruch → Schleife verlassen
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning("WebSocket reconnect Versuch {Attempt} fehlgeschlagen: {Message}", i + 1, ex.Message);
+                        try { socket.Dispose(); } catch { /* ignore */ }
+                        // weiter zum nächsten Backoff-Intervall
+                    }
+                }
+                finally
+                {
+                    _connectLock.Release();
+                }
+            }
+
+            // Backoff erschöpft → aufgeben.
+            SetState(HrpcConnectionState.Disconnected);
+            _logger?.LogWarning("WebSocket reconnect erschöpft — Verbindung bleib offline.");
+        }
+        catch (OperationCanceledException)
+        {
+            // Dispose — kein State-Update (DisposeAsync setzt Disconnected).
+        }
+    }
+
+    private void SetState(HrpcConnectionState state)
+    {
+        _state = state;
+        try { _onStateChanged?.Invoke(state); } catch { /* Observer-Fehler nicht fatal */ }
+    }
+
     public async ValueTask DisposeAsync()
     {
-        _readerCts?.Cancel();
+        if (_disposed)
+            return;
+        _disposed = true;
 
+        // Reconnect stoppen (terminal — kein weiterer Reconnect).
+        _reconnectCts?.Cancel();
+        if (_reconnectTask != null)
+        {
+            try { await _reconnectTask; } catch { /* ignore */ }
+        }
+        _reconnectCts?.Dispose();
+
+        _readerCts?.Cancel();
         if (_readerTask != null)
         {
             try { await _readerTask; } catch { /* ignore */ }
@@ -344,6 +568,7 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
         }
 
         _webSocket.Dispose();
+        SetState(HrpcConnectionState.Disconnected);
         _sendLock.Dispose();
         _connectLock.Dispose();
         _readerCts?.Dispose();

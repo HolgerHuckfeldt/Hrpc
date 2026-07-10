@@ -34,7 +34,7 @@ public class WebSocketTransportTests : IClassFixture<TransportTestFixture>
 
         resp!.Code.Should().Be(200);
         resp.Data.Should().NotBeNull();
-        resp.Data.Should().Contain("hello");
+        resp.Data.Value.GetRawText().Should().Contain("hello");
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class WebSocketTransportTests : IClassFixture<TransportTestFixture>
 
         var uploadResp = await client.Call(upload);
         uploadResp!.Code.Should().Be(200);
-        uploadResp.Data.Should().Contain(bytes.Length.ToString());
+        uploadResp.Data.Value.GetRawText().Should().Contain(bytes.Length.ToString());
 
         // DownloadBlob liefert byte[] -> Content-Feld.
         var download = HrpcCall.Init("TestInvoker", "DownloadBlob").With("blob").ToRequest();
@@ -109,7 +109,7 @@ public class WebSocketTransportTests : IClassFixture<TransportTestFixture>
         {
             responses[i]!.Code.Should().Be(200);
             responses[i]!.Id.Should().Be($"req{i}");
-            responses[i]!.Data.Should().Contain($"msg{i}");
+            responses[i]!.Data.Value.GetRawText().Should().Contain($"msg{i}");
         }
     }
 
@@ -137,6 +137,6 @@ public class WebSocketTransportTests : IClassFixture<TransportTestFixture>
         var resp = await client.Call(request);
 
         resp!.Code.Should().Be(200);
-        resp.Data.Should().Contain("added Alice");
+        resp.Data.Value.GetRawText().Should().Contain("added Alice");
     }
 }

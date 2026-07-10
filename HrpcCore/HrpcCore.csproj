@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Hrpc.Core</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.0.1</Version>
     <Authors>Hrpc</Authors>
     <Description>Core RPC engine: invoker, discovery, dependency resolver, interceptors</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>

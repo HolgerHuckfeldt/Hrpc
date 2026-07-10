@@ -31,16 +31,29 @@ namespace HrpcClient.Hrpc
                 return default;
 
             var response = await Call(request, ct);
-            if (response is { IsSuccess: true } && !string.IsNullOrEmpty(response.Data))
+            if (response is { IsSuccess: true })
             {
-                try
+                // Single-Pass Fast-Path: DataBytes (rohe UTF-8-Bytes aus dem Transport-
+                // Parser) direkt in T deserialisieren — ein Pass, kein JsonElement-Baum.
+                if (response.DataBytes is { } dataBytes && dataBytes.Length > 0)
                 {
-                    return JsonSerializer.Deserialize<T>(response.Data, JsonOptions);
+                    try { return JsonSerializer.Deserialize<T>(dataBytes, JsonOptions); }
+                    catch (Exception ex)
+                    {
+                        throw new HrpcException("Failed to deserialize the response.", ex);
+                    }
                 }
-                catch (Exception ex)
+                // Fallback: Data als JsonElement (SignalR-Client via MessagePack-Formatter,
+                // Legacy-Server ohne Converter, oder leerer Erfolg ohne Ergebniswert).
+                if (response.Data.HasValue)
                 {
-                    throw new HrpcException("Failed to deserialize the response.", ex);
+                    try { return response.Data.Value.Deserialize<T>(JsonOptions); }
+                    catch (Exception ex)
+                    {
+                        throw new HrpcException("Failed to deserialize the response.", ex);
+                    }
                 }
+                return default;
             }
             if (response != null && !response.IsSuccess)
             {

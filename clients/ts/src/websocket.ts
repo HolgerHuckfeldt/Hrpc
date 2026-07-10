@@ -1,5 +1,5 @@
 import { HrpcError, CancelledError } from "./errors.js";
-import { ExecutionMode } from "./types.js";
+import { ExecutionMode, HrpcConnectionState } from "./types.js";
 import type { HrpcMultiRequest, HrpcRequest, HrpcResponse } from "./types.js";
 import { fromBase64, normalizeResponse, normalizeResponses } from "./request.js";
 
@@ -7,6 +7,30 @@ const READY_CONNECTING = 0;
 const READY_OPEN = 1;
 const READY_CLOSING = 2;
 const READY_CLOSED = 3;
+
+/** Standard-Backoff-Intervalle in ms (Spiegel von SignalR): 2,2,5,5,10,10,30,30s,1,1,5min. */
+const DEFAULT_RECONNECT_DELAYS = [
+  2_000, 2_000, 5_000, 5_000, 10_000, 10_000, 30_000, 30_000, 60_000, 60_000, 300_000,
+];
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
+    const t = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(t);
+      signal?.removeEventListener("abort", onAbort);
+      reject(new Error("aborted"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
 
 /** Minimale, browser-kompatible WebSocket-Schnittstelle (auch Node `ws`). */
 export interface IWebSocket {
@@ -43,6 +67,12 @@ export interface HrpcWebSocketClientOptions {
   connectTimeout?: number;
   /** Injizierbare WebSocket-Fabrik (Tests). */
   WebSocketCtor?: WsFactory;
+  /** Auto-Reconnect bei unerwartetem Disconnect (Default true). */
+  reconnect?: boolean;
+  /** Backoff-Intervalle in ms (Default SignalR-Spiegel). Leeres Array schaltet Reconnect aus. */
+  reconnectDelays?: number[];
+  /** Observer für Zustandswechsel (UI/Logs). */
+  onStateChanged?: (state: HrpcConnectionState) => void;
 }
 
 interface PendingCall {
@@ -101,10 +131,18 @@ export class HrpcWebSocketClient {
   private readonly _callTimeout?: number;
   private readonly _connectTimeout: number;
   private readonly _wsCtor?: WsFactory;
+  private readonly _reconnect: boolean;
+  private readonly _reconnectDelays: number[];
+  private readonly _onStateChanged?: (state: HrpcConnectionState) => void;
 
   private _ws?: IWebSocket;
   private _connectPromise?: Promise<void>;
   private _pending = new Map<string, PendingCall>();
+  private _state: HrpcConnectionState = HrpcConnectionState.Disconnected;
+  private _closedByClient = false;
+  private _disposed = false;
+  private _reconnectPromise?: Promise<void>;
+  private _reconnectAbort?: AbortController;
 
   constructor(baseUrl: string, options: HrpcWebSocketClientOptions = {}) {
     if (!baseUrl || baseUrl.trim().length === 0) {
@@ -116,15 +154,48 @@ export class HrpcWebSocketClient {
     this._callTimeout = options.callTimeout;
     this._connectTimeout = options.connectTimeout ?? 15000;
     this._wsCtor = options.WebSocketCtor;
+    this._reconnectDelays = options.reconnectDelays ?? DEFAULT_RECONNECT_DELAYS;
+    this._reconnect = (options.reconnect ?? true) && this._reconnectDelays.length > 0;
+    this._onStateChanged = options.onStateChanged;
+  }
+
+  /** Aktueller Verbindungs-Zustand (Observer-Oberfläche für UI/Logs). */
+  get state(): HrpcConnectionState {
+    return this._state;
+  }
+
+  private setState(s: HrpcConnectionState): void {
+    this._state = s;
+    try {
+      this._onStateChanged?.(s);
+    } catch {
+      /* Observer-Fehler nicht fatal */
+    }
   }
 
   /** Stellt eine offene Verbindung sicher (B1: concurrent-safe). */
   async connect(): Promise<void> {
+    if (this._disposed) throw new Error("HrpcWebSocketClient: disposed.");
     if (this._ws && this._ws.readyState === READY_OPEN) return;
+
+    // Läuft ein Hintergrund-Reconnect? Darauf warten (nicht selbst verbinden),
+    // damit parallele Calls denselben in-flight Reconnect teilen.
+    if (this._reconnectPromise && this._state === HrpcConnectionState.Reconnecting) {
+      try {
+        await this._reconnectPromise;
+      } catch {
+        /* reconnect-Fehler unten neu bewerten */
+      }
+      if (this._ws && this._ws.readyState === READY_OPEN) return;
+    }
+
     if (this._connectPromise) return this._connectPromise;
-    this._connectPromise = this.connectSlow().finally(() => {
-      this._connectPromise = undefined;
-    });
+    this.setState(HrpcConnectionState.Connecting);
+    this._connectPromise = this.connectSlow()
+      .then(() => this.setState(HrpcConnectionState.Connected))
+      .finally(() => {
+        this._connectPromise = undefined;
+      });
     return this._connectPromise;
   }
 
@@ -166,8 +237,11 @@ export class HrpcWebSocketClient {
     return response.content ? fromBase64(response.content) : null;
   }
 
-  /** Schließt die Verbindung; alle pending Calls werden mit HrpcError abgelehnt. */
+  /** Schließt die Verbindung terminal; alle pending Calls werden abgelehnt. Kein Reconnect. */
   close(): void {
+    this._closedByClient = true;
+    this._disposed = true;
+    this.stopReconnect();
     this.rejectAllPending(new HrpcError(0, "WebSocket closed by client."));
     if (this._ws) {
       try {
@@ -177,6 +251,7 @@ export class HrpcWebSocketClient {
       }
     }
     this._ws = undefined;
+    this.setState(HrpcConnectionState.Disconnected);
   }
 
   /** Alias für {@link close} (Symmetrie zum REST-Client). */
@@ -186,6 +261,14 @@ export class HrpcWebSocketClient {
 
   // --- Interna ---
 
+  /**
+   * Rawer Connect ohne Zustandsverwaltung — der Aufrufer setzt Connecting/Connected.
+   * Wichtig für den Reconnect-Loop: dieser hält den Zustand `Reconnecting` bei, bis
+   * ein Versuch gelingt (Connected) oder der Backoff erschöpft ist (Disconnected).
+   * Würde connectSlow selbst auf Connecting wechseln, würde ein fehlgeschlagener
+   * Versuch den Zustand auf Connecting belassen und nebenläufige Calls würden den
+   * Reconnect-Await-Pfad (state === Reconnecting) verpassen.
+   */
   private async connectSlow(): Promise<void> {
     const factory = this._wsCtor ?? (await resolveDefaultFactory());
     const isBrowserWs = typeof (globalThis as any).WebSocket !== "undefined";
@@ -377,18 +460,69 @@ export class HrpcWebSocketClient {
   private onClosed(): void {
     this._ws = undefined;
     this.rejectAllPending(new HrpcError(0, "WebSocket connection closed."));
+
+    // Unerwarteter Disconnect (nicht durch close()/dispose() ausgelöst) -> Reconnect.
+    if (!this._closedByClient && !this._disposed && this._reconnect) {
+      this.startReconnect();
+    } else {
+      this.setState(HrpcConnectionState.Disconnected);
+    }
+  }
+
+  /** Startet den Hintergrund-Reconnect mit Backoff (idempotent). */
+  private startReconnect(): void {
+    if (this._disposed) return;
+    if (this._reconnectPromise && this._state === HrpcConnectionState.Reconnecting) return;
+
+    this.setState(HrpcConnectionState.Reconnecting);
+    this._reconnectAbort?.abort();
+    this._reconnectAbort = new AbortController();
+    const signal = this._reconnectAbort.signal;
+
+    this._reconnectPromise = (async () => {
+      for (let i = 0; i < this._reconnectDelays.length; i++) {
+        if (this._disposed) return;
+        try {
+          await sleep(this._reconnectDelays[i], signal);
+        } catch {
+          return; // abgebrochen (dispose / neuer Reconnect)
+        }
+        if (this._disposed) return;
+        // connectSlow direkt (NICHT connect()): der öffentliche connect() würde bei
+        // state === Reconnectings den in-flight Reconnect awaiten — also sich selbst
+        // (Self-Deadlock). connectSlow teilt den Versuch über _connectPromise mit
+        // nebenläufigen connect()-Calls, hält aber den Zustand auf Reconnecting.
+        this._connectPromise = this.connectSlow().finally(() => {
+          this._connectPromise = undefined;
+        });
+        try {
+          await this._connectPromise;
+          if (this._ws && this._ws.readyState === READY_OPEN) {
+            this.setState(HrpcConnectionState.Connected);
+            return; // Erfolg
+          }
+        } catch {
+          // weiter zum nächsten Backoff-Intervall (Zustand bleibt Reconnecting)
+        }
+      }
+      // Backoff erschöpft -> aufgeben.
+      if (!this._disposed) this.setState(HrpcConnectionState.Disconnected);
+    })();
+  }
+
+  /** Bricht einen laufenden Hintergrund-Reconnect ab (terminal bei dispose). */
+  private stopReconnect(): void {
+    this._reconnectAbort?.abort();
+    this._reconnectPromise = undefined;
   }
 }
 
 // --- Shared (gleichlautend mit rest.ts) ---
 
 function parseData<T>(response: HrpcResponse): T | null {
-  if (response.isSuccess && typeof response.data === "string" && response.data.length > 0) {
-    try {
-      return JSON.parse(response.data) as T;
-    } catch (err) {
-      throw new HrpcError(0, "Failed to deserialize the response.", { cause: err });
-    }
+  // Seit dem Single-Pass-Fix ist data bereits ein strukturierter Wert (kein JSON-String).
+  if (response.isSuccess && response.data != null) {
+    return response.data as T;
   }
   if (!response.isSuccess) throw HrpcError.fromResponse(response);
   return null;

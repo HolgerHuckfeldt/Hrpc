@@ -2,6 +2,7 @@ using FluentAssertions;
 using HrpcClient.Hrpc;
 using HrpcTests.Fixtures;
 using System.Text;
+using System.Text.Json;
 using Xunit;
 
 namespace HrpcTests.Integration;
@@ -30,7 +31,7 @@ public class SignalRTransportTests : IClassFixture<TransportTestFixture>
 
         resp!.Code.Should().Be(200);
         resp.Data.Should().NotBeNull();
-        resp.Data.Should().Contain("hello");
+        resp.Data.Value.GetRawText().Should().Contain("hello");
     }
 
     [Fact]
@@ -72,7 +73,7 @@ public class SignalRTransportTests : IClassFixture<TransportTestFixture>
         {
             responses[i]!.Code.Should().Be(200);
             responses[i]!.Id.Should().Be($"req{i}");
-            responses[i]!.Data.Should().Contain($"msg{i}");
+            responses[i]!.Data.Value.GetRawText().Should().Contain($"msg{i}");
         }
     }
 
@@ -101,7 +102,7 @@ public class SignalRTransportTests : IClassFixture<TransportTestFixture>
         var resp = await client.Call(request);
 
         resp!.Code.Should().Be(200);
-        resp.Data.Should().Contain("secret");
+        resp.Data.Value.GetRawText().Should().Contain("secret");
     }
 
     [Fact]
@@ -125,6 +126,6 @@ public class SignalRTransportTests : IClassFixture<TransportTestFixture>
         var resp = await client.Call(request);
 
         resp!.Code.Should().Be(200);
-        resp.Data.Should().Contain("json-hello");
+        resp.Data.Value.GetRawText().Should().Contain("json-hello");
     }
 }

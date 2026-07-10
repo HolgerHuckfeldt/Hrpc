@@ -8,7 +8,7 @@ namespace HrpcBench;
 /// Uses a real Kestrel server for WebSocket/SignalR (needs TCP connections).
 /// </summary>
 [MemoryDiagnoser]
-[SimpleJob(warmupCount: 3, iterationCount: 5)]
+[SimpleJob(warmupCount: 10, iterationCount: 15)]
 [HideColumns("Error", "StdDev")]
 public class SingleCallBenchmarks
 {

@@ -69,7 +69,7 @@ public class DependencyChainBenchmarks
                     Id = "step2",
                     DependencyMapping = new Dictionary<string, string>
                     {
-                        { "orderId", "$.OrderId" }
+                        { "orderId", "$.orderId" }
                     }
                 },
                 new HrpcRequest
@@ -111,7 +111,7 @@ public class DependencyChainBenchmarks
                     Id = "step2",
                     DependencyMapping = new Dictionary<string, string>
                     {
-                        { "orderId", "$.OrderId" }
+                        { "orderId", "$.orderId" }
                     }
                 },
                 new HrpcRequest
@@ -136,7 +136,7 @@ public class DependencyChainBenchmarks
             StringData = "[{\"ParameterName\":\"name\",\"Data\":\"\\\"Bench-Seq\\\"\"}]",
             Id = "s1"
         });
-        var customerId = JsonDocument.Parse(resp1!.Data!).RootElement.GetRawText();
+        var customerId = resp1!.Data!.Value.GetRawText();
 
         var resp2 = await _fixture.HrpcRestClient.Call(new HrpcRequest
         {
@@ -148,9 +148,10 @@ public class DependencyChainBenchmarks
             StringData = "[{\"ParameterName\":\"id\",\"Data\":\"" + customerId + "\"}]",
             Id = "s2"
         });
-        using var doc = JsonDocument.Parse(resp2!.Data!);
-        // Server serialisiert PascalCase ("OrderId"); JsonDocument ist case-sensitiv.
-        var orderId = doc.RootElement.GetProperty("OrderId").GetRawText();
+        // Data ist seit dem Single-Pass-Fix ein JsonElement (camelCase, kein JSON-String mehr).
+        var customerEl = resp2!.Data!.Value;
+        // Server serialisiert camelCase ("orderId"); JsonElement ist case-sensitiv.
+        var orderId = customerEl.GetProperty("orderId").GetRawText();
 
         var resp3 = await _fixture.HrpcRestClient.Call(new HrpcRequest
         {

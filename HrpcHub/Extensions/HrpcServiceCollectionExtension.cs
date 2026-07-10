@@ -1,7 +1,11 @@
+using HrpcCommon;
+using HrpcCommon.MessagePack;
 using HrpcCore.Attributes;
 using HrpcCore.Services;
 using MessagePack;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 
 namespace HrpcHub.Extensions
@@ -25,8 +29,28 @@ namespace HrpcHub.Extensions
                     });
 
                 if (options.UseMessagePack)
-                    fastHub.AddMessagePackProtocol();
+                {
+                    // Custom Resolver: JsonElement (HrpcResponse.Data seit dem Single-Pass-
+                    // Fix) wird als native MessagePack-Tokens serialisiert, nicht als
+                    // escapeter JSON-String — keine Double-Wrapping-Tax auf dem SignalR-Kanal.
+                    fastHub.AddMessagePackProtocol(o =>
+                        o.SerializerOptions = MessagePackSerializerOptions.Standard
+                            .WithResolver(JsonElementResolver.Instance));
+                }
             }
+
+            // Minimal-API (REST) JSON-Options host-weit konfigurieren: camelCase +
+            // relaxed Encoder. Wirkt auf ALLE Minimal-API-Endpoints des Hosts (Hrpc ist
+            // das Framework, das den Host bereitstellt) — Data (JsonElement) wird damit
+            // roh in einem Pass serialisiert, ohne `"`-Escape-Tax.
+            // HrpcResponseJsonConverter (Write-only): DataBytes via WriteRawValue roh in
+            // den Wire → kein JsonDocument-Baum auf dem Server (Single-Pass-Optimierung).
+            services.ConfigureHttpJsonOptions(o =>
+            {
+                o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+                o.SerializerOptions.Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+                o.SerializerOptions.Converters.Add(new HrpcResponseJsonConverter());
+            });
 
             // Rate Limiting – always register to ensure UseRateLimiter works.
             services.AddRateLimiter(rateLimiterOptions =>

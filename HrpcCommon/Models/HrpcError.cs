@@ -39,14 +39,16 @@ public class HrpcError
     public string? RequestId { get; set; }
 
     /// <summary>
-    /// Creates an HrpcError from an HrpcResponse (when Code != 200).
+    /// Creates an HrpcError from an HrpcResponse (when Code != 200). Die Message
+    /// stammt aus <see cref="HrpcResponse.Error"/> (Fehler tragen seit dem Single-Pass-
+    /// Fix ihre Message in Error.Message, nicht mehr in Data).
     /// </summary>
     public static HrpcError FromResponse(HrpcResponse response)
     {
         return new HrpcError
         {
             Code = response.Code,
-            Message = response.Data ?? "Unknown error",
+            Message = response.Error?.Message ?? $"Hrpc call failed with code {response.Code}.",
             RequestId = response.Id
         };
     }

@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Nodes;
+﻿using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace HrpcCore.Services.Helper;
 
@@ -15,8 +16,10 @@ public static class JsonDependencyReplacer
             if (jsonValue.TryGetValue<string>(out var stringValue) &&
                 stringValue == "\"@dependency\"")
             {
-                // Den neuen Wert extrahieren (als JsonNode)
-                var extractedNode = DependencyResolver.ExtractValue(dependencyJson, dataPath);
+                // Den neuen Wert extrahieren (als JsonNode). DependencyResolver arbeitet
+                // seit dem Single-Pass-Fix auf JsonElement — hier den String parsen.
+                var extractedNode = DependencyResolver.ExtractValue(
+                    JsonDocument.Parse(dependencyJson).RootElement.Clone(), dataPath);
                 if (extractedNode != null)
                 {
                     // Ersetze den aktuellen Knoten in der Elternstruktur.

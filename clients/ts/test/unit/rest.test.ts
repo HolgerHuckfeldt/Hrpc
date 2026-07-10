@@ -39,12 +39,12 @@ describe("HrpcRestClient", () => {
     let captured: any;
     const fetch = vi.fn(async (url: string, init: any) => {
       captured = { url, init };
-      return okResponse({ code: 200, data: '"ok"', id: "C.M", isSuccess: true });
+      return okResponse({ code: 200, data: "ok", id: "C.M", isSuccess: true });
     }) as unknown as FetchImpl;
     const c = new HrpcRestClient("http://x", { fetch });
     const r = await c.call("C", "M", { id: 1 });
     expect(r.code).toBe(200);
-    expect(r.data).toBe('"ok"');
+    expect(r.data).toBe("ok");
     expect(captured.url).toBe("http://x/api/hrpc/json");
     expect(captured.init.method).toBe("POST");
     const body = JSON.parse(captured.init.body);
@@ -87,8 +87,8 @@ describe("HrpcRestClient", () => {
     const fetch = vi.fn(async (url: string, init: any) => {
       captured = { url, init };
       return okResponse([
-        { code: 200, data: '"a"', id: "C.M", isSuccess: true },
-        { code: 200, data: '"b"', id: "C.M", isSuccess: true },
+        { code: 200, data: "a", id: "C.M", isSuccess: true },
+        { code: 200, data: "b", id: "C.M", isSuccess: true },
       ]);
     }) as unknown as FetchImpl;
     const c = new HrpcRestClient("http://x", { fetch });
@@ -155,7 +155,7 @@ describe("HrpcRestClient", () => {
     // Der C#-Server serialisiert IsSuccess nicht ([JsonIgnore], aus code berechnet).
     // Der Client muss es daher aus code ableiten (200–299 => true).
     const fetch = vi.fn(async () =>
-      okResponse({ code: 200, data: '"ok"', id: "C.M" }), // kein isSuccess-Feld!
+      okResponse({ code: 200, data: "ok", id: "C.M" }), // kein isSuccess-Feld!
     ) as unknown as FetchImpl;
     const c = new HrpcRestClient("http://x", { fetch });
     const r = await c.call("C", "M", {});

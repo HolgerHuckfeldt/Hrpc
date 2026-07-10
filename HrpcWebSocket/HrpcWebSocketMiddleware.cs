@@ -1,6 +1,8 @@
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using HrpcCommon;
 using HrpcCore.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -30,7 +32,14 @@ public class HrpcWebSocketMiddleware
         _jsonOptions = new JsonSerializerOptions
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            PropertyNameCaseInsensitive = true
+            PropertyNameCaseInsensitive = true,
+            // Relaxed Encoder: Data (JsonElement) wird roh serialisiert — kein
+            // Double-Wrapping; UnsafeRelaxed verhindert zusätzlich `"`-Escaping
+            // im Mantel (ExposedDependencies-Strings, Fehlermeldungen).
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            // Write-Only-Converter: DataBytes via WriteRawValue roh in den Wire →
+            // kein JsonDocument-Baum auf dem Server (Single-Pass-Optimierung).
+            Converters = { new HrpcResponseJsonConverter() }
         };
     }
 

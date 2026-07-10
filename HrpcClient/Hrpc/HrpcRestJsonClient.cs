@@ -56,23 +56,25 @@ namespace HrpcClient.Hrpc
             var content = new StringContent(jsonData, Encoding.UTF8, "application/json");
             var response = await _httpClient.PostAsync($"{_serverBase}{_apiPath}/json", content, ct);
 
-            var responseJson = await response.Content.ReadAsStringAsync(ct);
+            // Bytes statt String lesen — HrpcResponseParser macht EINEN Pass über die
+            // Wire-Bytes (ID, Envelope, T zusammen) statt drei Parses mit JsonDocument-Baum.
+            var responseBytes = await response.Content.ReadAsByteArrayAsync(ct);
             if (!response.IsSuccessStatusCode)
             {
+                var errorText = Encoding.UTF8.GetString(responseBytes);
                 return new HrpcResponse
                 {
                     Code = (int)response.StatusCode,
                     Id = request.Id,
-                    Data = $"HTTP Error: {response.StatusCode} | {responseJson}",
                     Error = new HrpcError
                     {
                         Code = (int)response.StatusCode,
                         Message = $"HTTP Error: {response.StatusCode}",
-                        Details = responseJson
+                        Details = errorText
                     }
                 };
             }
-            return JsonSerializer.Deserialize<HrpcResponse>(responseJson, JsonOptions);
+            return HrpcResponseParser.Parse(responseBytes);
         }
 
         public override async Task<IEnumerable<HrpcResponse?>?> Call(HrpcMultiRequest? request, CancellationToken ct = default)
@@ -91,27 +93,28 @@ namespace HrpcClient.Hrpc
             var jsonData = JsonSerializer.Serialize(request, JsonOptions);
             var content = new StringContent(jsonData, Encoding.UTF8, "application/json");
             var response = await _httpClient.PostAsync($"{_serverBase}{_apiPath}/json/multi", content, ct);
-            var responseJson = await response.Content.ReadAsStringAsync(ct);
+            var responseBytes = await response.Content.ReadAsByteArrayAsync(ct);
             if (!response.IsSuccessStatusCode)
             {
+                var errorText = Encoding.UTF8.GetString(responseBytes);
                 return new List<HrpcResponse>
                 {
                     new HrpcResponse
                     {
                         Code = (int)response.StatusCode,
                         Id = request.Requests?.FirstOrDefault()?.Id,
-                        Data = $"HTTP Error: {response.StatusCode} | {responseJson}",
                         Error = new HrpcError
                         {
                             Code = (int)response.StatusCode,
                             Message = $"HTTP Error: {response.StatusCode}",
-                            Details = responseJson
+                            Details = errorText
                         }
                     }
                 };
             }
-            var hrpcResponses = JsonSerializer.Deserialize<List<HrpcResponse>>(responseJson, JsonOptions);
-            return hrpcResponses ?? new List<HrpcResponse>();
+            // Batch = JSON-Array → ParseArray (ein Pass, DataBytes pro Element).
+            var hrpcResponses = HrpcResponseParser.ParseArray(responseBytes);
+            return hrpcResponses ?? new List<HrpcResponse?>();
         }
 
         protected virtual void Dispose(bool disposing)
