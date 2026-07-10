@@ -274,7 +274,10 @@ public class HrpcWebSocketClient : HrpcClientBase, IHrpcClient, IAsyncDisposable
             var root = doc.RootElement;
 
             string? responseId = null;
-            if (root.TryGetProperty("id", out var idProp))
+            // TryGetProperty verlangt ein Object-Root — auf einem Array (Batch-Response)
+            // wirft es InvalidOperationException. Also nur bei Object nach "id" suchen;
+            // Arrays werden unten im Batch-Zweig über das erste Element gematcht.
+            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("id", out var idProp))
             {
                 responseId = idProp.GetString();
             }

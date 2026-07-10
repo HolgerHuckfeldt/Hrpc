@@ -230,9 +230,18 @@ namespace HrpcCore.Services
             HttpContext? context,
             CancellationToken ct)
         {
+            var requestList = requests.ToList();
+            // Lookup nach Id für die @alias-Auflösung innerhalb der Sequenz.
             var responses = new ConcurrentDictionary<string, HrpcResponse?>();
+            // Ergebnis in Request-Reihenfolge sammeln — ConcurrentDictionary.Values
+            // bewahrt KEINE Einfügereihenfolge, weshalb Batch-Clients, die über das
+            // erste Array-Element korrelieren (WebSocket/SignalR: root[0].Id), ohne
+            // diese Ordnung keinen Match finden und bis ins Timeout hängen. Der
+            // Parallel-Pfad (ExecuteInParallel) gibt results bereits index-genau in
+            // Request-Reihenfolge zurück — dieses Verhalten muss Serial ebenfalls halten.
+            var orderedResults = new List<HrpcResponse?>(requestList.Count);
 
-            foreach (var current in requests)
+            foreach (var current in requestList)
             {
                 // Verwende den neuen Mechanismus zum Auflösen von Abhängigkeiten
                 var resolution = ResolveParameterValues(current, responses);
@@ -244,6 +253,7 @@ namespace HrpcCore.Services
                     if (string.IsNullOrEmpty(resolution.Error.Id))
                         resolution.Error.Id = current?.Id ?? string.Empty;
                     responses.TryAdd(current?.Id ?? String.Empty, resolution.Error);
+                    orderedResults.Add(resolution.Error);
                     continue;
                 }
 
@@ -260,9 +270,10 @@ namespace HrpcCore.Services
                 if (result != null && string.IsNullOrEmpty(result.Id))
                     result.Id = current?.Id ?? string.Empty;
                 responses.TryAdd(current?.Id ?? String.Empty, result);
+                orderedResults.Add(result);
             }
 
-            return responses.Values;
+            return orderedResults;
         }
 
 

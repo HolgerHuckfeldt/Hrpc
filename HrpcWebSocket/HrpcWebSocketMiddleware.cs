@@ -104,7 +104,25 @@ public class HrpcWebSocketMiddleware
 
             object? response;
 
-            if (root.TryGetProperty("requests", out _) && root.TryGetProperty("mode", out _))
+            // Multi- vs. Single-Request erkennen. JsonElement.TryGetProperty ist
+            // case-sensitiv — ein C#-Client ohne CamelCase-Policy schickt PascalCase
+            // ("Requests"/"Mode"), ein JS/TS-Client camelCase ("requests"/"mode").
+            // Case-insensitiv erkennen, sonst wird jeder Batch als Single (Controller
+            // null → 404 mit leerer Id) behandelt und der Client kann die Antwort nicht
+            // korrelieren (→ Endlos-Warte, s. HrpcWebSocketClient-Timeout).
+            bool hasRequests = false, hasMode = false;
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (prop.Name.Equals("requests", StringComparison.OrdinalIgnoreCase))
+                        hasRequests = true;
+                    else if (prop.Name.Equals("mode", StringComparison.OrdinalIgnoreCase))
+                        hasMode = true;
+                }
+            }
+
+            if (hasRequests && hasMode)
             {
                 var multiRequest = JsonSerializer.Deserialize<HrpcMultiRequest>(message, _jsonOptions);
                 if (multiRequest?.Requests == null)
