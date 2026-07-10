@@ -1,218 +1,56 @@
-﻿using HrpcBench;
-using System.Diagnostics;
+// Hrpc-Benchmark-Einstiegspunkt. BenchmarkDotNet übernimmt die Statistik
+// (Mean, StdErr, StdDev, Median, Gen0/1/2, Allocated) und schreibt Reports
+// nach BenchmarkDotNet.Artifacts/results/. Aufruf:
+//   dotnet run -c Release --project HrpcBench\HrpcBench.csproj -- single
+//   dotnet run -c Release --project HrpcBench\HrpcBench.csproj -- batch
+//   dotnet run -c Release --project HrpcBench\HrpcBench.csproj -- dependency
+//   dotnet run -c Release --project HrpcBench\HrpcBench.csproj            # alle
+// BDn-Argumente direkt durchreichen, z.B. -- --filter "*Ws*"
+using BenchmarkDotNet.Running;
+using HrpcBench;
 
-Console.WriteLine("Hrpc Performance Benchmarks (Custom Stopwatch)");
-Console.WriteLine("===============================================");
+Console.WriteLine("Hrpc Performance Benchmarks (BenchmarkDotNet)");
+Console.WriteLine("=============================================");
 Console.WriteLine();
 
-var cmdArgs = Environment.GetCommandLineArgs();
-var benchArg = cmdArgs.Skip(1).FirstOrDefault(a => !a.StartsWith("-") && !a.Contains("HrpcBench") && !a.Contains("dotnet") && !a.Contains("run") && !a.Contains("Release"));
+// Environment.GetCommandLineArgs()[0] ist der App-Pfad; alles danach sind die
+// App-Argumente (dotnet run reicht alles nach '--' an die App weiter).
+var appArgs = Environment.GetCommandLineArgs().Skip(1).ToArray();
 
-var fixture = new BenchmarkFixture();
-fixture.Initialize();
-
-try
+var switcher = BenchmarkSwitcher.FromTypes(new[]
 {
+    typeof(SingleCallBenchmarks),
+    typeof(BatchCallBenchmarks),
+    typeof(DependencyChainBenchmarks)
+});
+
+if (appArgs.Any(a => a.StartsWith("-")))
+{
+    // BDn-Argumente (z.B. --filter "*Ws*") direkt durchreichen.
+    switcher.Run(appArgs);
+}
+else
+{
+    var benchArg = appArgs.FirstOrDefault(a => !a.Contains("HrpcBench") && !a.Contains("dotnet") && !a.Contains("run") && !a.Contains("Release"));
     switch (benchArg?.ToLowerInvariant())
     {
         case "single":
-            await RunSingleCallBenchmarks(fixture);
+            switcher.Run(new[] { "--filter", "*SingleCallBenchmarks*" });
             break;
         case "batch":
-            await RunBatchCallBenchmarks(fixture);
+            switcher.Run(new[] { "--filter", "*BatchCallBenchmarks*" });
             break;
         case "dependency":
         case "chain":
-            await RunDependencyChainBenchmarks(fixture);
+            switcher.Run(new[] { "--filter", "*DependencyChainBenchmarks*" });
             break;
         default:
-            await RunSingleCallBenchmarks(fixture);
-            await RunBatchCallBenchmarks(fixture);
-            await RunDependencyChainBenchmarks(fixture);
+            BenchmarkRunner.Run<SingleCallBenchmarks>();
+            BenchmarkRunner.Run<BatchCallBenchmarks>();
+            BenchmarkRunner.Run<DependencyChainBenchmarks>();
             break;
     }
-}
-finally
-{
-    fixture.Dispose();
 }
 
 Console.WriteLine();
-Console.WriteLine("Done!");
-
-static async Task RunSingleCallBenchmarks(BenchmarkFixture f)
-{
-    Console.WriteLine("=== Single-Call Benchmarks ===");
-    Console.WriteLine();
-
-    const int iterations = 1000;
-    const int warmup = 100;
-
-    // Warmup
-    Console.WriteLine($"Warmup ({warmup} iterations)...");
-    for (int i = 0; i < warmup; i++)
-    {
-        await f.RestGetAllCustomers();
-        await f.HrpcRestClient.Call(new HrpcCommon.Models.HrpcRequest { Controller = "Customer", Method = "GetAllCustomers", StringData = "[]", Id = "warmup" });
-        await f.HrpcWebSocketClient.Call(new HrpcCommon.Models.HrpcRequest { Controller = "Customer", Method = "GetAllCustomers", StringData = "[]", Id = "warmup" });
-        try { await f.HrpcSignalrClient.Call(new HrpcCommon.Models.HrpcRequest { Controller = "Customer", Method = "GetAllCustomers", StringData = "[]", Id = "warmup" }); } catch { }
-    }
-    Console.WriteLine();
-
-    // REST GetAllCustomers
-    var sw = Stopwatch.StartNew();
-    for (int i = 0; i < iterations; i++) await f.RestGetAllCustomers();
-    sw.Stop();
-    PrintResult("REST: GetAllCustomers", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // REST GetCustomerById
-    sw.Restart();
-    for (int i = 0; i < iterations; i++) await f.RestGetCustomerById(1);
-    sw.Stop();
-    PrintResult("REST: GetCustomerById", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc REST GetAllCustomers
-    sw.Restart();
-    for (int i = 0; i < iterations; i++)
-        await f.HrpcRestClient.Call(new HrpcCommon.Models.HrpcRequest { Controller = "Customer", Method = "GetAllCustomers", StringData = "[]", Id = "bench" });
-    sw.Stop();
-    PrintResult("Hrpc REST: GetAllCustomers", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc REST GetCustomerById
-    sw.Restart();
-    for (int i = 0; i < iterations; i++)
-        await f.HrpcRestClient.Call(new HrpcCommon.Models.HrpcRequest { Controller = "Customer", Method = "GetCustomerById", StringData = "[{\"ParameterName\":\"id\",\"Data\":\"1\"}]", Id = "bench" });
-    sw.Stop();
-    PrintResult("Hrpc REST: GetCustomerById", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc WebSocket GetAllCustomers
-    sw.Restart();
-    for (int i = 0; i < iterations; i++)
-        await f.HrpcWebSocketClient.Call(new HrpcCommon.Models.HrpcRequest { Controller = "Customer", Method = "GetAllCustomers", StringData = "[]", Id = "bench" });
-    sw.Stop();
-    PrintResult("Hrpc WebSocket: GetAllCustomers", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc WebSocket GetCustomerById
-    sw.Restart();
-    for (int i = 0; i < iterations; i++)
-        await f.HrpcWebSocketClient.Call(new HrpcCommon.Models.HrpcRequest { Controller = "Customer", Method = "GetCustomerById", StringData = "[{\"ParameterName\":\"id\",\"Data\":\"1\"}]", Id = "bench" });
-    sw.Stop();
-    PrintResult("Hrpc WebSocket: GetCustomerById", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc SignalR GetAllCustomers (if connected)
-    try
-    {
-        sw.Restart();
-        for (int i = 0; i < iterations; i++)
-            await f.HrpcSignalrClient.Call(new HrpcCommon.Models.HrpcRequest { Controller = "Customer", Method = "GetAllCustomers", StringData = "[]", Id = "bench" });
-        sw.Stop();
-        PrintResult("Hrpc SignalR: GetAllCustomers", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Hrpc SignalR: GetAllCustomers -> FAILED: {ex.Message}");
-    }
-
-    Console.WriteLine();
-}
-
-static async Task RunBatchCallBenchmarks(BenchmarkFixture f)
-{
-    Console.WriteLine("=== Batch-Call Benchmarks (10x GetCustomerById) ===");
-    Console.WriteLine();
-
-    const int iterations = 500;
-    const int batchSize = 10;
-
-    var batchRequests = new List<HrpcCommon.Models.HrpcRequest>();
-    for (int i = 1; i <= batchSize; i++)
-        batchRequests.Add(new HrpcCommon.Models.HrpcRequest { Controller = "Customer", Method = "GetCustomerById", StringData = "[{\"ParameterName\":\"id\",\"Data\":\"" + i + "\"}]", Id = "req-" + i });
-
-    // REST sequential
-    var sw = Stopwatch.StartNew();
-    for (int iter = 0; iter < iterations; iter++)
-        for (int i = 1; i <= batchSize; i++) await f.RestGetCustomerById(i);
-    sw.Stop();
-    PrintResult("REST: 10x sequential", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // REST parallel
-    sw.Restart();
-    for (int iter = 0; iter < iterations; iter++)
-        await Task.WhenAll(Enumerable.Range(1, batchSize).Select(i => f.RestGetCustomerById(i)));
-    sw.Stop();
-    PrintResult("REST: 10x parallel", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc REST batch parallel
-    sw.Restart();
-    for (int iter = 0; iter < iterations; iter++)
-        await f.HrpcRestClient.Call(new HrpcCommon.Models.HrpcMultiRequest { Mode = HrpcCommon.Models.ExecutionMode.Parallel, Requests = batchRequests });
-    sw.Stop();
-    PrintResult("Hrpc REST: 10x batch parallel", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc REST batch serial
-    sw.Restart();
-    for (int iter = 0; iter < iterations; iter++)
-        await f.HrpcRestClient.Call(new HrpcCommon.Models.HrpcMultiRequest { Mode = HrpcCommon.Models.ExecutionMode.Serial, Requests = batchRequests.ToList() });
-    sw.Stop();
-    PrintResult("Hrpc REST: 10x batch serial", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc WebSocket batch
-    sw.Restart();
-    for (int iter = 0; iter < iterations; iter++)
-        await f.HrpcWebSocketClient.Call(new HrpcCommon.Models.HrpcMultiRequest { Mode = HrpcCommon.Models.ExecutionMode.Parallel, Requests = batchRequests });
-    sw.Stop();
-    PrintResult("Hrpc WebSocket: 10x batch", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    Console.WriteLine();
-}
-
-static async Task RunDependencyChainBenchmarks(BenchmarkFixture f)
-{
-    Console.WriteLine("=== Dependency-Chain Benchmarks (3 dependent calls) ===");
-    Console.WriteLine();
-
-    const int iterations = 100;
-
-    // REST: 3 sequential calls
-    var sw = Stopwatch.StartNew();
-    for (int i = 0; i < iterations; i++)
-    {
-        var customerId = await f.RestAddCustomer("Bench");
-        var customer = await f.RestGetCustomerById(customerId);
-        if (customer != null) await f.RestGetOrders(customer.OrderId);
-    }
-    sw.Stop();
-    PrintResult("REST: 3 sequential (N+1)", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc REST: 1 batch with dependency chain
-    var chainRequest = new HrpcCommon.Models.HrpcMultiRequest
-    {
-        Mode = HrpcCommon.Models.ExecutionMode.Serial,
-        Requests = new List<HrpcCommon.Models.HrpcRequest>
-        {
-            new() { Controller = "Customer", Method = "AddCustomer", StringData = "[{\"ParameterName\":\"name\",\"Data\":\"\\\"Bench\\\"\"}]", Id = "s1", DependencyMapping = new() { { "cid", "$" } } },
-            new() { Controller = "Customer", Method = "GetCustomerById", StringData = "[{\"ParameterName\":\"id\",\"Data\":\"@cid\"}]", Id = "s2", DependencyMapping = new() { { "oid", "$.OrderId" } } },
-            new() { Controller = "Customer", Method = "GetOrderByOrderId", StringData = "[{\"ParameterName\":\"id\",\"Data\":\"@oid\"}]", Id = "s3" }
-        }
-    };
-
-    sw.Restart();
-    for (int i = 0; i < iterations; i++)
-        await f.HrpcRestClient.Call(chainRequest);
-    sw.Stop();
-    PrintResult("Hrpc REST: 1 batch (dependency chain)", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    // Hrpc WebSocket: 1 batch with dependency chain
-    sw.Restart();
-    for (int i = 0; i < iterations; i++)
-        await f.HrpcWebSocketClient.Call(chainRequest);
-    sw.Stop();
-    PrintResult("Hrpc WebSocket: 1 batch (dependency chain)", sw.Elapsed.TotalMilliseconds / iterations * 1000, iterations);
-
-    Console.WriteLine();
-}
-
-static void PrintResult(string name, double meanMicroseconds, int iterations)
-{
-    Console.WriteLine($"{name,-45} {meanMicroseconds,10:F2} us  ({iterations} iterations)");
-}
+Console.WriteLine("Done! Detaillierte Reports: BenchmarkDotNet.Artifacts/results/");

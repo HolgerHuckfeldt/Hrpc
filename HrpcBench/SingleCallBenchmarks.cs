@@ -129,4 +129,20 @@ public class SingleCallBenchmarks
         };
         return await _fixture.HrpcSignalrClient.Call(request);
     }
+
+    // ─── Natives gRPC (Protobuf, HTTP/2) — Binär-Baseline ───────────
+
+    [Benchmark(Description = "gRPC: GetAllCustomers")]
+    [BenchmarkCategory("gRPC")]
+    public async Task<object?> Grpc_GetAllCustomers()
+    {
+        return await _fixture.GrpcGetAllCustomers();
+    }
+
+    [Benchmark(Description = "gRPC: GetCustomerById")]
+    [BenchmarkCategory("gRPC")]
+    public async Task<object?> Grpc_GetCustomerById()
+    {
+        return await _fixture.GrpcGetCustomerById(1);
+    }
 }

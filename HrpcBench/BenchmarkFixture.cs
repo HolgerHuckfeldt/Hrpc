@@ -1,4 +1,5 @@
-﻿using Hrpc.Grpc;
+﻿using Grpc.Net.Client;
+using Hrpc.Grpc;
 using Hrpc.Hrpc;
 using Hrpc.Services;
 using HrpcClient.Hrpc;
@@ -7,6 +8,7 @@ using HrpcRest;
 using HrpcWebSocket;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text;
@@ -23,12 +25,15 @@ public class BenchmarkFixture
     private TestServer _testServer = null!;
     private Microsoft.AspNetCore.Hosting.IWebHost? _realServer;
     private int _port;
+    private int _grpcPort;
 
     public HttpClient RestClient { get; private set; } = null!;
     public HrpcRestJsonClient HrpcRestClient { get; private set; } = null!;
     public HrpcWebSocketClient HrpcWebSocketClient { get; private set; } = null!;
     public HrpcSignalrClient HrpcSignalrClient { get; private set; } = null!;
     public CustomerService CustomerService { get; private set; } = null!;
+    public GrpcChannel GrpcChannel { get; private set; } = null!;
+    public CustomerGrpc.CustomerGrpcClient GrpcClient { get; private set; } = null!;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -37,23 +42,46 @@ public class BenchmarkFixture
     };
 
     public string ServerUrl { get; private set; } = string.Empty;
+    public string GrpcServerUrl { get; private set; } = string.Empty;
+
+    private static int AllocateFreePort()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
 
     public void Initialize()
     {
-        // Find a free port for the real server
-        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
-        listener.Start();
-        _port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
+        // Zwei freie Ports: REST/WebSocket/SignalR über HTTP/1.1, gRPC über einen
+        // DEDIZIERTEN HTTP/2-Endpoint (h2c prior-knowledge). Kestrel bedient gRPC auf
+        // Plaintext nur, wenn der Endpoint reines HTTP/2 ist — ein gemischter
+        // Http1AndHttp2-Endpoint lehnt gRPC-Prior-Knowledge mit 'HTTP_1_1_REQUIRED' ab
+        // (das offizielle gRPC-Template nutzt deshalb ebenfalls getrennte Endpoints).
+        _port = AllocateFreePort();
+        _grpcPort = AllocateFreePort();
         ServerUrl = $"http://localhost:{_port}/";
+        GrpcServerUrl = $"http://localhost:{_grpcPort}/";
 
-        // Start a REAL Kestrel server for WebSocket/SignalR (needs real TCP connections)
         _realServer = Microsoft.AspNetCore.WebHost.CreateDefaultBuilder()
-            .UseUrls(ServerUrl)
+            .ConfigureKestrel(serverOptions =>
+            {
+                // REST/WebSocket/SignalR — HTTP/1.1 (WebSocket-Upgrade braucht HTTP/1.1).
+                serverOptions.Listen(System.Net.IPAddress.Loopback, _port, listen =>
+                    listen.Protocols = HttpProtocols.Http1);
+                // gRPC — dediziertes HTTP/2 (Plaintext h2c prior-knowledge).
+                serverOptions.Listen(System.Net.IPAddress.Loopback, _grpcPort, listen =>
+                    listen.Protocols = HttpProtocols.Http2);
+            })
             .ConfigureServices(services =>
             {
                 services.AddControllers()
                     .AddApplicationPart(typeof(Hrpc.Hrpc.CustomerHandler).Assembly);
+                // Natives gRPC (Protobuf über HTTP/2) als Binär-Baseline. Server-Implementierung
+                // CustomerGrpcService liegt in derselben Assembly wie CustomerHandler.
+                services.AddGrpc();
                 services.AddEndpointsApiExplorer();
                 services.AddSwaggerGen();
 
@@ -88,6 +116,8 @@ public class BenchmarkFixture
                     endpoints.MapControllers();
                     endpoints.MapHrpcEndpoints();
                     endpoints.MapHub<HrpcHub.Hub.HrpcHub>("/Hrpc");
+                    // gRPC über h2c (Kestrel-Default Http1AndHttp2 verhandelt HTTP/2).
+                    endpoints.MapGrpcService<CustomerGrpcService>();
                 });
             })
             .Build();
@@ -99,12 +129,18 @@ public class BenchmarkFixture
         CustomerService = _realServer.Services.GetRequiredService<CustomerService>();
         HrpcRestClient = new HrpcRestJsonClient(ServerUrl, RestClient);
 
-        // Connect WebSocket client
-        HrpcWebSocketClient = new HrpcWebSocketClient(ServerUrl);
+        // Connect WebSocket client. callTimeout schützt vor Endlos-Hang: wenn der Server
+        // bei großen Batches eine Fehler-Antwort ohne matchbare Id sendet (oder gar keine),
+        // wirft der Client nach 15 s statt den wartenden TCS nie zu komplettieren.
+        HrpcWebSocketClient = new HrpcWebSocketClient(ServerUrl, callTimeout: TimeSpan.FromSeconds(15));
         HrpcWebSocketClient.ConnectAsync().GetAwaiter().GetResult();
 
         // Connect SignalR client
         HrpcSignalrClient = new HrpcSignalrClient(ServerUrl);
+
+        // Connect native gRPC client (HTTP/2 über h2c, kein TLS, dedizierter Port)
+        GrpcChannel = GrpcChannel.ForAddress(GrpcServerUrl);
+        GrpcClient = new CustomerGrpc.CustomerGrpcClient(GrpcChannel);
 
         // Seed data
         SeedData().GetAwaiter().GetResult();
@@ -148,11 +184,26 @@ public class BenchmarkFixture
         return JsonSerializer.Deserialize<int>(await response.Content.ReadAsStringAsync(), JsonOpts);
     }
 
+    // ─── Natives gRPC (Protobuf, HTTP/2) — Binär-Baseline ───────────
+
+    public Task<CustomerList> GrpcGetAllCustomers()
+        => GrpcClient.GetAllCustomersAsync(new Empty()).ResponseAsync;
+
+    public Task<Customer> GrpcGetCustomerById(int id)
+        => GrpcClient.GetCustomerByIdAsync(new CustomerRequest { Id = id }).ResponseAsync;
+
+    public Task<AddCustomerResponse> GrpcAddCustomer(string name)
+        => GrpcClient.AddCustomerAsync(new AddCustomerRequest { Name = name }).ResponseAsync;
+
+    public Task<OrderList> GrpcGetOrdersByOrderId(int orderId)
+        => GrpcClient.GetOrdersByOrderIdAsync(new OrderRequest { Id = orderId }).ResponseAsync;
+
     public void Dispose()
     {
         HrpcWebSocketClient?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         HrpcRestClient?.Dispose();
         RestClient?.Dispose();
+        GrpcChannel?.Dispose();
         _realServer?.Dispose();
     }
 }

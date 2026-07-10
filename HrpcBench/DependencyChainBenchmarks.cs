@@ -21,13 +21,25 @@ public class DependencyChainBenchmarks
     [GlobalCleanup]
     public void Cleanup() => _fixture.Dispose();
 
-    [Benchmark(Description = "REST: 3 sequential calls (N+1 pattern)")]
+    [Benchmark(Description = "REST: 3 sequential calls (N+1 pattern)", Baseline = true)]
     public async Task<object?> Rest_ThreeSequentialCalls()
     {
         var customerId = await _fixture.RestAddCustomer("Bench-Chain");
         var customer = await _fixture.RestGetCustomerById(customerId);
         if (customer == null) return null;
         return await _fixture.RestGetOrders(customer.OrderId);
+    }
+
+    [Benchmark(Description = "gRPC: 3 sequential calls (N+1 pattern, binary)")]
+    public async Task<object?> Grpc_ThreeSequentialCalls()
+    {
+        // gRPC hat kein serverseitiges Dependency-Chaining → 3 Roundtrips wie REST,
+        // nur über Protobuf/HTTP·2 statt JSON/HTTP·1.1. Das ist die Binär-Baseline,
+        // gegen die Hrpcs 1-Roundtrip-Batch-Chain verglichen wird.
+        var addResp = await _fixture.GrpcAddCustomer("Bench-Grpc");
+        var customer = await _fixture.GrpcGetCustomerById(addResp.Id);
+        if (customer == null) return null;
+        return await _fixture.GrpcGetOrdersByOrderId(customer.OrderId);
     }
 
     [Benchmark(Description = "Hrpc: 1 batch call (dependency chain, 3 reqs)")]
@@ -130,17 +142,21 @@ public class DependencyChainBenchmarks
         {
             Controller = "Customer",
             Method = "GetCustomerById",
-            StringData = "[{\"ParameterName\":\"id\",\"Data\":" + customerId + "}]",
+            // HrpcParameter.Data ist ein string → der Wert muss als JSON-String (gequotet)
+            // eingebettet werden, nicht als nackte Zahl. Sonst schlägt das serverseitige
+            // Deserialisieren der Zahl in string fehl → "Error processing request parameters."
+            StringData = "[{\"ParameterName\":\"id\",\"Data\":\"" + customerId + "\"}]",
             Id = "s2"
         });
         using var doc = JsonDocument.Parse(resp2!.Data!);
-        var orderId = doc.RootElement.GetProperty("orderId").GetRawText();
+        // Server serialisiert PascalCase ("OrderId"); JsonDocument ist case-sensitiv.
+        var orderId = doc.RootElement.GetProperty("OrderId").GetRawText();
 
         var resp3 = await _fixture.HrpcRestClient.Call(new HrpcRequest
         {
             Controller = "Customer",
             Method = "GetOrderByOrderId",
-            StringData = "[{\"ParameterName\":\"id\",\"Data\":" + orderId + "}]",
+            StringData = "[{\"ParameterName\":\"id\",\"Data\":\"" + orderId + "\"}]",
             Id = "s3"
         });
         return resp3;
