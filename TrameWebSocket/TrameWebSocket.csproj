@@ -5,10 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Trame.WebSocket</PackageId>
-    <Version>1.0.2</Version>
-    <Authors>Trame</Authors>
     <Description>WebSocket transport for Trame RPC framework</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>

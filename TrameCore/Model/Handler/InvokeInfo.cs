@@ -7,7 +7,7 @@ namespace TrameCore.Model.Handler
     {
         public MethodInfo? MethodInfo { get; set; }
 
-        public List<Type>? ParamTypes { get; set; } = new ();
+        public List<Type>? ParamTypes { get; set; } = new();
 
         public TrameAuthoriseAttribute? AuthoriseAttribute { get; set; }
 

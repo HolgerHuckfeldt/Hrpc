@@ -27,7 +27,7 @@ namespace TrameClient.Trame
         /// </summary>
         public async Task<T?> Call<T>(TrameRequest? request, CancellationToken ct = default)
         {
-            if(request == null)
+            if (request == null)
                 return default;
 
             var response = await Call(request, ct);

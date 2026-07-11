@@ -5,12 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Trame.Hub</PackageId>
-    <Version>1.0.3</Version>
-    <Authors>Trame</Authors>
     <Description>SignalR transport + AddTrame/UseTrame server integration for Trame RPC framework</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/HolgerHuckfeldt/Trame</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
 

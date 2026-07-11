@@ -5,12 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <PackageId>Trame.Rest</PackageId>
-    <Version>1.0.3</Version>
-    <Authors>Trame</Authors>
     <Description>REST transport for Trame RPC framework (minimal-API, canonical)</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/HolgerHuckfeldt/Trame</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
 

@@ -5,12 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Trame.Server</PackageId>
-    <Version>1.0.1</Version>
-    <Authors>Trame</Authors>
     <Description>Unified ASP.NET Core server integration for Trame — AddTrame + UseTrameTransports + MapTrame in einem Paket.</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/HolgerHuckfeldt/Trame</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
     <IsPackable>true</IsPackable>
   </PropertyGroup>
 

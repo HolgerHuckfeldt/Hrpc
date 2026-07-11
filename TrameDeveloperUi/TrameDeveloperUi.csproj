@@ -9,12 +9,7 @@
     <GenerateRazorCompileOnPublish>false</GenerateRazorCompileOnPublish>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageId>Trame.DeveloperUi</PackageId>
-    <Version>1.1.0</Version>
-    <Authors>Trame</Authors>
     <Description>Built-in developer web UI for Trame RPC framework</Description>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/HolgerHuckfeldt/Trame</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
     <StaticWebAssetBasePath>developer-static</StaticWebAssetBasePath>
   </PropertyGroup>
 

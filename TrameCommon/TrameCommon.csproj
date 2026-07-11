@@ -6,13 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Trame.Common</PackageId>
-    <Version>1.1.0</Version>
-    <Authors>Trame</Authors>
     <Description>Shared models, attributes, and exceptions for Trame RPC framework</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/HolgerHuckfeldt/Trame</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <!-- Root-README als Paket-README einpacken (PackageReadmeFile=README.md) -->

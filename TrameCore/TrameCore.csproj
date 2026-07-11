@@ -5,13 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Trame.Core</PackageId>
-    <Version>1.1.0</Version>
-    <Authors>Trame</Authors>
     <Description>Core RPC engine: invoker, discovery, dependency resolver, interceptors</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/HolgerHuckfeldt/Trame</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <!-- Root-README als Paket-README einpacken (PackageReadmeFile=README.md) -->

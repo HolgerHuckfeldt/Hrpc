@@ -91,7 +91,7 @@ namespace Trame.Api
         public int Age { get; set; }
         public string Greet { get; set; } = String.Empty;
 
-        public Contact? Contace { get; set; }   
+        public Contact? Contace { get; set; }
     }
 
     public class Contact

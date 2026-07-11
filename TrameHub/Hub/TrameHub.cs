@@ -24,9 +24,9 @@ namespace TrameHub.Hub
             }
 
             var result = await service.InvokeDi(
-                request.Requests, 
+                request.Requests,
                 Context.GetHttpContext(),
-                request.Mode, 
+                request.Mode,
                 Context.ConnectionAborted);
             return result;
         }

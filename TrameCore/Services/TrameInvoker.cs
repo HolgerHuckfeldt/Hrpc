@@ -212,7 +212,7 @@ namespace TrameCore.Services
                 }
 
                 // Im Single-Call ohne Dependencies brauchen wir keine Alias-Auflösung:
-                string parameterJson = request?.StringData??String.Empty;
+                string parameterJson = request?.StringData ?? String.Empty;
 
                 var parameters = BuildParameters(parameterJson, invokeInfo.MethodInfo!.GetParameters(), ct);
                 if (parameters.Items == null) return parameters.Response;
@@ -459,7 +459,7 @@ namespace TrameCore.Services
         /// </summary>
         private bool ContainsAlias(JsonNode? node)
         {
-            if(node == null) return false;
+            if (node == null) return false;
             if (node is JsonValue jsonValue)
             {
                 if (jsonValue.TryGetValue<string>(out var strValue))
@@ -772,7 +772,7 @@ namespace TrameCore.Services
             }
         }
 
-        
+
         /// <summary>
         /// Injects binary data from TrameRequest.BinaryData into byte[] parameters.
         /// If a method has a byte[] parameter, it receives the raw binary payload

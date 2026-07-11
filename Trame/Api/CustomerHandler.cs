@@ -59,7 +59,7 @@ namespace Trame.Api
 
         // Remove an address from a customer
         [TrameMethod("RemoveAddressFromCustomer")]
-        public async Task  RemoveAddressFromCustomer(int customerId, int addressId)
+        public async Task RemoveAddressFromCustomer(int customerId, int addressId)
         {
             await service.RemoveAddressFromCustomer(customerId, addressId);
         }
