@@ -2,21 +2,23 @@
 // WaevaRpc Beispiel-Server (Drop-in) — unterstützt alle Szenarien aus samples/.
 //
 // Zeigt: Controller-Deklaration via [WaevaRpcController]/[WaevaRpcMethod], DTOs als
-// [WaevaRpcDataContract], Fehlerbehandlung via WaevaRpcResults, und Rückgabewerte, die
+// Plain-POCOs (per Signatur-Inferenz in der Discovery expandiert — kein [WaevaRpcDataContract]
+// mehr nötig), Fehlerbehandlung via WaevaRpcResults, und Rückgabewerte, die
 // für Dependency-Chaining (@alias) geeignet sind.
 //
 // In-Memory-Store NUR für Demos — in Produktion DI-Repositories verwenden.
 // ==============================================================================
 
-using WaevaRpcCommon.Attribute;   // WaevaRpcDataContract, WaevaRpcDocumentation, WaevaRpcExample
+using WaevaRpcCommon.Attribute;   // WaevaRpcDocumentation, WaevaRpcExample (DataContract entfällt — Inference-Default)
 using WaevaRpcCommon.Results;     // WaevaRpcResults (Ok/NotFound/BadRequest)
 using WaevaRpcCore.Attributes;    // WaevaRpcController, WaevaRpcMethod
 
 namespace WaevaRpc.Samples.Server;
 
 // --- DTOs (der Vertrag) -------------------------------------------------------
+// Plain-POCOs ohne [WaevaRpcDataContract] — die Discovery expandiert sie automatisch,
+// weil sie in derselben Assembly wie die Controller liegen (Signatur-Inferenz, Weg C).
 
-[WaevaRpcDataContract]
 public class Customer
 {
     public int Id { get; set; }
@@ -24,7 +26,6 @@ public class Customer
     public string Email { get; set; } = string.Empty;
 }
 
-[WaevaRpcDataContract]
 public class Order
 {
     public int Id { get; set; }

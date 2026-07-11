@@ -80,9 +80,10 @@ namespace WaevaRpc.Api
         }
     }
 
-    [WaevaRpcDataContract]
     [WaevaRpcExample("{\"Id\":1,\"Name\":\"Holger\",\"Age\":1,\"Greet\":\"Hallo\",\"Contace\":{\"Id\":10,\"Name\":\"Support\"}}")]
     [WaevaRpcDocumentation("Diese Klasse repräsentiert eine Adresse mit zugehörigen Kontaktdaten.")]
+    // Kein [WaevaRpcDataContract] nötig — wird per Signatur-Inferenz expandiert (Weg C),
+    // da AdresseX in derselben Assembly wie TestService liegt und in Methodensignaturen auftaucht.
     public class AdresseX
     {
         public int Id { get; set; }
@@ -93,7 +94,6 @@ namespace WaevaRpc.Api
         public Contact? Contace { get; set; }   
     }
 
-    [WaevaRpcDataContract]
     public class Contact
     {
         public int Id { get; set; }

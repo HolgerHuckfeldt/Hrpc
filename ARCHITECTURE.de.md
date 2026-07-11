@@ -77,7 +77,7 @@ WaevaRpc ist eine protokoll-agnostische RPC-Engine, die zwischen der Geschäftsl
 
 ### WaevaRpcDiscoveryService (`WaevaRpcCore`)
 - Generiert `DiscoveryInfo` mit allen Controllern, Methoden, Parametern und Typen
-- Nur Typen mit `[WaevaRpcDataContract]` werden einbezogen
+- Typen werden per **Signatur-Inferenz** einbezogen: jeder Klassentyp aus einer Controller-Assembly wird voll expandiert (Property-Schema, Beispiel, Nested-Types); `[WaevaRpcDataContract]` ist optionaler Override (bare = force-expand, `Exclude = true` = force-opaque). Typen aus anderen Assemblies (BCL, Waeva-Envelope, Fremdlibs) bleiben opaque.
 - Extrahiert `[WaevaRpcDocumentation]`-Zusammenfassungen und `[WaevaRpcExample]`-JSON-Beispiele
 - Gecacht mit Invalidierung bei neuen Registrierungen
 
@@ -168,7 +168,7 @@ Zwei Wege — nicht austauschbar:
 | `[WaevaRpcController("name")]` | Klasse | Markiert eine Klasse als RPC-Controller |
 | `[WaevaRpcMethod("name")]` | Methode | Markiert eine Methode als remote aufrufbar |
 | `[WaevaRpcAuthorise]` | Methode | Erfordert Authentifizierung (optionale Rolle) |
-| `[WaevaRpcDataContract]` | Klasse | Markiert einen Typ für Discovery/Metadaten |
+| `[WaevaRpcDataContract]` | Klasse | Optionaler Discovery-Override (bare = force-expand / `Exclude = true` = force-opaque); Default ist Signatur-Inferenz über die Controller-Assembly-Grenze |
 | `[WaevaRpcDocumentation("summary")]` | Klasse/Methode/Parameter | XML-ähnliche Doku für Discovery |
 | `[WaevaRpcExample("json")]` | Klasse | Beispiel-JSON für Developer-UI |
 

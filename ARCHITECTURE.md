@@ -116,7 +116,7 @@ WaevaRpc is a protocol-agnostic RPC engine that sits between your business logic
 
 ### WaevaRpcDiscoveryService (`WaevaRpcCore`)
 - Generates `DiscoveryInfo` with all controllers, methods, parameters, and types
-- Only includes types marked with `[WaevaRpcDataContract]`
+- Contract types are **inferred from method signatures**: any class type from a controller assembly is fully expanded (property schema, example, nested types); `[WaevaRpcDataContract]` is an optional override (bare = force-expand, `Exclude = true` = force-opaque). Types from other assemblies (BCL, framework envelope, third-party) stay opaque.
 - Extracts `[WaevaRpcDocumentation]` summaries and `[WaevaRpcExample]` JSON examples
 - Cached with invalidation on new registrations
 
@@ -177,7 +177,7 @@ Clients throw `WaevaRpcException` with `WaevaRpcError` on non-2xx responses.
 | `[WaevaRpcController("name")]` | Class | Marks a class as an RPC controller |
 | `[WaevaRpcMethod("name")]` | Method | Marks a method as remotely callable |
 | `[WaevaRpcAuthorise]` | Method | Requires authentication (optional role) |
-| `[WaevaRpcDataContract]` | Class | Marks a type for discovery/metadata |
+| `[WaevaRpcDataContract]` | Class | Optional discovery override (bare = force-expand / `Exclude = true` = force-opaque); default is signature inference via the controller-assembly boundary |
 | `[WaevaRpcDocumentation("summary")]` | Class/Method/Param | XML-like doc for discovery |
 | `[WaevaRpcExample("json")]` | Class | Example JSON for developer UI |
 

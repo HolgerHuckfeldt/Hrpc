@@ -38,7 +38,7 @@ WaevaRpc ist **code-first**: Man schreibt C#-Klassen und Methoden, dekoriert sie
 | Methodenorientierte Aufrufe | ✅ | ✅ |
 | Batch-Calls | ✅ (JSON-Array) | ✅ |
 | Dependency-Chaining | ❌ Aufrufe sind unabhängig | ✅ `@alias`-Auflösung |
-| Typ-Verträge | ❌ untypisierte `params` | ✅ `[WaevaRpcDataContract]` |
+| Typ-Verträge | ❌ untypisierte `params` | ✅ Signatur-Inferenz (`[WaevaRpcDataContract]` optional) |
 | API-Discovery | ❌ (braucht OpenRPC) | ✅ eingebaut `/api/waeva/discovery` |
 | Dokumentation | ❌ (extern) | ✅ `[WaevaRpcDocumentation]` + `[WaevaRpcExample]` |
 | Streaming | ❌ | ✅ `IAsyncEnumerable<T>` |

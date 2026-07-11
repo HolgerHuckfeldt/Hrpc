@@ -133,4 +133,66 @@ public class WaevaRpcDiscoveryServiceTests
         typeMeta.Properties.Should().Contain(p => p.PropertyName == "Id");
         typeMeta.Properties.Should().Contain(p => p.PropertyName == "Name");
     }
+
+    // --- Signatur-Inferenz (Weg C) -------------------------------------------------
+
+    private static WaevaRpcInvoker CreateInvoker<T>() where T : class
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddTransient<T>();
+        var sp = services.BuildServiceProvider();
+        var invoker = new WaevaRpcInvoker(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<ILogger<WaevaRpcInvoker>>());
+        invoker.Register<T>();
+        return invoker;
+    }
+
+    /// <summary>Regel 4: unmarkierter Typ aus der Controller-Assembly wird per Inference expandiert.</summary>
+    [Fact]
+    public void GetDiscoveryInfo_Inference_ExpandsUnmarkedOwnAssemblyType()
+    {
+        var invoker = CreateInvoker<DiscoveryInferenceController>();
+        var discovery = invoker.GetDiscoveryInfo();
+
+        // UnmarkedDto (Test-Assembly, kein Attribute) muss via Inference expandiert werden.
+        discovery.Types.Should().ContainKey(typeof(UnmarkedDto).FullName!);
+        var typeMeta = discovery.Types[typeof(UnmarkedDto).FullName!];
+        typeMeta.Properties.Should().HaveCount(2);
+        typeMeta.Properties.Should().Contain(p => p.PropertyName == "Id");
+        typeMeta.Properties.Should().Contain(p => p.PropertyName == "Name");
+
+        // …und am Methoden-Rückgabewert verlinkt sein.
+        var method = discovery.Controllers[0].Methods.First(m => m.MethodName == "ReturnUnmarked");
+        method.ReturnTypeDefinition.Should().NotBeNull();
+    }
+
+    /// <summary>Regel 5: Framework-Envelope aus fremder Assembly bleibt opaque (keine Property-Expansion).</summary>
+    [Fact]
+    public void GetDiscoveryInfo_Inference_KeepsFrameworkEnvelopeOpaque()
+    {
+        var invoker = CreateInvoker<DiscoveryInferenceController>();
+        var discovery = invoker.GetDiscoveryInfo();
+
+        // WaevaRpcResponse liegt in WaevaRpcCommon.dll (fremde Assembly) → nicht expandieren.
+        discovery.Types.Should().NotContainKey(typeof(WaevaRpcResponse).FullName!);
+        var method = discovery.Controllers[0].Methods.First(m => m.MethodName == "ReturnFrameworkType");
+        method.ReturnTypeDefinition.Should().BeNull();
+        method.ReturnType.Should().Be("WaevaRpcResponse");
+    }
+
+    /// <summary>Regel 2: Own-Assembly-Typ mit [WaevaRpcDataContract(Exclude = true)] bleibt force-opaque.</summary>
+    [Fact]
+    public void GetDiscoveryInfo_Inference_ExcludeKeepsOwnAssemblyTypeOpaque()
+    {
+        var invoker = CreateInvoker<DiscoveryInferenceController>();
+        var discovery = invoker.GetDiscoveryInfo();
+
+        // ExcludedDto ist in der Test-Assembly, aber Exclude-Override → nicht expandieren.
+        discovery.Types.Should().NotContainKey(typeof(ExcludedDto).FullName!);
+        var method = discovery.Controllers[0].Methods.First(m => m.MethodName == "TakeExcluded");
+        var param = method.Parameters.First(p => p.ParameterName == "d");
+        param.TypeDefinition.Should().BeNull();
+    }
 }

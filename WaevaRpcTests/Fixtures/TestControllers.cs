@@ -246,3 +246,45 @@ public class NestedDto
     public int Id { get; set; }
     public TestDto Inner { get; set; } = new();
 }
+
+// --- Fixtures für die Signatur-Inferenz-Tests (Weg C) ----------------------------
+// Separate Controller, damit die 18-Methoden-Assertion für TestInvokerController
+// unangetastet bleibt. Diese Controller üben die Expansion-Heuristik:
+//   Regel 4: UnmarkedDto (own Assembly, kein Attribute) → expandiert.
+//   Regel 5: WaevaRpcResponse (fremde Assembly, kein Override) → opaque.
+//   Regel 2: ExcludedDto (own Assembly, Exclude=true)     → force-opaque.
+
+/// <summary>
+/// Controller für die Weg-C-Discovery-Inferenz-Tests. Jede Methode zielt auf genau
+/// eine Heuristik-Regel ab.
+/// </summary>
+[WaevaRpcController("DiscoveryInference")]
+public class DiscoveryInferenceController
+{
+    /// <summary>Regel 4: unmarkierter Own-Assembly-Typ als Rückgabewert → muss expandieren.</summary>
+    [WaevaRpcMethod("ReturnUnmarked")]
+    public UnmarkedDto ReturnUnmarked(int id) => new() { Id = id, Name = "inferred" };
+
+    /// <summary>Regel 5: Framework-Envelope aus WaevaRpcCommon (fremde Assembly) → muss opaque bleiben.</summary>
+    [WaevaRpcMethod("ReturnFrameworkType")]
+    public WaevaRpcResponse ReturnFrameworkType(int id)
+        => WaevaRpcResults.Ok(new UnmarkedDto { Id = id, Name = "envelope" });
+
+    /// <summary>Regel 2: Own-Assembly-Typ mit [WaevaRpcDataContract(Exclude = true)] → force-opaque.</summary>
+    [WaevaRpcMethod("TakeExcluded")]
+    public int TakeExcluded(ExcludedDto d) => d.X;
+}
+
+/// <summary>Unmarkierter DTO in der Test-Assembly (Contract-Assembly-Set) — Regel 4.</summary>
+public class UnmarkedDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Own-Assembly-Typ mit Exclude-Override — Regel 2 (force-opaque).</summary>
+[WaevaRpcDataContract(Exclude = true)]
+public class ExcludedDto
+{
+    public int X { get; set; }
+}

@@ -61,7 +61,7 @@ WaevaRpc (sample app) · WaevaRpcTests (xUnit + FluentAssertions) · WaevaRpcBen
 
 **`IWaevaRpcInterceptor`** / `WaevaRpcInvocationDelegate`: middleware pipeline pattern. Interceptors wrap the actual execution in reverse registration order. Built-in `WaevaRpcLoggingInterceptor` logs call duration.
 
-**`WaevaRpcDiscoveryService`** generates `DiscoveryInfo` from registered controllers, including `[WaevaRpcDataContract]` types, `[WaevaRpcDocumentation]` summaries, and `[WaevaRpcExample]` JSON samples. Cached with invalidation on new registrations.
+**`WaevaRpcDiscoveryService`** generates `DiscoveryInfo` from registered controllers, including contract types, `[WaevaRpcDocumentation]` summaries, and `[WaevaRpcExample]` JSON samples. Contract types are **inferred from method signatures** by default (Weg C): any class type whose assembly belongs to the registered controllers' assemblies is fully expanded (property schema, example, nested types); types from other assemblies (BCL, framework envelope, third-party) stay opaque unless overridden. `[WaevaRpcDataContract]` is an optional override (bare = force-expand, `Exclude = true` = force-opaque). Cached with invalidation on new registrations.
 
 ### Transports
 
@@ -87,7 +87,7 @@ All transports deserialize the incoming `WaevaRpcRequest`/`WaevaRpcMultiRequest`
 - `[WaevaRpcController("name")]` — marks a class as an RPC controller
 - `[WaevaRpcMethod("name")]` — marks a method as remotely callable
 - `[WaevaRpcAuthorise]` — requires authentication (optional role parameter)
-- `[WaevaRpcDataContract]` — marks a type for discovery metadata
+- `[WaevaRpcDataContract]` — optional discovery override: bare = force-expand a type (e.g. a third-party type you want documented); `Exclude = true` = force-opaque. By default, discovery infers contract types from method signatures via the controller-assembly boundary.
 - `[WaevaRpcDocumentation("summary")]` — XML-like doc for discovery
 - `[WaevaRpcExample("json")]` — example JSON for developer UI
 

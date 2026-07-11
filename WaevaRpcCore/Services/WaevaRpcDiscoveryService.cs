@@ -41,6 +41,16 @@ namespace WaevaRpcCore.Services
         {
             var discovery = new DiscoveryInfo();
 
+            // Contract-Assembly-Set = Assemblies aller registrierten Controller. Typen
+            // daraus werden per Signatur-Inferenz expandiert (Weg C); Typen aus anderen
+            // Assemblies (BCL, Waeva-Framework-Envelope, Fremdlibs) bleiben opaque, sofern
+            // kein [WaevaRpcDataContract]-Override sie erzwingt. Einmalig gebildet, da die
+            // Controller-Map sich während eines Discovery-Builds nicht ändert.
+            var contractAssemblies = _routeHandlers.Values
+                .Select(t => t.Assembly)
+                .Distinct()
+                .ToHashSet();
+
             foreach (var kvp in _routeHandlers)
             {
                 string controllerName = kvp.Key;
@@ -84,21 +94,21 @@ namespace WaevaRpcCore.Services
                         // Setze den Rückgabetyp als z. B. "List<Order>"
                         methodMeta.ReturnType = $"List<{GetFriendlyTypeName(genericArg)}>";
                         // Registriere das Generic-Argument, also z. B. Order
-                        RegisterType(genericArg, discovery.Types);
-                        // Falls das Generic-Argument als WaevaRpcDataContract markiert ist, setze die Nested-Definition.
-                        // Primitive Generic-Argumente (z. B. List<int>) werden von RegisterType nicht registriert
-                        // und haben daher keine TypeDefinition — in diesem Fall bleibt ReturnTypeDefinition null.
+                        RegisterType(genericArg, discovery.Types, contractAssemblies);
+                        // Falls das Generic-Argument expandierbar ist, setze die Nested-Definition.
+                        // Primitive Generic-Argumente (z. B. List<int>) werden von RegisterType nicht
+                        // registriert und haben daher keine TypeDefinition — in diesem Fall bleibt
+                        // ReturnTypeDefinition null.
                         string key = genericArg.FullName ?? genericArg.Name;
                         if (key != null && discovery.Types.TryGetValue(key, out var returnTypeDef))
                             methodMeta.ReturnTypeDefinition = returnTypeDef;
                     }
-                    // Für nicht-generische Rückgabetypen (außer void)
+                    // Für nicht-generische Rückgabetypen (außer void), die expandierbar sind
+                    // (Contract-Assembly oder [WaevaRpcDataContract]-Override).
                     else if (!effectiveReturnType.Equals(typeof(void)) &&
-                        effectiveReturnType.IsClass &&
-                        effectiveReturnType != typeof(string) &&
-                        effectiveReturnType.IsDefined(typeof(WaevaRpcDataContractAttribute), false))
+                        IsExpandableType(effectiveReturnType, contractAssemblies))
                     {
-                        RegisterType(effectiveReturnType, discovery.Types);
+                        RegisterType(effectiveReturnType, discovery.Types, contractAssemblies);
                         string key = effectiveReturnType.FullName ?? effectiveReturnType.Name;
                         if (key != null)
                             methodMeta.ReturnTypeDefinition = discovery.Types[key];
@@ -108,7 +118,7 @@ namespace WaevaRpcCore.Services
 
                     // Parameter verarbeiten (CancellationToken ausschließen)
                     var parameters = method.GetParameters().Where(p => p.ParameterType != typeof(CancellationToken));
-                    
+
                     foreach (var param in parameters)
                     {
                         var paramMeta = new ParameterMeta
@@ -123,17 +133,16 @@ namespace WaevaRpcCore.Services
                         {
                             var genericArg = param.ParameterType.GetGenericArguments()[0];
                             paramMeta.ParameterType = $"List<{GetFriendlyTypeName(genericArg)}>";
-                            RegisterType(genericArg, discovery.Types);
+                            RegisterType(genericArg, discovery.Types, contractAssemblies);
                             // Primitive Generic-Argumente (z. B. List<int>) werden nicht registriert und
                             // haben keine TypeDefinition — siehe Sonderfall beim Rückgabetyp oben.
                             string key = genericArg.FullName ?? genericArg.Name;
                             if (key != null && discovery.Types.TryGetValue(key, out var paramTypeDef))
                                 paramMeta.TypeDefinition = paramTypeDef;
                         }
-                        else if (param.ParameterType.IsClass && param.ParameterType != typeof(string) &&
-                                 param.ParameterType.IsDefined(typeof(WaevaRpcDataContractAttribute), false))
+                        else if (IsExpandableType(param.ParameterType, contractAssemblies))
                         {
-                            RegisterType(param.ParameterType, discovery.Types);
+                            RegisterType(param.ParameterType, discovery.Types, contractAssemblies);
                             string key = param.ParameterType.FullName ?? param.ParameterType.Name;
                             if (key != null)
                                 paramMeta.TypeDefinition = discovery.Types[key];
@@ -152,7 +161,8 @@ namespace WaevaRpcCore.Services
         }
 
 
-        private static TypeMeta GetTypeMeta(Type type, Dictionary<string, TypeMeta> types, HashSet<Type>? visited = null)
+        private static TypeMeta GetTypeMeta(Type type, Dictionary<string, TypeMeta> types,
+            HashSet<Assembly> contractAssemblies, HashSet<Type>? visited = null)
         {
             visited ??= new HashSet<Type>();
 
@@ -162,8 +172,9 @@ namespace WaevaRpcCore.Services
                 return new TypeMeta { TypeName = type.FullName ?? type.Name };
             }
 
-            // Falls der Typ nicht als WaevaRpcDataContract markiert ist, nur den Typnamen zurückgeben.
-            if (!type.IsDefined(typeof(WaevaRpcDataContractAttribute), inherit: false))
+            // Falls der Typ nicht expandierbar ist (fremde Assembly ohne Override bzw.
+            // [WaevaRpcDataContract(Exclude = true)]), nur den Typnamen zurückgeben.
+            if (!IsExpandableType(type, contractAssemblies))
             {
                 return new TypeMeta { TypeName = type.FullName ?? type.Name };
             }
@@ -194,17 +205,23 @@ namespace WaevaRpcCore.Services
                     typeMeta.Example = null;
                 }
             }
-            else
+            else if (type.GetConstructor(Type.EmptyTypes) != null)
             {
                 try
                 {
-                    // Wenn kein explizites Beispiel vorhanden ist, versuche eine Standardinstanz zu erzeugen.
+                    // Wenn kein explizites Beispiel vorhanden ist, versuche eine Standardinstanz
+                    // zu erzeugen — aber nur, falls ein parameterloser Ctor existiert (sonst
+                    // vermeiden wir Noisy-Exceptions bei Typen ohne Default-Ctor).
                     typeMeta.Example = Activator.CreateInstance(type);
                 }
                 catch
                 {
                     typeMeta.Example = null;
                 }
+            }
+            else
+            {
+                typeMeta.Example = null;
             }
 
             // Verarbeite die Properties des Typs.
@@ -222,20 +239,18 @@ namespace WaevaRpcCore.Services
                 {
                     foreach (var arg in prop.PropertyType.GetGenericArguments())
                     {
-                        if (!(arg.IsPrimitive || arg.IsEnum || arg == typeof(string)) &&
-                            arg.IsDefined(typeof(WaevaRpcDataContractAttribute), false))
+                        if (IsExpandableType(arg, contractAssemblies))
                         {
-                            RegisterType(arg, types, visited);
-                            propertyMeta.NestedTypeDefinition = GetTypeMeta(arg, types, visited);
+                            RegisterType(arg, types, contractAssemblies, visited);
+                            propertyMeta.NestedTypeDefinition = GetTypeMeta(arg, types, contractAssemblies, visited);
                         }
                     }
                 }
-                // Für komplexe Klassen (außer string), die als WaevaRpcDataContract markiert sind.
-                else if (prop.PropertyType.IsClass && prop.PropertyType != typeof(string) &&
-                         prop.PropertyType.IsDefined(typeof(WaevaRpcDataContractAttribute), false))
+                // Für expandierbare komplexe Klassen (Contract-Assembly oder Override).
+                else if (IsExpandableType(prop.PropertyType, contractAssemblies))
                 {
-                    RegisterType(prop.PropertyType, types, visited);
-                    propertyMeta.NestedTypeDefinition = GetTypeMeta(prop.PropertyType, types, visited);
+                    RegisterType(prop.PropertyType, types, contractAssemblies, visited);
+                    propertyMeta.NestedTypeDefinition = GetTypeMeta(prop.PropertyType, types, contractAssemblies, visited);
                 }
 
                 typeMeta.Properties.Add(propertyMeta);
@@ -243,6 +258,41 @@ namespace WaevaRpcCore.Services
 
             return typeMeta;
         }
+
+
+        /// <summary>
+        /// Entscheidet, ob ein Typ in den Discovery-Metadaten voll expandiert wird
+        /// (Property-Schema, Beispiel, Nested-Types) oder nur als flacher Typname
+        /// erscheint (opaque). Implementiert die Weg-C-Heuristik:
+        ///   1. Primitive/Enum/string → opaque.
+        ///   2. [WaevaRpcDataContract(Exclude = true)] → force-opaque.
+        ///   3. [WaevaRpcDataContract] (bare) → force-expand.
+        ///   4. Assembly ∈ Contract-Assembly-Set → expand.
+        ///   5. sonst (Fremd/BCL/Waeva-Envelope) → opaque.
+        /// </summary>
+        private static bool IsExpandableType(Type type, HashSet<Assembly> contractAssemblies)
+        {
+            if (type == null) return false;
+            // Regel 1: primitive/enum/string → keine Expansion (nur Name).
+            if (type.IsPrimitive || type.IsEnum || type == typeof(string)) return false;
+
+            var attr = GetDataContractAttribute(type);
+            if (attr != null)
+            {
+                // Regel 2: Exclude = force-opaque.
+                if (attr.Exclude) return false;
+                // Regel 3: bare = force-expand (Override für Fremdtypen).
+                return true;
+            }
+
+            // Regel 4 vs 5: Assembly-Grenze (Contract-Assembly-Set entscheidet).
+            return contractAssemblies.Contains(type.Assembly);
+        }
+
+        private static WaevaRpcDataContractAttribute? GetDataContractAttribute(Type type)
+            => type.GetCustomAttributes(typeof(WaevaRpcDataContractAttribute), false)
+                   .OfType<WaevaRpcDataContractAttribute>()
+                   .FirstOrDefault();
 
 
         private static string GetFriendlyTypeName(Type type)
@@ -281,14 +331,14 @@ namespace WaevaRpcCore.Services
                 if (instance == null)
                     return null;
 
-                // Für alle public, setzbare Properties, die als WaevaRpcDataContract markiert sind
+                // Für alle public, setzbare Properties, die expandierbar sind
                 foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                              .Where(p => p.CanWrite))
                 {
-                    // Nur für Klassen (außer string) und solche, die als WaevaRpcDataContract markiert sind
+                    // Nur für Klassen (außer string), die expandierbar sind
                     if (prop.PropertyType != typeof(string)
                         && prop.PropertyType.IsClass
-                        && prop.PropertyType.IsDefined(typeof(WaevaRpcDataContractAttribute), false))
+                        && IsExpandableType(prop.PropertyType, new HashSet<Assembly>()))
                     {
                         // Wenn der Wert null ist, versuche, ihn rekursiv zu erstellen
                         var current = prop.GetValue(instance);
@@ -308,34 +358,34 @@ namespace WaevaRpcCore.Services
         }
 
         /// <summary>
-        /// Registriert den Typ (bzw. das Generic-Argument) im Dictionary, sofern er mit [WaevaRpcDataContract] markiert ist.
+        /// Registriert den Typ (bzw. das Generic-Argument) im Dictionary, sofern er
+        /// expandierbar ist (Contract-Assembly oder [WaevaRpcDataContract]-Override).
         /// Dabei wird der vollqualifizierte Name als Schlüssel genutzt.
         /// </summary>
-        // Passe auch RegisterType an, sodass es das gleiche HashSet weitergibt:
-        private static void RegisterType(Type type, Dictionary<string, TypeMeta> types, HashSet<Type>? visited = null)
+        private static void RegisterType(Type type, Dictionary<string, TypeMeta> types,
+            HashSet<Assembly> contractAssemblies, HashSet<Type>? visited = null)
         {
             // Für generische Typen wie List<T> oder Dictionary<,> registrieren wir die Generic-Argumente.
             if (type.IsGenericType)
             {
                 foreach (var arg in type.GetGenericArguments())
                 {
-                    if (!(arg.IsPrimitive || arg.IsEnum || arg == typeof(string)) &&
-                        arg.IsDefined(typeof(WaevaRpcDataContractAttribute), false))
+                    if (IsExpandableType(arg, contractAssemblies))
                     {
-                        RegisterType(arg, types, visited);
+                        RegisterType(arg, types, contractAssemblies, visited);
                     }
                 }
                 // Optional: Wenn du den generischen Container selbst registrieren möchtest, kannst du das hier hinzufügen.
                 return;
             }
 
-            // Nur für Klassen, die als WaevaRpcDataContract markiert sind
-            if (type.IsClass && type != typeof(string) && type.IsDefined(typeof(WaevaRpcDataContractAttribute), false))
+            // Nur für Klassen (außer string), die expandierbar sind.
+            if (type.IsClass && type != typeof(string) && IsExpandableType(type, contractAssemblies))
             {
                 string typeName = type.FullName ?? type.Name;
                 if (!types.ContainsKey(typeName))
                 {
-                    var typeMeta = GetTypeMeta(type, types, visited);
+                    var typeMeta = GetTypeMeta(type, types, contractAssemblies, visited);
                     types[typeName] = typeMeta;
                     AddTypeRecursive(types, typeMeta, visited);
                 }

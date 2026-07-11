@@ -1,11 +1,11 @@
-using WaevaRpcCommon.Attribute;
 using WaevaRpcCore.Attributes;
 
 namespace WaevaRpc.Model
 {
     using System.Collections.Generic;
 
-    [WaevaRpcDataContract]
+    // DTOs werden per Signatur-Inferenz in der Discovery expandiert (Weg C) — kein
+    // [WaevaRpcDataContract] mehr nötig, da sie in derselben Assembly wie die Controller liegen.
     public class Customer
     {
         public Customer()
@@ -33,7 +33,6 @@ namespace WaevaRpc.Model
 
     }
 
-    [WaevaRpcDataContract]
     public class Address
     {
         public int Id { get; set; }
@@ -54,7 +53,6 @@ namespace WaevaRpc.Model
         }
     }
 
-    [WaevaRpcDataContract]
     public class Order
     {
         public int Id { get; set; }

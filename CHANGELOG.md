@@ -22,11 +22,14 @@ Contract-correctness pass before the first public GitHub release. Several v1.0.0
 - **REST transport (P0):** Cancelled requests (`OperationCanceledException`) now return `499` on both the Minimal-API and MVC endpoints (previously only the MVC controller). The HTTP envelope over REST is always `200 OK` with the `WaevaRpcResponse` (including any error) in the body — the logical `code` is a body field, not the HTTP status (JSON-RPC style).
 - **Wire language (P0):** All wire-facing strings (`WaevaRpcError.message`, error `data`, transport problem titles) are now English. German is retained only for internal logs and comments, per the project convention.
 - **`WaevaRpcCall.WithAlias`:** Removed the unused `fallbackValue` parameter. An unresolvable `@alias` is now a hard error (returns `400`), not a silent default.
+- **Discovery: Signatur-Inferenz als Default (Weg C).** `[WaevaRpcDataContract]` ist nicht mehr erforderlich — die Discovery expandiert automatisch jeden Klassentyp, der in einer Methodensignatur auftaucht und dessen Assembly zum Set der Controller-Assemblies gehört (Property-Schema, Beispiel, Nested-Types). Typen aus anderen Assemblies (BCL, Waeva-Framework-Envelope, Fremdlibs) bleiben opaque. `[WaevaRpcDataContract]` ist nun ein optionaler Override: bare = force-expand (z. B. für Fremdtypen, die man nicht besitzt), `Exclude = true` = force-opaque. Keine Auswirkung auf den RPC-Aufrufpfad — nur Discovery-Metadaten betreffen.
 
 ### Added
 - Client: `WaevaRpcCall.Param(string parameterName, object? value)` named overload, so callers can bind by explicit server-side parameter name regardless of order.
 - Support for dotted controller namespaces (e.g. `[WaevaRpcController("Customer.Address.Contact")]`) — verified and tested; no fixed two-level routing limit.
 - New tests: positional vs named parameter binding (unit + integration), duplicate-name `400`, missing-parameter default, `void`→`204`, `401` on authorization failure, dotted-namespace routing.
+- `[WaevaRpcDataContract(Exclude = true)]` — Opt-out-Override für die Discovery-Inferenz (force-opaque trotz Zugehörigkeit zur Controller-Assembly).
+- New tests: Discovery-Inferenz (unmarkierter Own-Assembly-Typ wird expandiert; Framework-Envelope bleibt opaque; `Exclude` hält Own-Assembly-Typ opaque).
 
 ### Changed
 - `WaevaRpcInvoker` exposes `EnableDetailedErrors`, wired from `WaevaRpcOptions.EnableDetailedErrors` or `IHostEnvironment.IsDevelopment()` during `AddWaevaRpc` registration.
