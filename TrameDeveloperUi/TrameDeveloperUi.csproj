@@ -13,6 +13,11 @@
     <StaticWebAssetBasePath>developer-static</StaticWebAssetBasePath>
   </PropertyGroup>
 
+  <!-- Root-README als Paket-README (PackageReadmeFile via Directory.Build.props) -->
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+
   <!-- ASP.NET Core-Typen (IEndpointRouteBuilder) für die Wiring-Extension,
        die dieses Paket mitliefert. Consumer ist ohnehin eine ASP.NET-App. -->
   <ItemGroup>

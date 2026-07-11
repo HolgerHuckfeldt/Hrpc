@@ -9,6 +9,11 @@
     <IsPackable>true</IsPackable>
   </PropertyGroup>
 
+  <!-- Root-README als Paket-README (PackageReadmeFile via Directory.Build.props) -->
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="8.0.28" />
     <!-- Floor: transitiv würde SignalR 8.0.28 MessagePack 2.5.187 (verwundbar, s. GHSA-hv8m
