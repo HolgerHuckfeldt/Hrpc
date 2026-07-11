@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>WaevaRpc.WebSocket</PackageId>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>WaevaRpc</Authors>
     <Description>WebSocket transport for WaevaRpc RPC framework</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

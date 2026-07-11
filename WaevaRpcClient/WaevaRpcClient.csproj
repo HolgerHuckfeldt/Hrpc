@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>WaevaRpc.Client</PackageId>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>WaevaRpc</Authors>
     <Description>Client library for WaevaRpc RPC framework (REST, WebSocket, SignalR)</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

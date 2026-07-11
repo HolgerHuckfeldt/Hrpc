@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>WaevaRpc.Hub</PackageId>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <Authors>WaevaRpc</Authors>
     <Description>SignalR transport + AddWaevaRpc/UseWaevaRpc server integration for WaevaRpc RPC framework</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
