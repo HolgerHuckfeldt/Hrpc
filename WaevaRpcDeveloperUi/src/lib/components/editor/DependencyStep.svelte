@@ -5,6 +5,7 @@
   // und meldet Änderungen über onchange → Parent persistiert.
 
   import { discoveryState } from '../../state/discovery.svelte.ts';
+  import { jsonPathSuggestions } from '../../utils/params';
   import type { DepStep, DepParam, DepExpose } from '../../state/tabs.svelte.ts';
 
   let {
@@ -26,15 +27,12 @@
   let methods = $derived(selectedControllerMeta?.methods ?? []);
   let methodMeta = $derived(methods.find((m) => m.methodName === step.method) ?? null);
 
-  // JsonPath-Schnellauswahlen: $ + ReturnType-Properties + $[0].Id.
-  let jsonPathOptions = $derived.by(() => {
-    const opts = ['$', '$[0]', '$[0].Id'];
-    const props = methodMeta?.returnTypeDefinition?.properties ?? [];
-    for (const p of props) {
-      opts.push(`$.${p.propertyName}`);
-    }
-    return opts;
-  });
+  // JsonPath-Schnellauswahlen aus dem Return-Typ. camelCase + passender Präfix
+  // ($[0].prop bei Listen, sonst $.prop) — JsonPath ist case-sensitiv gegen den
+  // camelCase-Server-Output, daher camelCase-Vorschläge (utils/params.ts).
+  let jsonPathOptions = $derived.by(() =>
+    jsonPathSuggestions(methodMeta?.returnType, methodMeta?.returnTypeDefinition?.properties),
+  );
 
   // --- Handler ---------------------------------------------------------------
 

@@ -11,7 +11,7 @@
 
   import { ExecutionMode, type WaevaRpcRequest, type ControllerMeta, type MethodMeta, type ParameterMeta } from 'waeva-rpc-client';
   import { discoveryState } from '../../state/discovery.svelte.ts';
-  import { defaultValueForParam, inferValue } from '../../utils/params';
+  import { defaultValueForParam, inferValue, jsonPathSuggestions } from '../../utils/params';
 
   let {
     requests = [],
@@ -78,12 +78,12 @@
       .flatMap((r) => r.exposes.map((e) => e.alias).filter(Boolean));
   }
 
-  /** JsonPath-Vorschläge aus dem Return-Typ (+ generische $/$[0]/$[0].Id). */
+  /** JsonPath-Vorschläge aus dem Return-Typ. camelCase + passender Präfix
+   *  ($[0].prop bei Listen, sonst $.prop) — siehe utils/params.ts
+   *  (JsonPath ist case-sensitiv gegen den camelCase-Server-Output). */
   function jsonPathOptions(row: BatchRow): string[] {
-    const opts = ['$', '$[0]', '$[0].Id'];
-    const props = methodMeta(row)?.returnTypeDefinition?.properties ?? [];
-    for (const p of props) opts.push(`$.${p.propertyName}`);
-    return opts;
+    const mm = methodMeta(row);
+    return jsonPathSuggestions(mm?.returnType, mm?.returnTypeDefinition?.properties);
   }
 
   // --- Editor-Modell (Source of truth) -----------------------------------------
@@ -152,7 +152,14 @@
   }
 
   function sync(): void {
-    requests = rows.map(rowToRequest);
+    const derived = rows.map(rowToRequest);
+    // In-place Mutation des gebundenen Arrays (gleiche Referenz wie batchRequests
+    // im Parent) — so sehen executeBatch und der DependencyGraph die Zeilen
+    // zuverlässig. Eine reine Reassignierung (requests = derived) propagiert via
+    // bind: nicht garantiert in den Parent-Status; die alte BatchEditor-Version
+    // nutzte push/splice auf dem gebundenen Array (dasselbe Muster).
+    requests.length = 0;
+    requests.push(...derived);
     onchange?.(requests, mode);
   }
 
