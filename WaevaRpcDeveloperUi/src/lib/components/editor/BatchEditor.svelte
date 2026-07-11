@@ -12,6 +12,7 @@
   import { ExecutionMode, type WaevaRpcRequest, type ControllerMeta, type MethodMeta, type ParameterMeta } from 'waeva-rpc-client';
   import { discoveryState } from '../../state/discovery.svelte.ts';
   import { defaultValueForParam, inferValue, jsonPathSuggestions } from '../../utils/params';
+  import BatchCodegen from './BatchCodegen.svelte';
 
   let {
     requests = [],
@@ -533,6 +534,12 @@
       <div class="empty-row">Keine Batch-Zeilen — „+ Add" klickt eine hinzu.</div>
     {/if}
   </div>
+
+  <!-- Code-Generator für die konfigurierte Abfrage (reaktiv über das gebundene
+       requests-Array, wie der DependencyGraph). -->
+  {#if rows.length > 0}
+    <BatchCodegen {requests} {mode} />
+  {/if}
 </div>
 
 <style>
