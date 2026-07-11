@@ -11,6 +11,7 @@
   import DependencyGraph from './DependencyGraph.svelte';
   import CodegenPanel from './CodegenPanel.svelte';
   import CodegenPage from './CodegenPage.svelte';
+  import DependencyBuilderPage from './DependencyBuilderPage.svelte';
 
   let isBatch = $state(false);
   let batchRequests = $state<HrpcRequest[]>([]);
@@ -183,6 +184,8 @@
   {#if tabState.activeTab}
     {#if tabState.activeTab.type === 'codegen'}
       <CodegenPage />
+    {:else if tabState.activeTab.type === 'dependency'}
+      <DependencyBuilderPage tab={tabState.activeTab} />
     {:else}
       <div class="toolbar">
         {#if tabState.activeTab.controller && tabState.activeTab.method}

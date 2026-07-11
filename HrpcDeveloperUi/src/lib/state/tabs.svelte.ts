@@ -1,7 +1,42 @@
-import type { ControllerMeta, MethodMeta, ParameterMeta, HrpcParameter } from 'hrpc-client';
+import type { ControllerMeta, MethodMeta, ParameterMeta, HrpcParameter, TypeMeta } from 'hrpc-client';
 import { formatJson } from '../utils/json';
 
-export type TabType = 'request' | 'codegen';
+export type TabType = 'request' | 'codegen' | 'dependency';
+
+// --- Dependency-Builder-Modell ----------------------------------------------
+// Ein DepStep entspricht einem HrpcRequest innerhalb eines Serial-Batches mit
+// @alias-Abhängigkeitskettung. exposes → dependencyMapping; alias-params → @alias
+// im stringData. Die Struktur ist rein serialisierbar (persistiert mit dem Tab).
+
+export interface DepExpose {
+  /** Alias-Name (ohne @), den Folgeschritte als @alias referenzieren. */
+  alias: string;
+  /** Ergebnisrelativer JsonPath — $ = ganzes Result, $.Id, $[0].Id. */
+  jsonPath: string;
+}
+
+export interface DepParam {
+  /** Echter Methoden-Parametername (Server bindet danach). */
+  parameterName: string;
+  parameterType: string;
+  /** Snapshot aus Discovery — für die Render-Heuristik (komplex vs. skalar). */
+  typeDefinition?: TypeMeta | null;
+  /** true → Wert ist eine @alias-Referenz auf einen früheren Schritt. */
+  useAlias: boolean;
+  /** Bei useAlias: Ziel-Alias (ohne @). */
+  aliasRef?: string;
+  /** Bei !useAlias: roher literal-Wert (String/JSON). */
+  literalValue?: string;
+}
+
+export interface DepStep {
+  /** Schritt-Id — zugleich HrpcRequest.id. */
+  id: string;
+  controller: string;
+  method: string;
+  params: DepParam[];
+  exposes: DepExpose[];
+}
 
 export interface Tab {
   id: string;
@@ -16,6 +51,8 @@ export interface Tab {
   respIdText: string;
   duration: string;
   log: string;
+  /** Schritte für den Dependency-Builder (nur bei type='dependency'). */
+  steps?: DepStep[];
 }
 
 const STORAGE_KEY = 'hrpc-tabs';
@@ -24,6 +61,11 @@ let counter = 0;
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 6)}-${counter++}`;
+}
+
+/** Erzeugt einen leeren Dependency-Builder-Schritt mit vorgegebener Id. */
+function makeDefaultStep(id: string): DepStep {
+  return { id, controller: '', method: '', params: [], exposes: [] };
 }
 
 // --- Persistenz -----------------------------------------------------------
@@ -169,6 +211,35 @@ class TabState {
       respIdText: '',
       duration: '',
       log: '',
+    };
+    this.tabs.push(tab);
+    this.activeTabId = tab.id;
+    this.persist();
+    return tab;
+  }
+
+  createDependencyTab(): Tab {
+    // Existierenden Dependency-Tab wiederverwenden (wie Codegen).
+    const existing = this.tabs.find((t) => t.type === 'dependency');
+    if (existing) {
+      this.activeTabId = existing.id;
+      this.persist();
+      return existing;
+    }
+    const tab: Tab = {
+      type: 'dependency',
+      id: generateId(),
+      title: 'Dependency Builder',
+      controller: null,
+      method: null,
+      params: [],
+      requestText: '',
+      responseText: '{}',
+      status: '-',
+      respIdText: '-',
+      duration: '-- ms',
+      log: '',
+      steps: [makeDefaultStep('step1')],
     };
     this.tabs.push(tab);
     this.activeTabId = tab.id;

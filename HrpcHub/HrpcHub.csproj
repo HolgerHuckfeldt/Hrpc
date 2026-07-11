@@ -5,9 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageId>Hrpc.Hub</PackageId>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>Hrpc</Authors>
-    <Description>SignalR transport for Hrpc RPC framework</Description>
+    <Description>SignalR transport + AddHrpc/UseHrpc server integration for Hrpc RPC framework</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/HolgerHuckfeldt/Hrpc</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

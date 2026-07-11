@@ -27,10 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\HrpcCore\HrpcCore.csproj" />
-    <ProjectReference Include="..\HrpcDeveloperUi\HrpcDeveloperUi.csproj" />
-    <ProjectReference Include="..\HrpcHub\HrpcHub.csproj" />
-    <ProjectReference Include="..\HrpcRest\HrpcRest.csproj" />
-    <ProjectReference Include="..\HrpcWebSocket\HrpcWebSocket.csproj" />
+    <ProjectReference Include="..\HrpcServer\HrpcServer.csproj" />
   </ItemGroup>
 
   <ItemGroup>

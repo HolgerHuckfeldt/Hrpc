@@ -2,8 +2,7 @@ using Hrpc.Grpc;
 using Hrpc.Hrpc;
 using Hrpc.Services;
 using HrpcHub.Extensions;
-using HrpcWebSocket;
-using HrpcDeveloperUi;
+using HrpcServer;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseStaticWebAssets();
@@ -34,16 +33,16 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddHrpc(new HrpcOptions()
+builder.Services.AddHrpc(options =>
 {
-    EnableDetailedErrors = builder.Environment.IsDevelopment(),
-    UseMessagePack = true,
-    UseSignalR = true,
-    MaximumParallelInvocationsPerClient = 100,
-    MaximumReceiveMessageSize = 102400,
-    StreamBufferCapacity = 100,
-    RateLimitPermitLimit = builder.Environment.IsProduction() ? 50 : 0,
-    RateLimitWindowSeconds = 10
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+    options.UseMessagePack = true;          // nur relevant, wenn UseSignalR = true
+    options.UseSignalR = true;              // optionaler 2. Kanal — WebSocket ist der Default
+    options.MaximumParallelInvocationsPerClient = 100;
+    options.MaximumReceiveMessageSize = 102400;
+    options.StreamBufferCapacity = 100;
+    options.RateLimitPermitLimit = builder.Environment.IsProduction() ? 50 : 0;
+    options.RateLimitWindowSeconds = 10;
 });
 
 builder.Services.AddSingleton<CustomerService>();
@@ -69,18 +68,15 @@ app.UseDefaultFiles();
 app.UseRouting();
 app.UseAuthorization();
 
-app.MapControllers();
+// Hrpc-Transport-Middleware (WebSocket primär) + Controller-Registrierung in einem Aufruf.
+app.UseHrpcTransports();
 
-app.UseHrpc();
+app.MapControllers();
 
 app.MapRazorPages();
 
-app.MapHrpcDeveloperUi();
-
-app.UseWebSockets();
-app.UseHrpcWebSocket("/hrpcws");
-
-app.MapHub<HrpcHub.Hub.HrpcHub>("/Hrpc");
+// Hrpc-Endpunkte in einem Aufruf: REST + Developer-UI + SignalR-Hub (da UseSignalR = true).
+app.MapHrpc();
 
 app.MapGrpcService<CustomerGrpcService>();
 

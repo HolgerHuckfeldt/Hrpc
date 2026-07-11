@@ -20,6 +20,14 @@
             <polyline points="16 18 22 12 16 6"></polyline>
             <polyline points="8 6 2 12 8 18"></polyline>
           </svg>
+        {:else if tab.type === 'dependency'}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="6" cy="6" r="2"></circle>
+            <circle cx="18" cy="6" r="2"></circle>
+            <circle cx="12" cy="18" r="2"></circle>
+            <line x1="7.41" y1="7.41" x2="10.59" y2="14.59"></line>
+            <line x1="16.59" y1="7.41" x2="13.41" y2="14.59"></line>
+          </svg>
         {/if}
         <span class="tab-title">{tab.title}</span>
         {#if tabState.tabs.length > 1}

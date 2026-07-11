@@ -225,6 +225,17 @@
       Codegen
     </button>
 
+    <button class="ghost small" onclick={() => tabState.createDependencyTab()} title="Dependency Builder — @alias-Batch visuell zusammenstellen">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="6" cy="6" r="2"></circle>
+        <circle cx="18" cy="6" r="2"></circle>
+        <circle cx="12" cy="18" r="2"></circle>
+        <line x1="7.41" y1="7.41" x2="10.59" y2="14.59"></line>
+        <line x1="16.59" y1="7.41" x2="13.41" y2="14.59"></line>
+      </svg>
+      Dependency Builder
+    </button>
+
     <button class="ghost small" onclick={() => historyState.toggle()} title="History">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10"></circle>

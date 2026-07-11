@@ -5,9 +5,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <PackageId>Hrpc.Rest</PackageId>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Authors>Hrpc</Authors>
-    <Description>REST transport for Hrpc RPC framework</Description>
+    <Description>REST transport for Hrpc RPC framework (minimal-API, canonical)</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/HolgerHuckfeldt/Hrpc</RepositoryUrl>
     <RepositoryType>git</RepositoryType>

@@ -12,9 +12,40 @@ namespace HrpcHub.Extensions
 {
     public static class HrpcServiceCollectionExtension
     {
+        /// <summary>
+        /// Registriert Hrpc mit Konfigurations-Callback — das ist der empfohlene
+        /// Einstiegspunkt für eine v1.0-Server-Setup. WebSocket ist der primäre
+        /// (Default-)Kanal; SignalR ist über <see cref="HrpcOptions.UseSignalR"/>
+        /// optional zuschaltbar. Die Pipeline muss anschließend
+        /// <c>app.UseWebSockets(); app.UseHrpcWebSocket(); app.UseHrpc();</c>
+        /// (und bei Bedarf <c>app.MapHrpcEndpoints()</c>) aufrufen.
+        ///
+        /// Usage:
+        /// <code>
+        /// builder.Services.AddHrpc();                       // Defaults (WS primär)
+        /// // oder
+        /// builder.Services.AddHrpc(o =&gt;
+        /// {
+        ///     o.EnableDetailedErrors = builder.Environment.IsDevelopment();
+        ///     o.RateLimitPermitLimit = 50;                  // nur in Prod
+        ///     o.UseSignalR = true;                          // optionaler 2. Kanal
+        /// });
+        /// </code>
+        /// </summary>
+        public static IServiceCollection AddHrpc(this IServiceCollection services,
+            Action<HrpcOptions>? configure = null)
+        {
+            var options = new HrpcOptions();
+            configure?.Invoke(options);
+            return services.AddHrpc(options);
+        }
+
         public static IServiceCollection AddHrpc(this IServiceCollection services,
             HrpcOptions options)
         {
+            // Options als Singleton in DI ablegen, damit die Pipeline-Extensions
+            // (UseHrpcTransports/MapHrpc) UseSignalR etc. ohne Parameter lesen können.
+            services.AddSingleton(options);
 
             if (options.UseSignalR)
             {
