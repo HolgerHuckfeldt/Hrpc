@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <PackageId>WaevaRpc.Hub</PackageId>
     <Version>1.0.2</Version>
-    <Authors>Hrpc</Authors>
+    <Authors>WaevaRpc</Authors>
     <Description>SignalR transport + AddWaevaRpc/UseWaevaRpc server integration for WaevaRpc RPC framework</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/HolgerHuckfeldt/WaevaRpc</RepositoryUrl>
@@ -15,12 +15,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="8.0.14" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="8.0.28" />
+    <!-- Floor: transitiv würde SignalR 8.0.28 MessagePack 2.5.187 (verwundbar, s. GHSA-hv8m
+         u.a.) ziehen. Direkte Ref auf 2.5.302 erzwingt die gepatchte 2.5.x — Standalone-Hosts
+         ohne eigene 3.x-Ref laden sonst die verwundbare Version. -->
+    <PackageReference Include="MessagePack" Version="2.5.302" />
   </ItemGroup>
 
   <!-- JsonElement-Formatter + WaevaRpcResponse-Formatter gegen die hier resolved
-       MessagePack-Version (2.5.187, transitiv via SignalR.Protocols.MessagePack).
-       Source geteilt mit WaevaRpcClient (dort 3.1.3). -->
+       MessagePack-Version (2.5.x, transitiv via SignalR.Protocols.MessagePack 8.0.28).
+       Source geteilt mit WaevaRpcClient (dort 3.1.8). -->
   <ItemGroup>
     <Compile Include="..\WaevaRpcCommon\MessagePack\JsonElementMessagePackFormatter.cs" Link="MessagePack\JsonElementMessagePackFormatter.cs" />
     <Compile Include="..\WaevaRpcCommon\MessagePack\WaevaRpcResponseMessagePackFormatter.cs" Link="MessagePack\WaevaRpcResponseMessagePackFormatter.cs" />

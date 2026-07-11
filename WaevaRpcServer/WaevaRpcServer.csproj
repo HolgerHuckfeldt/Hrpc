@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <PackageId>WaevaRpc.Server</PackageId>
     <Version>1.0.0</Version>
-    <Authors>Hrpc</Authors>
+    <Authors>WaevaRpc</Authors>
     <Description>Unified ASP.NET Core server integration for WaevaRpc — AddWaevaRpc + UseWaevaRpcTransports + MapWaevaRpc in einem Paket.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/HolgerHuckfeldt/WaevaRpc</RepositoryUrl>

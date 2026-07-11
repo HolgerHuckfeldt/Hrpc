@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PackageId>WaevaRpc.Rest</PackageId>
     <Version>1.0.2</Version>
-    <Authors>Hrpc</Authors>
+    <Authors>WaevaRpc</Authors>
     <Description>REST transport for WaevaRpc RPC framework (minimal-API, canonical)</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/HolgerHuckfeldt/WaevaRpc</RepositoryUrl>

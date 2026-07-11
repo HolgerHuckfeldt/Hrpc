@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <PackageId>WaevaRpc.WebSocket</PackageId>
     <Version>1.0.1</Version>
-    <Authors>Hrpc</Authors>
+    <Authors>WaevaRpc</Authors>
     <Description>WebSocket transport for WaevaRpc RPC framework</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>

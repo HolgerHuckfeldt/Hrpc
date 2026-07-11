@@ -10,7 +10,7 @@
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageId>WaevaRpc.DeveloperUi</PackageId>
     <Version>1.0.2</Version>
-    <Authors>Hrpc</Authors>
+    <Authors>WaevaRpc</Authors>
     <Description>Built-in developer web UI for WaevaRpc RPC framework</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/HolgerHuckfeldt/WaevaRpc</RepositoryUrl>
