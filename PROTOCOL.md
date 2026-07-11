@@ -241,8 +241,8 @@ JSON path is **result-relative** — the root (`$`) is the serialized result (e.
 `int`, a `Customer` object, a list), not the response envelope, so there is no
 `data` node to traverse:
 - `dependencyMapping: { "alias": "$" }` → extracts the whole result (e.g. an `int` id), stores as `alias`
-- `dependencyMapping: { "orderId": "$.OrderId" }` → extracts a property of an object result (PascalCase, as serialized server-side)
-- `dependencyMapping: { "first": "$[0].Id" }` → extracts from the first element of a list result
+- `dependencyMapping: { "custName": "$.name" }` → extracts a property of an object result. Paths are case-sensitive and match the server's **camelCase** serialization (`name`, not `Name`) — the extraction is evaluated with JsonPath.Net against the structured result, so a PascalCase path like `$.Name` finds nothing.
+- `dependencyMapping: { "first": "$[0].id" }` → extracts from the first element of a list result (camelCase, as serialized server-side)
 
 A subsequent request can **use** exposed values with `@alias` placeholders:
 - `"stringData": "[{\"ParameterName\":\"id\",\"Data\":\"@orderId\"}]"`
@@ -266,6 +266,32 @@ A subsequent request can **use** exposed values with `@alias` placeholders:
    result, `$.Property` a field, `$[0].Id` an array element. Extracted values are
    re-encoded as JSON in `exposedDependencies` (so the type is preserved for the `@alias`
    substitution into the next request's parameters).
+
+### Limits
+
+`@alias` chaining is **single-valued and non-expanding**. These limits are intentional
+design boundaries, not bugs:
+
+1. **One alias → one value.** Each `dependencyMapping` entry extracts exactly one
+   value — the **first** JsonPath match (`DependencyResolver.ExtractValue` returns
+   `Matches.First()`). A wildcard projection like `$[*].id` yields only the first
+   element, not the full set.
+2. **No server-side fan-out.** A batch is a fixed list of requests. The server never
+   spawns additional requests from an array result — a list of N ids does **not**
+   become N `GetById(id)` calls. Dependency resolution never increases cardinality.
+3. **Whole-collection passthrough is possible.** To hand a list to a single call,
+   expose `$` (the whole array) and bind it to a parameter whose method accepts that
+   collection type (e.g. `int[]`, `List<T>`). The injected array must match the
+   parameter type — injecting an array into a scalar parameter fails to deserialize.
+4. **Case sensitivity.** Paths are evaluated case-sensitively against the server's
+   camelCase output. Use `$[0].id`, not `$[0].Id`. (The DevUI exposes datalist suggests
+   the correct camelCase form.)
+5. **Recommended pattern for "load all by id".** Use a batch-get endpoint
+   (`GetByIds(int[] ids)`) — one roundtrip, one response, cardinality explicitly
+   controlled by the caller. Per-id fan-out (N calls) is an anti-pattern. If a future
+   `Map`/`ForEach` execution mode is added, it must be bounded: a configurable
+   `MaxFanOut` cap, bounded concurrency (no unbounded `Task.WhenAll`), per-element
+   results with correlation, and a read-only default for safety.
 
 ---
 

@@ -104,6 +104,14 @@ WaevaRpc is a protocol-agnostic RPC engine that sits between your business logic
    - The server replaces `@alias` with the actual value from A's `ExposedDependencies`
 3. This enables 3 dependent calls in a single HTTP roundtrip
 
+### Dependency Chaining Limits
+`@alias` is **single-valued and non-expanding** (intentional boundary, see PROTOCOL.md → Limits):
+1. Each `dependencyMapping` entry extracts the **first** JsonPath match only — `$[*].id` yields the first element, not all (`DependencyResolver.ExtractValue` returns `Matches.First()`).
+2. The server never spawns requests from an array result — **no server-side fan-out**. Cardinality is never increased.
+3. Paths are case-sensitive against the server's **camelCase** output (`$[0].id`, not `$[0].Id`).
+4. To pass a collection to one call, expose `$` and bind to a collection-typed parameter (`int[]`/`List<T>`).
+5. For "load all by id" prefer a batch-get endpoint (`GetByIds(int[])`); any future `Map`/`ForEach` mode must be bounded (`MaxFanOut`, bounded concurrency, per-element results, read-only default).
+
 ## Core Components
 
 ### WaevaRpcInvoker (`WaevaRpcCore`)
