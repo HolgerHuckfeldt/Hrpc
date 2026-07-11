@@ -9,7 +9,7 @@
     <GenerateRazorCompileOnPublish>false</GenerateRazorCompileOnPublish>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageId>WaevaRpc.DeveloperUi</PackageId>
-    <Version>1.0.3</Version>
+    <Version>1.1.0</Version>
     <Authors>WaevaRpc</Authors>
     <Description>Built-in developer web UI for WaevaRpc RPC framework</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
