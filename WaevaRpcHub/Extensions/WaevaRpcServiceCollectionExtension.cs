@@ -113,6 +113,9 @@ namespace WaevaRpcHub.Extensions
                 // Detailed Errors aktivieren, wenn explizit gewünscht oder in Development.
                 var env = sp.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>();
                 invoker.EnableDetailedErrors = options.EnableDetailedErrors || (env?.IsDevelopment() ?? false);
+                // Kardinalitäts-Caps durchreichen (Default 1000/10000, 0 = unbegrenzt).
+                invoker.MaxParameterArrayLength = options.MaxParameterArrayLength;
+                invoker.MaxResultElementCount = options.MaxResultElementCount;
                 return invoker;
             });
 

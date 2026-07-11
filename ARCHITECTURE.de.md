@@ -72,6 +72,7 @@ WaevaRpc ist eine protokoll-agnostische RPC-Engine, die zwischen der Geschäftsl
 3. Pfade sind case-sensitiv gegen die **camelCase**-Server-Ausgabe (`$[0].id`, nicht `$[0].Id`).
 4. Um eine Collection an einen Aufruf zu übergeben, expose `$` und binde an einen Collection-Typ (`int[]`/`List<T>`).
 5. Für „alle nach Id laden" bevorzugt ein Batch-Get-Endpoint (`GetByIds(int[])`); ein künftiger `Map`/`ForEach`-Modus muss geboundet sein (`MaxFanOut`, beschränkte Concurrency, per-Element-Ergebnisse, Read-Only-Default).
+6. Der Server schützt sich selbst vor Kardinalitäts-Sprengung über zwei Caps in `WaevaRpcOptions` — `MaxParameterArrayLength` (Default 1000) und `MaxResultElementCount` (Default 10000), jeweils `0` = unbegrenzt. Body-Size-Limits decken den server-generierten Passthrough nicht ab; diese Caps tun das. Details siehe PROTOCOL.md → Limits.
 
 ## Kernkomponenten
 

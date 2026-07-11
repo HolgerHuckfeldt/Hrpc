@@ -292,6 +292,22 @@ design boundaries, not bugs:
    `Map`/`ForEach` execution mode is added, it must be bounded: a configurable
    `MaxFanOut` cap, bounded concurrency (no unbounded `Task.WhenAll`), per-element
    results with correlation, and a read-only default for safety.
+6. **Server-side cardinality caps.** The server protects itself independently of
+   client calls via two configurable limits on `WaevaRpcOptions` (secure-by-default):
+   - `MaxParameterArrayLength` — default **1000**, `0` = unlimited. Enforced in the
+     invoker before the method call; an oversized array/collection parameter is rejected
+     with `400 Bad Request` and a message naming the limit and the actual count.
+   - `MaxResultElementCount` — default **10000**, `0` = unlimited. Enforced on
+     materialized collection results (`413 Payload Too Large`) and on
+     `IAsyncEnumerable` streams (early-stop while consuming, `413`).
+   - **Body-size limits do not cover this.** The whole-collection passthrough (item 3)
+     builds the array at runtime from a prior result, so the incoming request stays
+     tiny while a parameter suddenly carries millions of ids. The caps close that gap
+     — the server self-protects regardless of what the client sends.
+   - The cap is applied to the **top-level** collection parameter/result only; arrays
+     nested inside object properties are not counted (v1).
+   - `string` and `byte[]` are exempt (`string` is `IEnumerable<char>`; `byte[]` has its
+     own binary-size considerations).
 
 ---
 

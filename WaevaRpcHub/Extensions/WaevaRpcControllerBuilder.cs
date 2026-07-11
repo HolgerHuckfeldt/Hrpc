@@ -159,7 +159,21 @@ public static class WaevaRpcRegistrationExtensions
             }
         });
 
-        services.AddSingleton<IWaevaRpcCore, WaevaRpcCore.Services.WaevaRpcInvoker>();
+        services.AddSingleton<IWaevaRpcCore>(sp =>
+        {
+            var invoker = new WaevaRpcCore.Services.WaevaRpcInvoker(
+                sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetService<Microsoft.Extensions.Logging.ILogger<WaevaRpcCore.Services.WaevaRpcInvoker>>()
+                    ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<WaevaRpcCore.Services.WaevaRpcInvoker>.Instance,
+                sp.GetService<IEnumerable<WaevaRpcCore.Services.IWaevaRpcInterceptor>>());
+            // Kardinalitäts-Caps durchreichen (Default 1000/10000, 0 = unbegrenzt).
+            // Detailed Errors analog dem Main-Pfad über die Options/Environment.
+            var env = sp.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>();
+            invoker.EnableDetailedErrors = options.EnableDetailedErrors || (env?.IsDevelopment() ?? false);
+            invoker.MaxParameterArrayLength = options.MaxParameterArrayLength;
+            invoker.MaxResultElementCount = options.MaxResultElementCount;
+            return invoker;
+        });
         services.AddSingleton<WaevaRpcCore.Services.IWaevaRpcInterceptor, WaevaRpcCore.Services.WaevaRpcLoggingInterceptor>();
     }
 

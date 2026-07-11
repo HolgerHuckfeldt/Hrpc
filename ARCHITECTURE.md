@@ -111,6 +111,7 @@ WaevaRpc is a protocol-agnostic RPC engine that sits between your business logic
 3. Paths are case-sensitive against the server's **camelCase** output (`$[0].id`, not `$[0].Id`).
 4. To pass a collection to one call, expose `$` and bind to a collection-typed parameter (`int[]`/`List<T>`).
 5. For "load all by id" prefer a batch-get endpoint (`GetByIds(int[])`); any future `Map`/`ForEach` mode must be bounded (`MaxFanOut`, bounded concurrency, per-element results, read-only default).
+6. The server self-protects against cardinality blow-up via two caps on `WaevaRpcOptions` — `MaxParameterArrayLength` (default 1000) and `MaxResultElementCount` (default 10000), each `0` = unlimited. Body-size limits do not cover the server-generated passthrough; these caps do. See PROTOCOL.md → Limits for details.
 
 ## Core Components
 

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections;
 using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.AspNetCore.Http;
@@ -33,6 +34,23 @@ namespace WaevaRpcCore.Services
         /// von WaevaRpcOptions.EnableDetailedErrors bzw. IHostEnvironment.IsDevelopment() gesetzt.
         /// </summary>
         public bool EnableDetailedErrors { get; set; }
+
+        /// <summary>
+        /// Maximale Elementzahl eines Top-Level-Array-/Collection-Parameters (Default 1000,
+        /// 0 = unbegrenzt). Schützt den Server vor Kardinalitäts-Sprengung, insb. beim
+        /// @alias-Whole-Collection-Passthrough (server-seitig erzeugte Arrays — Body-Size-Limits
+        /// greifen nicht). string/byte[] ausgenommen. Wird über AddWaevaRpc aus
+        /// WaevaRpcOptions gesetzt; der Invoker-Default schützt auch einen nackten `new WaevaRpcInvoker()`.
+        /// </summary>
+        public int MaxParameterArrayLength { get; set; } = 1000;
+
+        /// <summary>
+        /// Maximale Elementzahl eines Top-Level-Array-/Collection-Rückgabewerts (Default 10000,
+        /// 0 = unbegrenzt). Verhindert, dass ein Einzelergebnis den Server in Memory treibt.
+        /// Greift materialisierte Collections (via ReturnResponse) und IAsyncEnumerable-Streams
+        /// (Early-Stop in ConsumeAsyncEnumerable). string/byte[] ausgenommen.
+        /// </summary>
+        public int MaxResultElementCount { get; set; } = 10000;
 
         // camelCase + relaxed Encoder: Der Payload wird jetzt strukturiert (JsonElement)
         // in Data abgelegt und von den Transporten in einem Pass roh serialisiert —
@@ -723,6 +741,22 @@ namespace WaevaRpcCore.Services
                         {
                             return (null, BadRequest($"Parameter '{name}' cannot be converted to type '{param.ParameterType.Name}'."));
                         }
+
+                        // Kardinalitäts-Cap auf Collection-Parametern (Top-Level). Schützt
+                        // vor Riesen-Arrays, die insb. beim @alias-Whole-Collection-Passthrough
+                        // serverseitig erzeugt werden (Body-Size-Limits greifen dort nicht).
+                        // string ausnehmen (ist IEnumerable<char>); byte[] wird via
+                        // InjectBinaryParameters gefüllt und ist keine Kardinalitäts-Frage.
+                        if (MaxParameterArrayLength > 0
+                            && parameters[param.Position] is not string and not byte[]
+                            && parameters[param.Position] is ICollection colParam
+                            && colParam.Count > MaxParameterArrayLength)
+                        {
+                            return (null, BadRequest(
+                                $"Parameter '{name}' überschreitet MaxParameterArrayLength " +
+                                $"({MaxParameterArrayLength}; Ist {colParam.Count}). " +
+                                "Paginieren oder Cap erhöhen (0 = unbegrenzt)."));
+                        }
                     }
                     else
                     {
@@ -914,7 +948,15 @@ namespace WaevaRpcCore.Services
                     if (IsAsyncEnumerable(invokeInfo.MethodInfo!.ReturnType) && result != null)
                     {
                         var elementType = GetAsyncEnumerableElementType(invokeInfo.MethodInfo.ReturnType)!;
-                        var list = await ConsumeAsyncEnumerable(result, elementType, ct);
+                        object list;
+                        try
+                        {
+                            list = await ConsumeAsyncEnumerable(result, elementType, ct, MaxResultElementCount);
+                        }
+                        catch (ResultCardinalityExceededException ex)
+                        {
+                            return BadRequest(ex.Message, HttpStatusCode.RequestEntityTooLarge);
+                        }
                         return Ok(JsonSerializer.SerializeToUtf8Bytes(list, _jsonSerializerOptions));
                     }
 
@@ -931,7 +973,15 @@ namespace WaevaRpcCore.Services
                             if (resultValue != null && IsAsyncEnumerable(resultValue.GetType()))
                             {
                                 var elementType = GetAsyncEnumerableElementType(resultValue.GetType())!;
-                                var list = await ConsumeAsyncEnumerable(resultValue, elementType, ct);
+                                object list;
+                                try
+                                {
+                                    list = await ConsumeAsyncEnumerable(resultValue, elementType, ct, MaxResultElementCount);
+                                }
+                                catch (ResultCardinalityExceededException ex)
+                                {
+                                    return BadRequest(ex.Message, HttpStatusCode.RequestEntityTooLarge);
+                                }
                                 return Ok(JsonSerializer.SerializeToUtf8Bytes(list, _jsonSerializerOptions));
                             }
 
@@ -977,13 +1027,27 @@ namespace WaevaRpcCore.Services
         /// Consumes an IAsyncEnumerable<T> and collects all elements into a List<T>.
         /// Uses a generic helper method to avoid reflection issues with compiler-generated state machines.
         /// </summary>
-        private static async Task<object> ConsumeAsyncEnumerable(object asyncEnumerable, Type elementType, CancellationToken ct)
+        private static async Task<object> ConsumeAsyncEnumerable(
+            object asyncEnumerable, Type elementType, CancellationToken ct, int maxElements)
         {
             var helperType = typeof(AsyncEnumerableConsumer<>).MakeGenericType(elementType);
             var method = helperType.GetMethod("Consume")!;
-            var task = (Task)method.Invoke(null, new[] { asyncEnumerable, ct })!;
+            var task = (Task)method.Invoke(null, new[] { asyncEnumerable, ct, maxElements })!;
             await task;
             return task.GetType().GetProperty("Result")!.GetValue(task)!;
+        }
+
+        /// <summary>
+        /// Signalisiert, dass ein IAsyncEnumerable-Resultat die MaxResultElementCount
+        /// überschritten hat. Wird im Streaming-Pfad geworfen, damit der Konsum früh
+        /// abgebrochen wird (bevor eine Riesen-Liste allokiert ist) statt erst nach
+        /// vollständiger Materialisierung.
+        /// </summary>
+        private sealed class ResultCardinalityExceededException : Exception
+        {
+            public ResultCardinalityExceededException(int cap, int count)
+                : base($"Stream überschreitet MaxResultElementCount ({cap}; bei Element {count}). Paginieren oder Cap erhöhen (0 = unbegrenzt).")
+            { }
         }
 
         /// <summary>
@@ -991,11 +1055,14 @@ namespace WaevaRpcCore.Services
         /// </summary>
         private static class AsyncEnumerableConsumer<T>
         {
-            public static async Task<List<T>> Consume(IAsyncEnumerable<T> source, CancellationToken ct)
+            public static async Task<List<T>> Consume(IAsyncEnumerable<T> source, CancellationToken ct, int maxElements)
             {
                 var list = new List<T>();
                 await foreach (var item in source.WithCancellation(ct))
                 {
+                    // Early-Stop: nicht erst die komplette Riesen-Sequenz allokieren.
+                    if (maxElements > 0 && list.Count >= maxElements)
+                        throw new ResultCardinalityExceededException(maxElements, list.Count);
                     list.Add(item);
                 }
                 return list;
@@ -1021,6 +1088,23 @@ namespace WaevaRpcCore.Services
             // mehr in Data → keine doppelte Belegung, kein Parse-Problem im Dep-Pfad).
             if (result is byte[] bytes)
                 return new WaevaRpcResponse { Code = (int)HttpStatusCode.OK, Content = bytes };
+
+            // Kardinalitäts-Cap auf Top-Level-Collection-Resultaten (List/Array/Dictionary).
+            // string ist IEnumerable<char> → ausgenommen. Streaming-Returns werden vorher
+            // konsumiert und in ConsumeAsyncEnumerable frühzeitig gestoppt (siehe unten),
+            // landen aber als materialisierte List<T> auch hier — dieser Check ist der
+            // einheitliche Rückfall für Task<T>/Sync-Returns.
+            if (MaxResultElementCount > 0
+                && result is not string
+                && result is ICollection colResult
+                && colResult.Count > MaxResultElementCount)
+            {
+                return BadRequest(
+                    $"Rückgabewert überschreitet MaxResultElementCount " +
+                    $"({MaxResultElementCount}; Ist {colResult.Count}). " +
+                    "Paginieren oder Cap erhöhen (0 = unbegrenzt).",
+                    HttpStatusCode.RequestEntityTooLarge);
+            }
 
             // Single-Pass: object → rohe UTF-8-Bytes (kein JsonDocument-Baum). Der
             // Transport-Converter schreibt DataBytes via WriteRawValue direkt in den
