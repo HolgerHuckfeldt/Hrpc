@@ -1,6 +1,6 @@
 {
   "name": "trame-client",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Isomorphic JavaScript/TypeScript client for the Trame multi-transport RPC framework (REST + WebSocket). Browser + Node.",
   "type": "module",
   "main": "./dist/index.js",
