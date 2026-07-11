@@ -10,18 +10,18 @@
 // wichtig sind oder der Server-Roundtrip einmal bleiben soll.
 // ==============================================================================
 
-using WaevaRpcClient.WaevaRpc;
-using WaevaRpcCommon.Models;
+using TrameClient.Trame;
+using TrameCommon.Models;
 
-using var client = new WaevaRpcRestJsonClient("https://localhost:5001");
+using var client = new TrameRestJsonClient("https://localhost:5001");
 
-var multi = new WaevaRpcMultiRequest
+var multi = new TrameMultiRequest
 {
     Mode = ExecutionMode.Serial,          // sequenziell in Request-Reihenfolge
-    Requests = new List<WaevaRpcRequest>
+    Requests = new List<TrameRequest>
     {
-        WaevaRpcCall.Init("Customer", "GetCustomerById").With(1).Named("a").ToRequest(),
-        WaevaRpcCall.Init("Customer", "GetCustomerById").With(2).Named("b").ToRequest(),
+        TrameCall.Init("Customer", "GetCustomerById").With(1).Named("a").ToRequest(),
+        TrameCall.Init("Customer", "GetCustomerById").With(2).Named("b").ToRequest(),
     },
 };
 

@@ -1,6 +1,6 @@
-# WaevaRpc Release-Readiness-Plan
+# Trame Release-Readiness-Plan
 
-> Ziel: WaevaRpc von Prototyp-Stadium zu einem produktionstauglichen, release-fähigen RPC-Framework führen.
+> Ziel: Trame von Prototyp-Stadium zu einem produktionstauglichen, release-fähigen RPC-Framework führen.
 >
 > Erstellt: 2026-07-01 · Basierend auf der technischen Bewertung
 
@@ -10,7 +10,7 @@
 
 ```mermaid
 gantt
-    title WaevaRpc Release Roadmap
+    title Trame Release Roadmap
     dateFormat YYYY-MM-DD
     axisFormat %d.%m
 
@@ -55,20 +55,20 @@ gantt
 
 ### 1.1 Test-Foundation aufbauen
 
-- [ ] `WaevaRpcTests`-Projekt strukturieren:
+- [ ] `TrameTests`-Projekt strukturieren:
   ```
-  WaevaRpcTests/
+  TrameTests/
   ├── Unit/
   │   ├── Core/
-  │   │   ├── WaevaRpcInvokerTests.cs
-  │   │   ├── WaevaRpcDiscoveryServiceTests.cs
+  │   │   ├── TrameInvokerTests.cs
+  │   │   ├── TrameDiscoveryServiceTests.cs
   │   │   ├── DependencyResolverTests.cs
   │   │   └── JsonDependencyReplacerTests.cs
   │   ├── Client/
-  │   │   ├── WaevaRpcCallTests.cs
-  │   │   ├── WaevaRpcRestJsonClientTests.cs
-  │   │   ├── WaevaRpcSignalrClientTests.cs
-  │   │   └── WaevaRpcWebSocketClientTests.cs
+  │   │   ├── TrameCallTests.cs
+  │   │   ├── TrameRestJsonClientTests.cs
+  │   │   ├── TrameSignalrClientTests.cs
+  │   │   └── TrameWebSocketClientTests.cs
   │   └── Common/
   │       └── AttributeTests.cs
   ├── Integration/
@@ -83,12 +83,12 @@ gantt
 - [ ] Test-Dependencies hinzufügen: `xunit`, `Moq`, `FluentAssertions`, `Microsoft.AspNetCore.Mvc.Testing`
 - [ ] `WebApplicationFactory<Program>`-Fixture für Integrationstests
 
-### 1.2 Unit-Tests für WaevaRpcCore
+### 1.2 Unit-Tests für TrameCore
 
 | Komponente | Test-Cases | Beschreibung |
 |-----------|------------|-------------|
-| `WaevaRpcInvoker` | 12+ | Controller-Registrierung, Methoden-Lookup, Parameter-Auflösung, Async/Sync, CancellationToken-Injection, Expression-Tree-Kompilierung, Autorisierungs-Check |
-| `WaevaRpcDiscoveryService` | 8+ | Cache-Verhalten, Type-Registrierung, Nested Types, Generic Types, Beispiel-Generierung, Invalidate |
+| `TrameInvoker` | 12+ | Controller-Registrierung, Methoden-Lookup, Parameter-Auflösung, Async/Sync, CancellationToken-Injection, Expression-Tree-Kompilierung, Autorisierungs-Check |
+| `TrameDiscoveryService` | 8+ | Cache-Verhalten, Type-Registrierung, Nested Types, Generic Types, Beispiel-Generierung, Invalidate |
 | `DependencyResolver` | 6+ | JsonPath-Extraktion, fehlende Pfade, komplexe JSON, Arrays |
 | `JsonDependencyReplacer` | 8+ | Alias-Ersetzung, rekursive Traversierung, Parent-Update, fehlende Aliase |
 | `InvokeInfo` | 4+ | IsAsync, HasResult, CompiledInvocation |
@@ -98,12 +98,12 @@ gantt
 - [ ] **REST**: Single-Call, Multi-Call, Discovery-Endpoint, Error-Responses, CamelCase-Filter
 - [ ] **SignalR**: Single `DoWork`, Batch `DoWorkMany`, Reconnect-Verhalten, Auth-Token
 - [ ] **WebSocket**: Single/Multi-Erkennung, Multi-Frame-Nachrichten, Close-Handling
-- [ ] **Cross-Transport**: Gleiches `WaevaRpcRequest` über alle 3 Transporte → gleiche Response
+- [ ] **Cross-Transport**: Gleiches `TrameRequest` über alle 3 Transporte → gleiche Response
 - [ ] **Batch**: Parallel vs. Serial, Dependency-Chaining im Serial-Mode
 
 ### 1.4 Akzeptanzkriterien Phase 1
-- [ ] Mindestens **80% Code-Abdeckung** für `WaevaRpcCore`
-- [ ] Mindestens **70% Code-Abdeckung** für `WaevaRpcClient`
+- [ ] Mindestens **80% Code-Abdeckung** für `TrameCore`
+- [ ] Mindestens **70% Code-Abdeckung** für `TrameClient`
 - [ ] Alle Integrationstests für 3 Transporte grün
 - [ ] CI-Pipeline (GitHub Actions) mit Test-Run bei jedem Push
 
@@ -113,60 +113,60 @@ gantt
 
 ### 2.1 Model-Duplikate auflösen
 
-**Problem**: `WaevaRpcRequest`, `WaevaRpcResponse`, `WaevaRpcMultiRequest`, `WaevaRpcParameter`, `ExecutionMode` existieren dupliziert in `WaevaRpcCore` und `WaevaRpcClient`.
+**Problem**: `TrameRequest`, `TrameResponse`, `TrameMultiRequest`, `TrameParameter`, `ExecutionMode` existieren dupliziert in `TrameCore` und `TrameClient`.
 
-- [ ] Alle Shared-Models nach `WaevaRpcCommon` verschieben
-- [ ] `WaevaRpcCommon` von `netstandard2.1` → `net8.0` ändern (Konsistenz)
-- [ ] MessagePack-Attribute in `WaevaRpcCommon` (benötigt `MessagePack.Annotations`-Dependency)
-- [ ] `WaevaRpcCore` und `WaevaRpcClient` referenzieren `WaevaRpcCommon` statt eigener Kopien
-- [ ] Duplikate in `WaevaRpcCore` und `WaevaRpcClient` löschen
-- [ ] Namespaces vereinheitlichen: `WaevaRpc.Common.Models`
+- [ ] Alle Shared-Models nach `TrameCommon` verschieben
+- [ ] `TrameCommon` von `netstandard2.1` → `net8.0` ändern (Konsistenz)
+- [ ] MessagePack-Attribute in `TrameCommon` (benötigt `MessagePack.Annotations`-Dependency)
+- [ ] `TrameCore` und `TrameClient` referenzieren `TrameCommon` statt eigener Kopien
+- [ ] Duplikate in `TrameCore` und `TrameClient` löschen
+- [ ] Namespaces vereinheitlichen: `Trame.Common.Models`
 
 **Zielstruktur**:
 ```
-WaevaRpcCommon/
+TrameCommon/
 ├── Models/
-│   ├── WaevaRpcRequest.cs
-│   ├── WaevaRpcResponse.cs
-│   ├── WaevaRpcMultiRequest.cs
-│   ├── WaevaRpcParameter.cs
+│   ├── TrameRequest.cs
+│   ├── TrameResponse.cs
+│   ├── TrameMultiRequest.cs
+│   ├── TrameParameter.cs
 │   └── ExecutionMode.cs
 ├── Attributes/
 │   └── (bestehende)
 └── Exceptions/
-    └── WaevaRpcException.cs
+    └── TrameException.cs
 ```
 
 ### 2.2 Exceptions konsolidieren
 
-**Problem**: `WaevaRpcException` ist in `WaevaRpcCommon/Exceptions/` und `WaevaRpcClient/Exceptions/` dupliziert.
+**Problem**: `TrameException` ist in `TrameCommon/Exceptions/` und `TrameClient/Exceptions/` dupliziert.
 
-- [ ] `WaevaRpcClient/Exceptions/WaevaException.cs` löschen
-- [ ] `WaevaRpcClient` referenziert `WaevaRpcCommon.WaevaRpcException`
-- [ ] Falls Client-spezifische Exceptions nötig: `WaevaRpcTransportException`, `WaevaRpcConnectionException` als Subklassen
+- [ ] `TrameClient/Exceptions/TrameException.cs` löschen
+- [ ] `TrameClient` referenziert `TrameCommon.TrameException`
+- [ ] Falls Client-spezifische Exceptions nötig: `TrameTransportException`, `TrameConnectionException` als Subklassen
 
 ### 2.3 Serialisierungsstrategie vereinheitlichen
 
 **Problem**: Gleichzeitige Nutzung von `System.Text.Json`, `Newtonsoft.Json` und `MessagePack` mit geschichteter Serialisierung (MessagePack außen, JSON innen).
 
 - [ ] Entscheidung treffen:
-  - **Option A** (empfohlen): `System.Text.Json` als primäres JSON-Framework in allen Projekten. `Newtonsoft.Json` aus `WaevaRpcRest` entfernen.
+  - **Option A** (empfohlen): `System.Text.Json` als primäres JSON-Framework in allen Projekten. `Newtonsoft.Json` aus `TrameRest` entfernen.
   - **Option B**: MessagePack als alleiniges Wire-Format, JSON nur für Discovery/UI.
 - [ ] `CamelCaseJsonFilterAttribute` auf `System.Text.Json` umstellen (falls Option A)
-- [ ] Einheitliche `JsonSerializerOptions` in `WaevaRpcCommon` zentral definieren
-- [ ] `WaevaRpcClientBase` nutzt bereits `System.Text.Json` – als Standard etablieren
+- [ ] Einheitliche `JsonSerializerOptions` in `TrameCommon` zentral definieren
+- [ ] `TrameClientBase` nutzt bereits `System.Text.Json` – als Standard etablieren
 
 ### 2.4 Aufräumarbeiten
 
-- [ ] `WaevaRpcCore.csproj.bak` und `WaevaRpcHub.csproj.bak` löschen
-- [ ] `WaevaRpcRest.csproj.user`, `WaevaRpc.csproj.user`, `WaevaRpc.sln.DotSettings.user` → `.gitignore`
+- [ ] `TrameCore.csproj.bak` und `TrameHub.csproj.bak` löschen
+- [ ] `TrameRest.csproj.user`, `Trame.csproj.user`, `Trame.sln.DotSettings.user` → `.gitignore`
 - [ ] Auskommentierten Code in `Program.cs` entfernen (statische Dateien, `MapGrpcService`)
-- [ ] `WaevaRpc.http` mit relevanten WaevaRpc-Beispiel-Requests füllen
+- [ ] `Trame.http` mit relevanten Trame-Beispiel-Requests füllen
 - [ ] `bin/` und `obj/` Verzeichnisse → `.gitignore` (falls noch nicht geschehen)
 
 ### 2.5 Akzeptanzkriterien Phase 2
 - [ ] Keine Model-Duplikate mehr zwischen Projekten
-- [ ] Nur eine `WaevaRpcException`-Klasse
+- [ ] Nur eine `TrameException`-Klasse
 - [ ] Nur ein JSON-Framework (`System.Text.Json`)
 - [ ] Keine `.bak`-Dateien oder auskommentierter Tot-Code
 
@@ -180,7 +180,7 @@ WaevaRpcCommon/
 
 - [x] Einheitliches Fehlermodell definieren:
   ```csharp
-  public class WaevaRpcError
+  public class TrameError
   {
       public int Code { get; set; }           // HTTP-ähnlicher Statuscode
       public string Message { get; set; }     // Fehlermeldung
@@ -188,10 +188,10 @@ WaevaRpcCommon/
       public string? RequestId { get; set; }  // Korrelations-ID
   }
   ```
-- [x] Alle Transporte mappen Server-Fehler → `WaevaRpcResponse.Code != 200` + `WaevaRpcError`
-- [x] Alle Clients werfen `WaevaRpcException` mit `WaevaRpcError` als Payload
+- [x] Alle Transporte mappen Server-Fehler → `TrameResponse.Code != 200` + `TrameError`
+- [x] Alle Clients werfen `TrameException` mit `TrameError` als Payload
 - [x] `OperationCanceledException` → Code 499 (Client Closed Request) – jetzt auf beiden REST-Endpunkten (Minimal-API + MVC-Controller)
-- [x] `[WaevaRpcAuthorise]`-Fehler → Code 401 (vorher fälschlich 405). `RequestId` wird auf allen Fehler-Pfaden gesetzt. `Details` nur bei `EnableDetailedErrors`/Development. *(Offen: 403 für "authentifiziert, aber nicht erlaubt" — benötigt Rollen-Unterscheidung im Attribut; Roadmap.)*
+- [x] `[TrameAuthorise]`-Fehler → Code 401 (vorher fälschlich 405). `RequestId` wird auf allen Fehler-Pfaden gesetzt. `Details` nur bei `EnableDetailedErrors`/Development. *(Offen: 403 für "authentifiziert, aber nicht erlaubt" — benötigt Rollen-Unterscheidung im Attribut; Roadmap.)*
 
 ### 3.2 Sicherheits-Härtung
 
@@ -199,12 +199,12 @@ WaevaRpcCommon/
   ```csharp
   EnableDetailedErrors = builder.Environment.IsDevelopment()
   ```
-  *(Verdrahtet in `AddWaevaRpc`: `WaevaRpcOptions.EnableDetailedErrors || env.IsDevelopment()`.)*
+  *(Verdrahtet in `AddTrame`: `TrameOptions.EnableDetailedErrors || env.IsDevelopment()`.)*
 - [ ] CORS-Default-Policy restriktiver konfigurieren (kein `AllowAnyOrigin` als Fallback)
 - [ ] Rate-Limiting: `Microsoft.AspNetCore.RateLimiting` integrieren (z.B. Token Bucket pro Connection)
 - [ ] Request-Size-Limit konfigurierbar machen und validieren
-- [ ] `[WaevaRpcAuthorise]` um Policy-basierte Autorisierung erweitern (`IAuthorizationHandler`)
-- [ ] JWT-Bearer-Auth-Middleware als optionales WaevaRpc-Feature anbieten
+- [ ] `[TrameAuthorise]` um Policy-basierte Autorisierung erweitern (`IAuthorizationHandler`)
+- [ ] JWT-Bearer-Auth-Middleware als optionales Trame-Feature anbieten
 - [ ] Input-Validation: Parameter-Validierung mit `DataAnnotations` oder FluentValidation
 
 ### 3.3 Thread-Safety in Sample-App
@@ -228,8 +228,8 @@ WaevaRpcCommon/
 **Aktueller Status**: Parallel-Mode ignoriert Dependencies. Keine Zykluserkennung. Keine topologische Sortierung.
 
 - [ ] **Dependency-Deklaration**:
-  - `[WaevaRpcMethod]` um `Inputs` und `Outputs` erweitern (deklarative Dependencies)
-  - Beispiel: `[WaevaRpcMethod("CreateOrder", Outputs = ["orderId"], Inputs = ["customerId"])]`
+  - `[TrameMethod]` um `Inputs` und `Outputs` erweitern (deklarative Dependencies)
+  - Beispiel: `[TrameMethod("CreateOrder", Outputs = ["orderId"], Inputs = ["customerId"])]`
 - [ ] **Topologische Sortierung**:
   - `DependencyGraphBuilder` implementieren
   - Anfragen nach Abhängigkeiten sortieren
@@ -269,16 +269,16 @@ graph LR
 **Entscheidung erforderlich**:
 
 - **Option A – Implementieren**:
-  - `.proto`-Definition für `WaevaRpcService` erstellen
-  - `WaevaRpcGrpcService : WaevaRpcService.WaevaRpcServiceBase` implementieren
-  - Delegation an `IWaevaRpcCore.InvokeDi()`
-  - `MapGrpcService<WaevaRpcGrpcService>()` in `Program.cs` aktivieren
-  - Client: `WaevaRpcGrpcClient : IWaevaRpcClient` in `WaevaRpcClient` hinzufügen
+  - `.proto`-Definition für `TrameService` erstellen
+  - `TrameGrpcService : TrameService.TrameServiceBase` implementieren
+  - Delegation an `ITrameCore.InvokeDi()`
+  - `MapGrpcService<TrameGrpcService>()` in `Program.cs` aktivieren
+  - Client: `TrameGrpcClient : ITrameClient` in `TrameClient` hinzufügen
   - Vorteil: Binary-Protokoll, HTTP/2-Multiplexing, offizieller Standard
 
 - **Option B – Entfernen** (empfohlen wenn gRPC nicht auf Roadmap):
-  - `WaevaRpcGrpc`-Projekt aus Solution entfernen
-  - `Grpc.AspNetCore`-Dependency aus `WaevaRpc.csproj` entfernen
+  - `TrameGrpc`-Projekt aus Solution entfernen
+  - `Grpc.AspNetCore`-Dependency aus `Trame.csproj` entfernen
   - Auskommentierte `MapGrpcService`-Zeile löschen
   - README um gRPC-Referenz bereinigen
 
@@ -293,18 +293,18 @@ graph LR
 
 ### 4.4 Interceptors / Middleware-Pipeline
 
-- [ ] `IWaevaRpcInterceptor`-Interface definieren:
+- [ ] `ITrameInterceptor`-Interface definieren:
   ```csharp
-  public interface IWaevaRpcInterceptor
+  public interface ITrameInterceptor
   {
-      Task<WaevaRpcResponse?> InvokeAsync(
-          WaevaRpcRequest request,
-          WaevaRpcInvocationDelegate next,
+      Task<TrameResponse?> InvokeAsync(
+          TrameRequest request,
+          TrameInvocationDelegate next,
           CancellationToken ct);
   }
   ```
 - [ ] Vor/nach Methodenaufruf: Logging, Tracing, Caching, Validation, Metrics
-- [ ] Registrierung via DI: `builder.Services.AddWaevaRpcInterceptor<LoggingInterceptor>()`
+- [ ] Registrierung via DI: `builder.Services.AddTrameInterceptor<LoggingInterceptor>()`
 - [ ] OpenTelemetry-Kompatibilität (Tracing-Spans pro RPC-Call)
 
 ### 4.5 Akzeptanzkriterien Phase 4
@@ -342,7 +342,7 @@ graph LR
     - `CustomTransport/` – Eigenen Transport implementieren
     - `Authorization/` – JWT + Rollen
 - [ ] **Migration-Guide** falls Breaking Changes
-- [ ] `WaevaRpc.http` mit vollständigen Beispiel-Requests:
+- [ ] `Trame.http` mit vollständigen Beispiel-Requests:
   - Single-Call, Multi-Call, Discovery
 
 ### 5.2 CI/CD Pipeline
@@ -368,7 +368,7 @@ graph LR
 - [ ] Versioning-Strategie festlegen: SemVer 2.0
 - [ ] NuGet-Metadaten in `.csproj`-Dateien:
   ```xml
-  <PackageId>WaevaRpc.Core</PackageId>
+  <PackageId>Trame.Core</PackageId>
   <Version>1.0.0</Version>
   <Authors>...</Authors>
   <Description>...</Description>
@@ -377,14 +377,14 @@ graph LR
   <License>LICENSE</License>
   ```
 - [ ] Pakete definieren:
-  - `WaevaRpc.Common` – Attribute, Exceptions, Models
-  - `WaevaRpc.Core` – Invoker, Discovery
-  - `WaevaRpc.Hub` – SignalR-Transport
-  - `WaevaRpc.Rest` – REST-Transport
-  - `WaevaRpc.WebSocket` – WebSocket-Transport
-  - `WaevaRpc.Client` – Client-Bibliothek
-  - `WaevaRpc.DeveloperUi` – Developer-UI
-  - `WaevaRpc.All` – Meta-Paket (referenziert alle)
+  - `Trame.Common` – Attribute, Exceptions, Models
+  - `Trame.Core` – Invoker, Discovery
+  - `Trame.Hub` – SignalR-Transport
+  - `Trame.Rest` – REST-Transport
+  - `Trame.WebSocket` – WebSocket-Transport
+  - `Trame.Client` – Client-Bibliothek
+  - `Trame.DeveloperUi` – Developer-UI
+  - `Trame.All` – Meta-Paket (referenziert alle)
 - [ ] `dotnet pack` in CI-Pipeline
 - [ ] NuGet-Source-Set (öffentliche Registry oder Private Feed)
 - [ ] Symbol-Packages (`snupkg`) für Debugging

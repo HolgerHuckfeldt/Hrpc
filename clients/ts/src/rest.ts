@@ -1,17 +1,17 @@
 import { linkAbortSignal } from "./abort.js";
-import { WaevaRpcError, CancelledError } from "./errors.js";
+import { TrameError, CancelledError } from "./errors.js";
 import { buildSingle, buildMulti, fromBase64, normalizeResponse, normalizeResponses } from "./request.js";
 import { ExecutionMode } from "./types.js";
 import type {
   DiscoveryInfo,
-  WaevaRpcMultiRequest,
-  WaevaRpcRequest,
-  WaevaRpcResponse,
+  TrameMultiRequest,
+  TrameRequest,
+  TrameResponse,
 } from "./types.js";
 
 /** Pro-Call-Optionen für einen REST-Aufruf. */
 export interface CallOptions {
-  /** Abbruch-Signal (Browser/Node); wirft CancelledError, nicht WaevaRpcError. */
+  /** Abbruch-Signal (Browser/Node); wirft CancelledError, nicht TrameError. */
   signal?: AbortSignal;
   /** Zusätzliche Header (z. B. Trace-Ids). */
   headers?: Record<string, string>;
@@ -26,7 +26,7 @@ export type FetchLike = (
 ) => Promise<Response>;
 
 /** Optionen für den REST-Client. */
-export interface WaevaRpcRestClientOptions {
+export interface TrameRestClientOptions {
   /** Injizierbares fetch (Tests / älteres Node). Default: globales fetch. */
   fetch?: FetchLike;
   /** Standard-Header für jeden Request. */
@@ -35,20 +35,20 @@ export interface WaevaRpcRestClientOptions {
   bearer?: string;
   /** Call-Timeout in ms. */
   callTimeout?: number;
-  /** REST-Basispfad (Default "api/waeva"); Slashes werden abgeschnitten. */
+  /** REST-Basispfad (Default "api/trame"); Slashes werden abgeschnitten. */
   apiPath?: string;
 }
 
 /**
- * REST-Client für WaevaRpc (HTTP/1.1 + JSON), isomorph via globalem `fetch`.
+ * REST-Client für Trame (HTTP/1.1 + JSON), isomorph via globalem `fetch`.
  *
- * `call`/`callBatch`/`discover` liefern die rohe {@link WaevaRpcResponse} bzw. das
+ * `call`/`callBatch`/`discover` liefern die rohe {@link TrameResponse} bzw. das
  * Array und werfen nur bei **Transportfehlern** (Netzwerk, non-2xx HTTP) bzw.
  * Abbruch. Logische Nicht-2xx-Codes (im 200-Body) werden zurückgegeben — prüfe
  * `response.isSuccess`/`response.error`. `callJson`/`callBinary` werfen bei
  * logischem Nicht-2xx (Spiegel der C#-Methoden Call<T>/CallBinary).
  */
-export class WaevaRpcRestClient {
+export class TrameRestClient {
   private readonly _baseUrl: string;
   private readonly _apiPath: string;
   private readonly _fetch: FetchLike;
@@ -56,12 +56,12 @@ export class WaevaRpcRestClient {
   private readonly _bearer?: string;
   private readonly _callTimeout?: number;
 
-  constructor(baseUrl: string, options: WaevaRpcRestClientOptions = {}) {
+  constructor(baseUrl: string, options: TrameRestClientOptions = {}) {
     if (!baseUrl || baseUrl.trim().length === 0) {
-      throw new Error("WaevaRpcRestClient: baseUrl darf nicht leer sein.");
+      throw new Error("TrameRestClient: baseUrl darf nicht leer sein.");
     }
     this._baseUrl = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
-    this._apiPath = (options.apiPath ?? "api/waeva").replace(/^\/+|\/+$/g, "");
+    this._apiPath = (options.apiPath ?? "api/trame").replace(/^\/+|\/+$/g, "");
     // Globales `fetch` unbinded speichern und später als `this._fetch(...)` rufen
     // würde im Browser "Illegal invocation" werfen — Browser-fetch verlangt
     // `window`/`globalThis` als Receiver. An `globalThis` binden macht den Default
@@ -74,20 +74,20 @@ export class WaevaRpcRestClient {
   }
 
   /** Sendet einen einzelnen Request (überlädt: pre-built oder (controller,method,params)). */
-  async call(req: WaevaRpcRequest, opts?: CallOptions): Promise<WaevaRpcResponse>;
+  async call(req: TrameRequest, opts?: CallOptions): Promise<TrameResponse>;
   async call(
     controller: string,
     method: string,
     params?: Record<string, unknown> | unknown[],
     opts?: CallOptions,
-  ): Promise<WaevaRpcResponse>;
+  ): Promise<TrameResponse>;
   async call(
-    reqOrController: WaevaRpcRequest | string,
+    reqOrController: TrameRequest | string,
     methodOrOpts?: string | CallOptions,
     params?: Record<string, unknown> | unknown[],
     opts?: CallOptions,
-  ): Promise<WaevaRpcResponse> {
-    let request: WaevaRpcRequest;
+  ): Promise<TrameResponse> {
+    let request: TrameRequest;
     let callOpts: CallOptions | undefined;
     if (typeof reqOrController === "string") {
       request = buildSingle({
@@ -110,9 +110,9 @@ export class WaevaRpcRestClient {
     params?: Record<string, unknown> | unknown[],
     opts?: CallOptions,
   ): Promise<T | null>;
-  async callJson<T>(req: WaevaRpcRequest, opts?: CallOptions): Promise<T | null>;
+  async callJson<T>(req: TrameRequest, opts?: CallOptions): Promise<T | null>;
   async callJson<T>(
-    reqOrController: WaevaRpcRequest | string,
+    reqOrController: TrameRequest | string,
     methodOrOpts?: string | CallOptions,
     params?: Record<string, unknown> | unknown[],
     opts?: CallOptions,
@@ -131,9 +131,9 @@ export class WaevaRpcRestClient {
     params?: Record<string, unknown> | unknown[],
     opts?: CallOptions,
   ): Promise<Uint8Array | null>;
-  async callBinary(req: WaevaRpcRequest, opts?: CallOptions): Promise<Uint8Array | null>;
+  async callBinary(req: TrameRequest, opts?: CallOptions): Promise<Uint8Array | null>;
   async callBinary(
-    reqOrController: WaevaRpcRequest | string,
+    reqOrController: TrameRequest | string,
     methodOrOpts?: string | CallOptions,
     params?: Record<string, unknown> | unknown[],
     opts?: CallOptions,
@@ -142,20 +142,20 @@ export class WaevaRpcRestClient {
       typeof reqOrController === "string"
         ? await this.call(reqOrController, methodOrOpts as string, params, opts)
         : await this.call(reqOrController, (methodOrOpts as CallOptions) ?? opts);
-    if (!response.isSuccess) throw WaevaRpcError.fromResponse(response);
+    if (!response.isSuccess) throw TrameError.fromResponse(response);
     return response.content ? fromBase64(response.content) : null;
   }
 
   /** Sendet einen Batch (Multi-Request). Auto-Setzt leere Ids auf `controller.method`. */
   async callBatch(
-    requests: WaevaRpcRequest[],
+    requests: TrameRequest[],
     mode: ExecutionMode = ExecutionMode.Parallel,
     opts?: CallOptions,
-  ): Promise<WaevaRpcResponse[]> {
+  ): Promise<TrameResponse[]> {
     const normalized = requests.map((r) =>
       r.id ? r : { ...r, id: `${r.controller}.${r.method}` },
     );
-    const multi: WaevaRpcMultiRequest = buildMulti(normalized, mode);
+    const multi: TrameMultiRequest = buildMulti(normalized, mode);
     const result = await this.postJsonArray(
       `${this._baseUrl}${this._apiPath}/json/multi`,
       multi,
@@ -165,7 +165,7 @@ export class WaevaRpcRestClient {
     return result;
   }
 
-  /** Ruft die Discovery-Metadaten ab (GET /api/waeva/discovery). */
+  /** Ruft die Discovery-Metadaten ab (GET /api/trame/discovery). */
   async discover(opts?: CallOptions): Promise<DiscoveryInfo> {
     const url = `${this._baseUrl}${this._apiPath}/discovery`;
     const { signal, clear, isTimeout } = linkAbortSignal(
@@ -180,7 +180,7 @@ export class WaevaRpcRestClient {
       });
       if (!response.ok) {
         const text = await safeReadText(response);
-        throw new WaevaRpcError(response.status, `HTTP Error: ${response.status}`, {
+        throw new TrameError(response.status, `HTTP Error: ${response.status}`, {
           details: text,
         });
       }
@@ -203,7 +203,7 @@ export class WaevaRpcRestClient {
     url: string,
     body: unknown,
     opts?: CallOptions,
-  ): Promise<WaevaRpcResponse> {
+  ): Promise<TrameResponse> {
     const { signal, clear, isTimeout } = linkAbortSignal(
       opts?.signal,
       opts?.timeout ?? this._callTimeout,
@@ -218,22 +218,22 @@ export class WaevaRpcRestClient {
       const text = await safeReadText(response);
       if (!response.ok) {
         // Transport-Level-Fehler (400/429/499 …) -> synthetische Response
-        // (Spiegel C# WaevaRpcRestJsonClient non-2xx-Pfad).
+        // (Spiegel C# TrameRestJsonClient non-2xx-Pfad).
         return {
           code: response.status,
-          id: (body as WaevaRpcRequest)?.id ?? null,
+          id: (body as TrameRequest)?.id ?? null,
           content: null,
           exposedDependencies: null,
           error: {
             code: response.status,
             message: `HTTP Error: ${response.status}`,
             details: text,
-            requestId: (body as WaevaRpcRequest)?.id ?? null,
+            requestId: (body as TrameRequest)?.id ?? null,
           },
           isSuccess: false,
         };
       }
-      return normalizeResponse(JSON.parse(text) as WaevaRpcResponse);
+      return normalizeResponse(JSON.parse(text) as TrameResponse);
     } catch (err) {
       throw toTransportError(err, isTimeout);
     } finally {
@@ -243,10 +243,10 @@ export class WaevaRpcRestClient {
 
   private async postJsonArray(
     url: string,
-    body: WaevaRpcMultiRequest,
+    body: TrameMultiRequest,
     firstId: string | undefined,
     opts?: CallOptions,
-  ): Promise<WaevaRpcResponse[]> {
+  ): Promise<TrameResponse[]> {
     const { signal, clear, isTimeout } = linkAbortSignal(
       opts?.signal,
       opts?.timeout ?? this._callTimeout,
@@ -277,7 +277,7 @@ export class WaevaRpcRestClient {
         ];
       }
       const parsed = JSON.parse(text);
-      return Array.isArray(parsed) ? normalizeResponses(parsed as WaevaRpcResponse[]) : [];
+      return Array.isArray(parsed) ? normalizeResponses(parsed as TrameResponse[]) : [];
     } catch (err) {
       throw toTransportError(err, isTimeout);
     } finally {
@@ -295,14 +295,14 @@ export class WaevaRpcRestClient {
 
 // --- Shared Helpers ---
 
-/** Gibt response.data als T zurück; wirft bei Nicht-2xx WaevaRpcError (Spiegel Call<T>).
+/** Gibt response.data als T zurück; wirft bei Nicht-2xx TrameError (Spiegel Call<T>).
  *  Seit dem Single-Pass-Fix ist data bereits ein strukturierter Wert (kein JSON-String
  *  mehr) — kein client-seitiges JSON.parse nötig. */
-function parseData<T>(response: WaevaRpcResponse): T | null {
+function parseData<T>(response: TrameResponse): T | null {
   if (response.isSuccess && response.data != null) {
     return response.data as T;
   }
-  if (!response.isSuccess) throw WaevaRpcError.fromResponse(response);
+  if (!response.isSuccess) throw TrameError.fromResponse(response);
   return null; // 204 / void
 }
 
@@ -317,10 +317,10 @@ async function safeReadText(response: Response): Promise<string> {
 /**
  * Mapt einen fetch-Fehler auf die richtige Client-Exception:
  * - Abbruch (AbortError/aborted) → CancelledError (unverpackt; timedOut, wenn Timeout).
- * - sonst → WaevaRpcError(0, "Transport error", cause).
+ * - sonst → TrameError(0, "Transport error", cause).
  */
 function toTransportError(err: unknown, isTimeout: () => boolean): Error {
-  if (err instanceof WaevaRpcError || err instanceof CancelledError) return err;
+  if (err instanceof TrameError || err instanceof CancelledError) return err;
   if (err instanceof Error) {
     const aborted =
       err.name === "AbortError" ||
@@ -328,11 +328,11 @@ function toTransportError(err: unknown, isTimeout: () => boolean): Error {
     if (aborted) {
       const timedOut = isTimeout();
       return new CancelledError(
-        timedOut ? "WaevaRpc call timed out." : "WaevaRpc call was cancelled.",
+        timedOut ? "Trame call timed out." : "Trame call was cancelled.",
         timedOut,
       );
     }
-    return new WaevaRpcError(0, `Transport error: ${err.message}`, { cause: err });
+    return new TrameError(0, `Transport error: ${err.message}`, { cause: err });
   }
-  return new WaevaRpcError(0, "Transport error: unknown failure.", { cause: err });
+  return new TrameError(0, "Transport error: unknown failure.", { cause: err });
 }

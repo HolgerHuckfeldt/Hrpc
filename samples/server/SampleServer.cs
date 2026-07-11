@@ -1,22 +1,22 @@
 // ==============================================================================
-// WaevaRpc Beispiel-Server (Drop-in) — unterstützt alle Szenarien aus samples/.
+// Trame Beispiel-Server (Drop-in) — unterstützt alle Szenarien aus samples/.
 //
-// Zeigt: Controller-Deklaration via [WaevaRpcController]/[WaevaRpcMethod], DTOs als
-// Plain-POCOs (per Signatur-Inferenz in der Discovery expandiert — kein [WaevaRpcDataContract]
-// mehr nötig), Fehlerbehandlung via WaevaRpcResults, und Rückgabewerte, die
+// Zeigt: Controller-Deklaration via [TrameController]/[TrameMethod], DTOs als
+// Plain-POCOs (per Signatur-Inferenz in der Discovery expandiert — kein [TrameDataContract]
+// mehr nötig), Fehlerbehandlung via TrameResults, und Rückgabewerte, die
 // für Dependency-Chaining (@alias) geeignet sind.
 //
 // In-Memory-Store NUR für Demos — in Produktion DI-Repositories verwenden.
 // ==============================================================================
 
-using WaevaRpcCommon.Attribute;   // WaevaRpcDocumentation, WaevaRpcExample (DataContract entfällt — Inference-Default)
-using WaevaRpcCommon.Results;     // WaevaRpcResults (Ok/NotFound/BadRequest)
-using WaevaRpcCore.Attributes;    // WaevaRpcController, WaevaRpcMethod
+using TrameCommon.Attribute;   // TrameDocumentation, TrameExample (DataContract entfällt — Inference-Default)
+using TrameCommon.Results;     // TrameResults (Ok/NotFound/BadRequest)
+using TrameCore.Attributes;    // TrameController, TrameMethod
 
-namespace WaevaRpc.Samples.Server;
+namespace Trame.Samples.Server;
 
 // --- DTOs (der Vertrag) -------------------------------------------------------
-// Plain-POCOs ohne [WaevaRpcDataContract] — die Discovery expandiert sie automatisch,
+// Plain-POCOs ohne [TrameDataContract] — die Discovery expandiert sie automatisch,
 // weil sie in derselben Assembly wie die Controller liegen (Signatur-Inferenz, Weg C).
 
 public class Customer
@@ -60,9 +60,9 @@ public static class DemoStore
 
     public static Task<int> CreateOrderAsync(int customerId, decimal total, CancellationToken ct)
     {
-        // Business-Validierung → Domänenfehler als WaevaRpcResponse (kein Throw).
+        // Business-Validierung → Domänenfehler als TrameResponse (kein Throw).
         if (!_customers.Any(c => c.Id == customerId))
-            return Task.FromResult(-1); // siehe Controller: dort → WaevaRpcResults.BadRequest
+            return Task.FromResult(-1); // siehe Controller: dort → TrameResults.BadRequest
 
         var o = new Order
         {
@@ -81,66 +81,66 @@ public static class DemoStore
 
 // --- Controller ---------------------------------------------------------------
 
-[WaevaRpcController("Customer")]
-[WaevaRpcDocumentation("Kunden verwalten — AddCustomer liefert die neue Id (int).")]
+[TrameController("Customer")]
+[TrameDocumentation("Kunden verwalten — AddCustomer liefert die neue Id (int).")]
 public class CustomerController
 {
-    [WaevaRpcMethod("AddCustomer")]
-    [WaevaRpcDocumentation("Legt einen Kunden an. Rückgabe: neue Id (skalarer int → JsonPath '$').")]
-    [WaevaRpcExample("{\"name\":\"Alice\",\"email\":\"alice@x.com\"}")]
+    [TrameMethod("AddCustomer")]
+    [TrameDocumentation("Legt einen Kunden an. Rückgabe: neue Id (skalarer int → JsonPath '$').")]
+    [TrameExample("{\"name\":\"Alice\",\"email\":\"alice@x.com\"}")]
     public Task<int> AddCustomer(string name, string email, CancellationToken ct)
         => DemoStore.AddCustomerAsync(name, email, ct);
 
-    [WaevaRpcMethod("GetCustomerById")]
-    [WaevaRpcDocumentation("Lädt einen Kunden nach Id. Rückgabe: Customer oder 404.")]
-    public async Task<WaevaRpcResponse> GetCustomerById(int id, CancellationToken ct)
+    [TrameMethod("GetCustomerById")]
+    [TrameDocumentation("Lädt einen Kunden nach Id. Rückgabe: Customer oder 404.")]
+    public async Task<TrameResponse> GetCustomerById(int id, CancellationToken ct)
     {
         var c = await DemoStore.GetCustomerByIdAsync(id, ct);
         return c is null
-            ? WaevaRpcResults.NotFound($"Kunde {id} nicht gefunden")
-            : WaevaRpcResults.Ok(c);
+            ? TrameResults.NotFound($"Kunde {id} nicht gefunden")
+            : TrameResults.Ok(c);
     }
 
-    [WaevaRpcMethod("GetAllCustomers")]
-    [WaevaRpcDocumentation("Alle Kunden. Rückgabe: Liste → JsonPath '$[0].Id' für das erste Element.")]
+    [TrameMethod("GetAllCustomers")]
+    [TrameDocumentation("Alle Kunden. Rückgabe: Liste → JsonPath '$[0].Id' für das erste Element.")]
     public Task<IReadOnlyList<Customer>> GetAllCustomers(CancellationToken ct)
         => DemoStore.GetAllCustomersAsync(ct);
 }
 
-[WaevaRpcController("Order")]
-[WaevaRpcDocumentation("Bestellungen verwalten — CreateOrder liefert die neue OrderId (int).")]
+[TrameController("Order")]
+[TrameDocumentation("Bestellungen verwalten — CreateOrder liefert die neue OrderId (int).")]
 public class OrderController
 {
-    [WaevaRpcMethod("CreateOrder")]
-    [WaevaRpcDocumentation("Legt eine Bestellung an. Parameter: customerId, total. Rückgabe: neue OrderId.")]
-    [WaevaRpcExample("{\"customerId\":1,\"total\":99.90}")]
-    public async Task<WaevaRpcResponse> CreateOrder(int customerId, decimal total, CancellationToken ct)
+    [TrameMethod("CreateOrder")]
+    [TrameDocumentation("Legt eine Bestellung an. Parameter: customerId, total. Rückgabe: neue OrderId.")]
+    [TrameExample("{\"customerId\":1,\"total\":99.90}")]
+    public async Task<TrameResponse> CreateOrder(int customerId, decimal total, CancellationToken ct)
     {
         var orderId = await DemoStore.CreateOrderAsync(customerId, total, ct);
-        // Domänenfehler → WaevaRpcResponse (Code+Message erreichen den Client unverfälscht).
+        // Domänenfehler → TrameResponse (Code+Message erreichen den Client unverfälscht).
         return orderId < 0
-            ? WaevaRpcResults.BadRequest($"Kunde {customerId} existiert nicht")
-            : WaevaRpcResults.Ok(orderId); // skalarer int → JsonPath "$"
+            ? TrameResults.BadRequest($"Kunde {customerId} existiert nicht")
+            : TrameResults.Ok(orderId); // skalarer int → JsonPath "$"
     }
 
-    [WaevaRpcMethod("GetOrderById")]
-    [WaevaRpcDocumentation("Lädt eine Bestellung nach Id. Rückgabe: Order oder 404.")]
-    public async Task<WaevaRpcResponse> GetOrderById(int id, CancellationToken ct)
+    [TrameMethod("GetOrderById")]
+    [TrameDocumentation("Lädt eine Bestellung nach Id. Rückgabe: Order oder 404.")]
+    public async Task<TrameResponse> GetOrderById(int id, CancellationToken ct)
     {
         var o = await DemoStore.GetOrderByIdAsync(id, ct);
         return o is null
-            ? WaevaRpcResults.NotFound($"Bestellung {id} nicht gefunden")
-            : WaevaRpcResults.Ok(o);
+            ? TrameResults.NotFound($"Bestellung {id} nicht gefunden")
+            : TrameResults.Ok(o);
     }
 }
 
 // --- Server-Setup (Program.cs) — kurze Form -----------------------------------
 //
-// using WaevaRpcHub.Extensions;
-// using WaevaRpcServer;                       // UseWaevaRpcTransports, MapWaevaRpc
+// using TrameHub.Extensions;
+// using TrameServer;                       // UseTrameTransports, MapTrame
 //
 // var builder = WebApplication.CreateBuilder(args);
-// builder.Services.AddWaevaRpc(o =>
+// builder.Services.AddTrame(o =>
 // {
 //     o.EnableDetailedErrors = builder.Environment.IsDevelopment();
 //     o.RateLimitPermitLimit = builder.Environment.IsProduction() ? 50 : 0;
@@ -149,9 +149,9 @@ public class OrderController
 // var app = builder.Build();
 // app.UseRouting();
 // app.UseRateLimiter();
-// app.UseWaevaRpcTransports();   // WebSocket (primär) + Controller-Registrierung
-// app.MapWaevaRpc();             // REST (/api/waeva) + DevUI (/developer) + ggf. SignalR
+// app.UseTrameTransports();   // WebSocket (primär) + Controller-Registrierung
+// app.MapTrame();             // REST (/api/trame) + DevUI (/developer) + ggf. SignalR
 // app.Run();
 //
-// Die [WaevaRpcController]-Typen werden per Attribut-Scan automatisch gefunden und
-// beim Aufruf von UseWaevaRpc() im Invoker registriert — keine manuelle Registrierung.
+// Die [TrameController]-Typen werden per Attribut-Scan automatisch gefunden und
+// beim Aufruf von UseTrame() im Invoker registriert — keine manuelle Registrierung.

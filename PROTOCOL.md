@@ -1,24 +1,24 @@
-# WaevaRpc Wire Protocol Specification
+# Trame Wire Protocol Specification
 
 > Version: 1.0.0 · Status: Draft
 >
-> This specification defines the WaevaRpc wire protocol so that clients and servers
+> This specification defines the Trame wire protocol so that clients and servers
 > can be implemented in any language (JavaScript/TypeScript, Python, Go, Rust, etc.).
 
 ## Overview
 
-WaevaRpc is a method-oriented RPC protocol. A client sends a `WaevaRpcRequest` containing
+Trame is a method-oriented RPC protocol. A client sends a `TrameRequest` containing
 a controller name, method name, and JSON-encoded parameters. The server invokes the
-matching method and returns a `WaevaRpcResponse` with a status code and JSON-encoded result.
+matching method and returns a `TrameResponse` with a status code and JSON-encoded result.
 
-WaevaRpc supports three transports (REST, WebSocket, SignalR) but the request/response
+Trame supports three transports (REST, WebSocket, SignalR) but the request/response
 format is identical across all of them.
 
 ---
 
 ## Message Types
 
-### WaevaRpcRequest
+### TrameRequest
 
 Single method invocation.
 
@@ -37,12 +37,12 @@ Single method invocation.
 |-------|------|----------|-------------|
 | `controller` | string | ✅ | Target controller name. A dotted namespace is allowed (e.g. `Customer.Address.Contact`) to express arbitrarily deep hierarchies — there is no fixed two-level limit. |
 | `method` | string | ✅ | Target method name |
-| `stringData` | string (JSON) | ✅ | JSON array of `WaevaRpcParameter` objects |
+| `stringData` | string (JSON) | ✅ | JSON array of `TrameParameter` objects |
 | `id` | string | ✅ | Request identifier for correlation |
 | `dependencyMapping` | object\|null | ❌ | Map of alias → JsonPath for dependency chaining |
 | `binaryData` | base64\|null | ❌ | Optional binary payload |
 
-### WaevaRpcParameter
+### TrameParameter
 
 Method parameter within `stringData`.
 
@@ -69,7 +69,7 @@ Method parameter within `stringData`.
 > Example: `"42"` (number as string), `"\"hello\""` (string with escaped quotes),
 > `"{\"id\":1,\"name\":\"Alice\"}"` (object as string).
 
-### WaevaRpcResponse
+### TrameResponse
 
 Result of a method invocation.
 
@@ -99,7 +99,7 @@ Result of a method invocation.
 > no `JSON.parse(data)` / `json.loads(data)` step. A `string` result is a JSON string on
 > the wire, so a client binding `data` to a `string` target receives it as-is; an object
 > result binds to an object. The C# `Call<T>` deserializes the raw `data` bytes into `T`
-> in a single pass; the TS `waeva-rpc-client` casts the already-parsed `data` to `T`.
+> in a single pass; the TS `trame-client` casts the already-parsed `data` to `T`.
 
 > **Wire key order** (REST + WebSocket, JSON): `code`, `data`, `content`, `id`,
 > `exposedDependencies`, `error`. Parsers read by name and tolerate reordered keys.
@@ -107,9 +107,9 @@ Result of a method invocation.
 > `[Key]` order: `[code, data, content, id, exposedDependencies, error]`; `data` is
 > encoded as native MessagePack tokens (JSON→MessagePack 1:1, no string wrapping).
 
-### WaevaRpcError
+### TrameError
 
-Structured error details, included in `WaevaRpcResponse.error` when `code != 2xx`.
+Structured error details, included in `TrameResponse.error` when `code != 2xx`.
 
 ```json
 {
@@ -127,7 +127,7 @@ Structured error details, included in `WaevaRpcResponse.error` when `code != 2xx
 | `details` | string\|null | Additional details (stack trace in development only) |
 | `requestId` | string\|null | Correlates with request ID |
 
-### WaevaRpcMultiRequest
+### TrameMultiRequest
 
 Batch of multiple requests in one roundtrip.
 
@@ -144,7 +144,7 @@ Batch of multiple requests in one roundtrip.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `requests` | array of WaevaRpcRequest | Individual RPC calls |
+| `requests` | array of TrameRequest | Individual RPC calls |
 | `mode` | int | 0 = Parallel, 1 = Serial |
 
 > When `mode = 1` (Serial) and any request has `dependencyMapping`, the server
@@ -154,9 +154,9 @@ Batch of multiple requests in one roundtrip.
 
 ## Status Codes
 
-`WaevaRpcResponse.code` is a **logical result code carried inside the response body**,
+`TrameResponse.code` is a **logical result code carried inside the response body**,
 not an HTTP status. Over REST, the HTTP envelope is always `200 OK` and the
-`WaevaRpcResponse` (with its `code` and `error`) is returned in the body — the same way
+`TrameResponse` (with its `code` and `error`) is returned in the body — the same way
 JSON-RPC carries its error object inside an HTTP 200. WebSocket and SignalR pass
 `code` as a field of the returned object the same way.
 
@@ -169,13 +169,13 @@ request body, `429` from the rate limiter, `499` for a cancelled request).
 | 200 | OK – method executed successfully |
 | 204 | No Content – void / `Task`-without-result method completed (no `data`) |
 | 400 | Bad Request – invalid parameters, duplicate parameter name, unresolved dependency, cycle, or malformed JSON |
-| 401 | Unauthorized – `[WaevaRpcAuthorise]` check failed (not authenticated) |
+| 401 | Unauthorized – `[TrameAuthorise]` check failed (not authenticated) |
 | 403 | Forbidden – role-based authorization failed _(roadmap: requires the auth attribute to distinguish authenticated-but-not-allowed from unauthenticated)_ |
 | 404 | Not Found – controller or method not found |
 | 429 | Too Many Requests – rate limit exceeded (transport-level) |
 | 500 | Internal Server Error – method threw an exception. The generic `message` never leaks the exception; `error.details` carries the stack trace only when detailed errors are enabled (Development / `EnableDetailedErrors`). |
 
-> `WaevaRpcError.requestId` is populated from the originating request `id` on every
+> `TrameError.requestId` is populated from the originating request `id` on every
 > non-2xx response, so clients can correlate failures even in batch calls.
 
 ### Returning Errors from a Controller Method
@@ -183,34 +183,34 @@ request body, `429` from the rate limiter, `499` for a cancelled request).
 A controller method has two ways to signal a non-success outcome, and they are
 **not** interchangeable.
 
-**Return an `WaevaRpcResponse` with a non-2xx `Code` — recommended for business /
-domain errors.** The invoker passes a returned `WaevaRpcResponse` through verbatim
-(`WaevaRpcInvoker.ReturnResponse`: `if (result is WaevaRpcResponse) return it;`), so the
-exact `Code`, `Data`, and `Error` reach the client. Use the `WaevaRpcResults` factory
-(`WaevaRpcCommon.Results`) so the human message lands in the structured `WaevaRpcError`
+**Return an `TrameResponse` with a non-2xx `Code` — recommended for business /
+domain errors.** The invoker passes a returned `TrameResponse` through verbatim
+(`TrameInvoker.ReturnResponse`: `if (result is TrameResponse) return it;`), so the
+exact `Code`, `Data`, and `Error` reach the client. Use the `TrameResults` factory
+(`TrameCommon.Results`) so the human message lands in the structured `TrameError`
 while `Data` stays `null` (the message does **not** travel in `data`):
 
 ```csharp
-using WaevaRpcCommon.Results;
+using TrameCommon.Results;
 
-[WaevaRpcMethod("GetById")]
-public WaevaRpcResponse GetById(int id)
+[TrameMethod("GetById")]
+public TrameResponse GetById(int id)
 {
     var customer = _repo.Find(id);
     if (customer is null)
-        return WaevaRpcResults.NotFound($"Customer '{id}' not found.");
-    return WaevaRpcResults.Ok(customer);
+        return TrameResults.NotFound($"Customer '{id}' not found.");
+    return TrameResults.Ok(customer);
 }
 ```
 
-`WaevaRpcResults` API: `Ok(object?)` (result serialized to a raw JSON value in
+`TrameResults` API: `Ok(object?)` (result serialized to a raw JSON value in
 `data`), `Ok(string jsonData)` (a **pre-serialized JSON string** taken as-is —
 requires valid JSON; stored as raw bytes, no re-parse), `Ok(byte[] binary)`
 (bytes in `content`, `data` null), `NoContent()` (204, `data` null),
 `Error(code, message, details?)`, plus convenience `BadRequest` / `Unauthorized`
 / `NotFound` / `Conflict` / `InternalServerError`, and an RFC-7807
 `Error(ProblemDetails)` overload (CamelCase JSON in `data`; `title`/`detail`
-mirrored onto `WaevaRpcError.Message`/`.Details`). The message is **not** gated by
+mirrored onto `TrameError.Message`/`.Details`). The message is **not** gated by
 `EnableDetailedErrors` — it is yours and reaches the client in every environment.
 
 **Throw an exception — only for unexpected / internal failures.** Any thrown
@@ -218,17 +218,17 @@ exception is mapped to `500` with a **generic** message (`"An internal error
 occurred…"`) and never leaks the exception text; the stack trace is placed in
 `error.details` only when `EnableDetailedErrors` is on (Development). Throwing is
 therefore wrong for validation or "not found": the client would see only the
-generic 500 and never your message. Note that throwing `WaevaRpcException` from a
-controller does **not** propagate its `WaevaRpcError.Code` — the server has no
-`catch(WaevaRpcException)`; every throw becomes a generic 500. To control the code,
-return `WaevaRpcResults.Error(...)`.
+generic 500 and never your message. Note that throwing `TrameException` from a
+controller does **not** propagate its `TrameError.Code` — the server has no
+`catch(TrameException)`; every throw becomes a generic 500. To control the code,
+return `TrameResults.Error(...)`.
 
-**Client side.** The C# `WaevaRpcClientBase.Call<T>` throws `WaevaRpcException` on
-non-2xx, carrying `WaevaRpcError` (from `response.Error`, or synthesized from
-`response.Code` via `WaevaRpcError.FromResponse`, which reads
-`response.Error?.Message`). The TS `waeva-rpc-client` `call()` returns the raw
-`WaevaRpcResponse` (`isSuccess:false`, does not throw); `callJson<T>()` /
-`callBinary()` throw `WaevaRpcError`.
+**Client side.** The C# `TrameClientBase.Call<T>` throws `TrameException` on
+non-2xx, carrying `TrameError` (from `response.Error`, or synthesized from
+`response.Code` via `TrameError.FromResponse`, which reads
+`response.Error?.Message`). The TS `trame-client` `call()` returns the raw
+`TrameResponse` (`isSuccess:false`, does not throw); `callJson<T>()` /
+`callBinary()` throw `TrameError`.
 
 ---
 
@@ -293,7 +293,7 @@ design boundaries, not bugs:
    `MaxFanOut` cap, bounded concurrency (no unbounded `Task.WhenAll`), per-element
    results with correlation, and a read-only default for safety.
 6. **Server-side cardinality caps.** The server protects itself independently of
-   client calls via two configurable limits on `WaevaRpcOptions` (secure-by-default):
+   client calls via two configurable limits on `TrameOptions` (secure-by-default):
    - `MaxParameterArrayLength` — default **1000**, `0` = unlimited. Enforced in the
      invoker before the method call; an oversized array/collection parameter is rejected
      with `400 Bad Request` and a message naming the limit and the actual count.
@@ -317,15 +317,15 @@ design boundaries, not bugs:
 
 | Endpoint | Method | Body | Response |
 |----------|--------|------|----------|
-| `POST /api/waeva/json` | POST | WaevaRpcRequest | WaevaRpcResponse |
-| `POST /api/waeva/json/multi` | POST | WaevaRpcMultiRequest | array of WaevaRpcResponse |
-| `GET /api/waeva/discovery` | GET | – | DiscoveryInfo |
+| `POST /api/trame/json` | POST | TrameRequest | TrameResponse |
+| `POST /api/trame/json/multi` | POST | TrameMultiRequest | array of TrameResponse |
+| `GET /api/trame/discovery` | GET | – | DiscoveryInfo |
 
 **Content-Type**: `application/json`
 
 **Example** (single call):
 ```
-POST /api/waeva/json HTTP/1.1
+POST /api/trame/json HTTP/1.1
 Content-Type: application/json
 
 {
@@ -353,29 +353,29 @@ Content-Type: application/json
 
 ### WebSocket (RFC 6455 + JSON text frames)
 
-**URL**: `ws://host/waevaws` or `wss://host/waevaws`
+**URL**: `ws://host/tramews` or `wss://host/tramews`
 
 **Protocol**: JSON text messages (one per request/response).
 
 **Message types** (auto-detected by server):
-- If JSON has `requests` and `mode` fields → `WaevaRpcMultiRequest` → returns array of `WaevaRpcResponse`
-- Otherwise → `WaevaRpcRequest` → returns single `WaevaRpcResponse`
+- If JSON has `requests` and `mode` fields → `TrameMultiRequest` → returns array of `TrameResponse`
+- Otherwise → `TrameRequest` → returns single `TrameResponse`
 
 **Flow**:
-1. Client connects to `ws://host/waevaws`
-2. Client sends JSON text frame (WaevaRpcRequest or WaevaRpcMultiRequest)
-3. Server responds with JSON text frame (WaevaRpcResponse or array)
+1. Client connects to `ws://host/tramews`
+2. Client sends JSON text frame (TrameRequest or TrameMultiRequest)
+3. Server responds with JSON text frame (TrameResponse or array)
 4. Repeat (connection stays open)
 
 ### SignalR (WebSocket + MessagePack)
 
-**Hub endpoint**: `/Waeva`
+**Hub endpoint**: `/Trame`
 
 **Hub methods**:
 | Method | Parameters | Returns |
 |--------|-----------|---------|
-| `DoWork` | `WaevaRpcRequest request` | `WaevaRpcResponse?` |
-| `DoWorkMany` | `WaevaRpcMultiRequest request` | `IEnumerable<WaevaRpcResponse>` |
+| `DoWork` | `TrameRequest request` | `TrameResponse?` |
+| `DoWorkMany` | `TrameMultiRequest request` | `IEnumerable<TrameResponse>` |
 
 **Protocol**: MessagePack binary (optional, can be JSON if configured).
 
@@ -383,7 +383,7 @@ Content-Type: application/json
 
 ## Discovery (MEX)
 
-`GET /api/waeva/discovery` returns `DiscoveryInfo`:
+`GET /api/trame/discovery` returns `DiscoveryInfo`:
 
 ```json
 {
@@ -406,8 +406,8 @@ Content-Type: application/json
     }
   ],
   "types": {
-    "WaevaRpc.Model.Customer": {
-      "typeName": "WaevaRpc.Model.Customer",
+    "Trame.Model.Customer": {
+      "typeName": "Trame.Model.Customer",
       "properties": [
         { "propertyName": "Id", "propertyType": "int" },
         { "propertyName": "Name", "propertyType": "string" }
@@ -424,11 +424,11 @@ Content-Type: application/json
 
 > A maintained, isomorphic reference client (REST + WebSocket, fluent + functional
 > API, browser + Node.js) ships under [`clients/ts/`](clients/ts/) as the
-> `waeva-rpc-client` npm package. The snippet below illustrates the wire format only;
-> for real use prefer `import { createClient } from "waeva-rpc-client"`.
+> `trame-client` npm package. The snippet below illustrates the wire format only;
+> for real use prefer `import { createClient } from "trame-client"`.
 
 ```typescript
-interface WaevaRpcRequest {
+interface TrameRequest {
   controller: string;
   method: string;
   stringData: string;
@@ -436,7 +436,7 @@ interface WaevaRpcRequest {
   dependencyMapping?: Record<string, string> | null;
 }
 
-interface WaevaRpcResponse {
+interface TrameResponse {
   code: number;
   data: unknown | null; // structured JSON value — NOT a string blob, no JSON.parse needed
   content?: string | null; // base64 for byte[] results
@@ -446,14 +446,14 @@ interface WaevaRpcResponse {
   isSuccess: boolean; // derived client-side from code (server does not send it)
 }
 
-async function waeva-rpcCall(
+async function trameCall(
   url: string,
   controller: string,
   method: string,
   params: Record<string, any>,
   id?: string
-): Promise<WaevaRpcResponse> {
-  const request: WaevaRpcRequest = {
+): Promise<TrameResponse> {
+  const request: TrameRequest = {
     controller,
     method,
     stringData: JSON.stringify(
@@ -465,19 +465,19 @@ async function waeva-rpcCall(
     id: id ?? `${controller}.${method}`,
   };
 
-  const resp = await fetch(`${url}/api/waeva/json`, {
+  const resp = await fetch(`${url}/api/trame/json`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
 
-  const r = (await resp.json()) as WaevaRpcResponse;
+  const r = (await resp.json()) as TrameResponse;
   r.isSuccess = r.code >= 200 && r.code <= 299; // server omits isSuccess
   return r;
 }
 
 // Usage — data is already a structured value (the Customer object), no JSON.parse
-const result = await waeva-rpcCall("https://localhost:5001", "Customer", "GetById", { id: 42 });
+const result = await trameCall("https://localhost:5001", "Customer", "GetById", { id: 42 });
 const customer = result.data as { id: number; name: string };
 console.log(customer.name);
 ```
@@ -489,7 +489,7 @@ import json
 import requests
 from typing import Any
 
-def waeva-rpc_call(url: str, controller: str, method: str, params: dict[str, Any], id: str = None) -> dict:
+def trame_call(url: str, controller: str, method: str, params: dict[str, Any], id: str = None) -> dict:
     request = {
         "controller": controller,
         "method": method,
@@ -499,13 +499,13 @@ def waeva-rpc_call(url: str, controller: str, method: str, params: dict[str, Any
         ]),
         "id": id or f"{controller}.{method}",
     }
-    response = requests.post(f"{url}/api/waeva/json", json=request)
+    response = requests.post(f"{url}/api/trame/json", json=request)
     r = response.json()
     r["isSuccess"] = 200 <= r.get("code", 0) <= 299  # server omits isSuccess
     return r
 
 # Usage — data is already a structured value (the Customer object), no json.loads
-result = waeva-rpc_call("https://localhost:5001", "Customer", "GetById", {"id": 42})
+result = trame_call("https://localhost:5001", "Customer", "GetById", {"id": 42})
 customer = result["data"]  # dict, directly usable
 print(customer["name"])
 ```
@@ -516,5 +516,5 @@ print(customer["name"])
 
 1. **Wire format is JSON** – no binary dependency for the protocol itself (MessagePack is optional for SignalR only)
 2. **Parameter values are JSON strings** – `stringData` contains a JSON array of `{parameterName, data}` where `data` is itself a JSON string. This allows lazy deserialization on the server.
-3. **Discovery enables code generation** – the `/api/waeva/discovery` endpoint returns full type metadata, enabling auto-generated clients in any language.
+3. **Discovery enables code generation** – the `/api/trame/discovery` endpoint returns full type metadata, enabling auto-generated clients in any language.
 4. **No schema language required** – unlike gRPC (`.proto`) or GraphQL (SDL), the contract is defined in code and discovered at runtime.

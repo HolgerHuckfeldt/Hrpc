@@ -1,14 +1,14 @@
 import { ExecutionMode } from "./types.js";
-import type { WaevaRpcMultiRequest, WaevaRpcParameter, WaevaRpcRequest } from "./types.js";
+import type { TrameMultiRequest, TrameParameter, TrameRequest } from "./types.js";
 import { toBase64 } from "./request.js";
 
 /**
- * Fluent Builder für einen WaevaRpcRequest — Spiegel des C#-WaevaRpcCall.
- * Transport-agnostisch: liefert einen {@link WaevaRpcRequest}, den jeder Client
+ * Fluent Builder für einen TrameRequest — Spiegel des C#-TrameCall.
+ * Transport-agnostisch: liefert einen {@link TrameRequest}, den jeder Client
  * (REST/WebSocket) senden kann.
  *
  * ```ts
- * WaevaRpcCall.init("Customer", "Add")
+ * TrameCall.init("Customer", "Add")
  *   .with({ name: "Alice" })        // benannt
  *   .with([42, "x"])                // oder positional
  *   .withBinary(blob)               // -> binaryData (base64)
@@ -18,11 +18,11 @@ import { toBase64 } from "./request.js";
  *   .toRequest();
  * ```
  */
-export class WaevaRpcCall {
+export class TrameCall {
   private readonly _controller: string;
   private readonly _method: string;
   private _id?: string;
-  private _params: WaevaRpcParameter[] = [];
+  private _params: TrameParameter[] = [];
   private _num = 0;
   private _exposed = new Map<string, string>();
   private _binary?: Uint8Array;
@@ -33,8 +33,8 @@ export class WaevaRpcCall {
   }
 
   /** Startet einen Builder für `controller.method`. */
-  static init(controller: string, method: string): WaevaRpcCall {
-    return new WaevaRpcCall(controller, method);
+  static init(controller: string, method: string): TrameCall {
+    return new TrameCall(controller, method);
   }
 
   /** Setzt die Request-Id (Korrelation). Default: `${controller}.${method}`. */
@@ -105,8 +105,8 @@ export class WaevaRpcCall {
     return this;
   }
 
-  /** Wandelt den Builder in einen versandfertigen WaevaRpcRequest um. */
-  toRequest(): WaevaRpcRequest {
+  /** Wandelt den Builder in einen versandfertigen TrameRequest um. */
+  toRequest(): TrameRequest {
     const id = this._id ?? `${this._controller}.${this._method}`;
     return {
       controller: this._controller,
@@ -119,10 +119,10 @@ export class WaevaRpcCall {
   }
 
   /**
-   * Batch-Factory: baut einen WaevaRpcMultiRequest aus mehreren (vorab gebauten)
-   * WaevaRpcRequests. `mode` Serial aktiviert @alias-Abhängigkeitsauflösung.
+   * Batch-Factory: baut einen TrameMultiRequest aus mehreren (vorab gebauten)
+   * TrameRequests. `mode` Serial aktiviert @alias-Abhängigkeitsauflösung.
    */
-  static batch(requests: WaevaRpcRequest[], mode: ExecutionMode = ExecutionMode.Serial): WaevaRpcMultiRequest {
+  static batch(requests: TrameRequest[], mode: ExecutionMode = ExecutionMode.Serial): TrameMultiRequest {
     return { requests, mode };
   }
 

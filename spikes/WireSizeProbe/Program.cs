@@ -1,4 +1,4 @@
-// Profiling-Spike: Wo sitzen die Bytes beim WaevaRpc-REST-GetAll?
+// Profiling-Spike: Wo sitzen die Bytes beim Trame-REST-GetAll?
 //
 // Antwortet die Frage, ob eine kompakte Draht-Codierung (MessagePack Route B =
 // JSON→MessagePack 1:1, bzw. Route A = typisiert) den Single-Call-Nachteil
@@ -9,16 +9,16 @@
 //  - 100 sparse Customers, wie CustomerService.AddCustomer sie anlegt
 //    (nur Id/Name/OrderId gesetzt; Created=default, ResourceId=Guid.Empty,
 //     Map=null, Addresses=[]).
-//  - Invoker legt das Ergebnis als JSON-String in WaevaRpcResponse.Data
-//    (WaevaRpcInvoker.ReturnResponse: JsonSerializer.Serialize(result) OHNE Options
+//  - Invoker legt das Ergebnis als JSON-String in TrameResponse.Data
+//    (TrameInvoker.ReturnResponse: JsonSerializer.Serialize(result) OHNE Options
 //     → PascalCase). Results.Ok(response) serialisiert den Mantel mit Minimal-API-
 //     Default (camelCase) → das innere JSON wird als escapetes String-Literal
 //     eingebettet. Genau diese Doppel-Wicklung wird hier gemessen.
 //
 // Kein Server, kein HTTP — reine Serialisierungs-Messung (Draht-Größen).
 using Google.Protobuf;
-using WaevaRpc.Model;
-using WaevaRpcCommon.Models;
+using Trame.Model;
+using TrameCommon.Models;
 using System.Text.Encodings.Web;
 using MessagePack;
 using MessagePack.Resolvers;
@@ -40,20 +40,20 @@ var invokerOptions = new JsonSerializerOptions(); // default: PascalCase, schrei
 string nativeRestBody = JsonSerializer.Serialize(customers, webOptions);
 int nativeRestBytes = System.Text.Encoding.UTF8.GetByteCount(nativeRestBody);
 
-// ─── 2. WaevaRpc: Payload-Inner (Invoker legt in Data) — PascalCase-JSON ───────
-string waevaRpcPayloadJson = JsonSerializer.Serialize(customers, invokerOptions);
-int waevaRpcPayloadBytes = System.Text.Encoding.UTF8.GetByteCount(waevaRpcPayloadJson);
+// ─── 2. Trame: Payload-Inner (Invoker legt in Data) — PascalCase-JSON ───────
+string tramePayloadJson = JsonSerializer.Serialize(customers, invokerOptions);
+int tramePayloadBytes = System.Text.Encoding.UTF8.GetByteCount(tramePayloadJson);
 
-// ─── 3. WaevaRpc: volle REST-Antwort (Mantel camelCase, Data=escapeter Payload-String) ──
-var waevaRpcResponse = new WaevaRpcResponse
+// ─── 3. Trame: volle REST-Antwort (Mantel camelCase, Data=escapeter Payload-String) ──
+var trameResponse = new TrameResponse
 {
     Code = 200,
-    Data = waevaRpcPayloadJson,   // inner JSON wird als String-Literal eingebettet
+    Data = tramePayloadJson,   // inner JSON wird als String-Literal eingebettet
     Id = "req-1"
 };
-string waevaRpcFullJson = JsonSerializer.Serialize(waevaRpcResponse, webOptions);
-int waevaRpcFullBytes = System.Text.Encoding.UTF8.GetByteCount(waevaRpcFullJson);
-int envelopeTax = waevaRpcFullBytes - waevaRpcPayloadBytes; // Mantel + Escape-Overhead
+string trameFullJson = JsonSerializer.Serialize(trameResponse, webOptions);
+int trameFullBytes = System.Text.Encoding.UTF8.GetByteCount(trameFullJson);
+int envelopeTax = trameFullBytes - tramePayloadBytes; // Mantel + Escape-Overhead
 
 // ─── 3b. JSON-Fix-Hebel (ohne neues Draht-Format!) ───────────────────────────
 //  (a) Relaxed Encoder: `"` → `\"` statt `"` (6 B). Eine Options-Änderung.
@@ -61,7 +61,7 @@ var relaxedOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
 {
     Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
 };
-string relaxedFull = JsonSerializer.Serialize(waevaRpcResponse, relaxedOptions);
+string relaxedFull = JsonSerializer.Serialize(trameResponse, relaxedOptions);
 int relaxedFullBytes = System.Text.Encoding.UTF8.GetByteCount(relaxedFull);
 //  (b) Single-Pass: Payload strukturiert einbetten statt als JSON-String in Data —
 //      kein Double-Wrapping, keine Quote-Escapes im Payload. (Entspricht einer
@@ -71,11 +71,11 @@ int singlePassBytes = System.Text.Encoding.UTF8.GetByteCount(singlePass);
 
 //    Keine Schema-Änderung, keine Attribute — „JSON, nur binär". Envelope-Tax
 //    entfällt (keine escapeten Quotes), aber Payload behält String-Keys + Defaults.
-byte[] routeBPayload = MessagePackSerializer.ConvertFromJson(waevaRpcPayloadJson);
+byte[] routeBPayload = MessagePackSerializer.ConvertFromJson(tramePayloadJson);
 int routeBPayloadBytes = routeBPayload.Length;
 // Route B volle Antwort: MessagePack-Envelope (Integer-Keys, [MessagePackObject])
 // + Payload als binär in Content (statt JSON-String in Data).
-byte[] routeBFull = MessagePackSerializer.Serialize(new WaevaRpcResponse
+byte[] routeBFull = MessagePackSerializer.Serialize(new TrameResponse
 {
     Code = 200,
     Content = routeBPayload,
@@ -90,7 +90,7 @@ int routeBFullBytes = routeBFull.Length;
 var contractlessOpts = MessagePackSerializerOptions.Standard.WithResolver(ContractlessStandardResolver.Instance);
 byte[] routeAPayload = MessagePackSerializer.Serialize(customers, contractlessOpts);
 int routeAPayloadBytes = routeAPayload.Length;
-byte[] routeAFull = MessagePackSerializer.Serialize(new WaevaRpcResponse
+byte[] routeAFull = MessagePackSerializer.Serialize(new TrameResponse
 {
     Code = 200,
     Content = routeAPayload,
@@ -99,10 +99,10 @@ byte[] routeAFull = MessagePackSerializer.Serialize(new WaevaRpcResponse
 int routeAFullBytes = routeAFull.Length;
 
 // ─── 6. gRPC-Protobuf: proto3 lässt Defaults weg (int-Field-Tags, keine Keys) ──
-var protoList = new WaevaRpc.Grpc.CustomerList();
+var protoList = new Trame.Grpc.CustomerList();
 for (int i = 1; i <= N; i++)
 {
-    protoList.Customers.Add(new WaevaRpc.Grpc.Customer
+    protoList.Customers.Add(new Trame.Grpc.Customer
     {
         Id = i,
         OrderId = i,
@@ -116,19 +116,19 @@ int grpcBytes = protoList.ToByteArray().Length;
 double KB(int b) => b / 1024.0;
 
 // Diagnose: woher kommt die Envelope-Tax wirklich?
-int quoteCount = waevaRpcPayloadJson.Count(c => c == '"');
-int backslashCount = waevaRpcFullJson.Count(c => c == '\\');
+int quoteCount = tramePayloadJson.Count(c => c == '"');
+int backslashCount = trameFullJson.Count(c => c == '\\');
 // Data allein als JSON-String serialisiert = exakte escaped-Größe.
-string dataAsJsonString = JsonSerializer.Serialize(waevaRpcPayloadJson, webOptions);
+string dataAsJsonString = JsonSerializer.Serialize(tramePayloadJson, webOptions);
 int dataAsJsonStringBytes = System.Text.Encoding.UTF8.GetByteCount(dataAsJsonString);
-// Reiner Mantel: WaevaRpcResponse mit Data=null.
-string pureEnvelope = JsonSerializer.Serialize(new WaevaRpcResponse { Code = 200, Id = "req-1" }, webOptions);
+// Reiner Mantel: TrameResponse mit Data=null.
+string pureEnvelope = JsonSerializer.Serialize(new TrameResponse { Code = 200, Id = "req-1" }, webOptions);
 int pureEnvelopeBytes = System.Text.Encoding.UTF8.GetByteCount(pureEnvelope);
 Console.WriteLine("DIAGNOSE Envelope-Tax (präzise):");
-Console.WriteLine($"  Payload-Inner (Data-Rohstring)   : {waevaRpcPayloadBytes:N0} B  (Quotes: {quoteCount:N0})");
-Console.WriteLine($"  Data als JSON-String (escaped)   : {dataAsJsonStringBytes:N0} B  → Escape-Overhead: {dataAsJsonStringBytes - waevaRpcPayloadBytes:N0} B");
-Console.WriteLine($"  Reiner Mantel (WaevaRpcResponse, Data=null): {pureEnvelopeBytes:N0} B");
-Console.WriteLine($"  Summe (Data-escaped + Mantel)    : {dataAsJsonStringBytes + pureEnvelopeBytes:N0} B  (Full gemessen: {waevaRpcFullBytes:N0})");
+Console.WriteLine($"  Payload-Inner (Data-Rohstring)   : {tramePayloadBytes:N0} B  (Quotes: {quoteCount:N0})");
+Console.WriteLine($"  Data als JSON-String (escaped)   : {dataAsJsonStringBytes:N0} B  → Escape-Overhead: {dataAsJsonStringBytes - tramePayloadBytes:N0} B");
+Console.WriteLine($"  Reiner Mantel (TrameResponse, Data=null): {pureEnvelopeBytes:N0} B");
+Console.WriteLine($"  Summe (Data-escaped + Mantel)    : {dataAsJsonStringBytes + pureEnvelopeBytes:N0} B  (Full gemessen: {trameFullBytes:N0})");
 Console.WriteLine($"  Backslashes im Full              : {backslashCount:N0}");
 Console.WriteLine($"  Reiner Mantel (erste 200)        : {pureEnvelope[..Math.Min(200, pureEnvelope.Length)]}");
 int unicodeEscapes = System.Text.RegularExpressions.Regex.Matches(dataAsJsonString, @"\\u[0-9a-fA-F]{4}").Count;
@@ -142,11 +142,11 @@ Console.WriteLine();
 Console.WriteLine($"{"Kodierung",-50} {"Bytes",10} {"KB",8}");
 Console.WriteLine(new string('-', 70));
 Console.WriteLine($"{"REST nativ (camelCase JSON)",-50} {nativeRestBytes,10:N0} {KB(nativeRestBytes),8:N2}");
-Console.WriteLine($"{"WaevaRpc Payload-Inner (PascalCase JSON)",-50} {waevaRpcPayloadBytes,10:N0} {KB(waevaRpcPayloadBytes),8:N2}");
-Console.WriteLine($"{"WaevaRpc REST voll (Mantel + escapeter Payload)",-50} {waevaRpcFullBytes,10:N0} {KB(waevaRpcFullBytes),8:N2}");
+Console.WriteLine($"{"Trame Payload-Inner (PascalCase JSON)",-50} {tramePayloadBytes,10:N0} {KB(tramePayloadBytes),8:N2}");
+Console.WriteLine($"{"Trame REST voll (Mantel + escapeter Payload)",-50} {trameFullBytes,10:N0} {KB(trameFullBytes),8:N2}");
 Console.WriteLine($"{"  davon Envelope-Tax (Mantel+Escape)",-50} {envelopeTax,10:N0} {KB(envelopeTax),8:N2}");
-Console.WriteLine($"{"WaevaRpc REST + relaxed Encoder (\" statt \\u0022)",-50} {relaxedFullBytes,10:N0} {KB(relaxedFullBytes),8:N2}");
-Console.WriteLine($"{"WaevaRpc REST Single-Pass (strukturiert, kein Wrap)",-50} {singlePassBytes,10:N0} {KB(singlePassBytes),8:N2}");
+Console.WriteLine($"{"Trame REST + relaxed Encoder (\" statt \\u0022)",-50} {relaxedFullBytes,10:N0} {KB(relaxedFullBytes),8:N2}");
+Console.WriteLine($"{"Trame REST Single-Pass (strukturiert, kein Wrap)",-50} {singlePassBytes,10:N0} {KB(singlePassBytes),8:N2}");
 Console.WriteLine();
 Console.WriteLine($"{"MessagePack Route B — Payload (JSON→MP 1:1)",-50} {routeBPayloadBytes,10:N0} {KB(routeBPayloadBytes),8:N2}");
 Console.WriteLine($"{"MessagePack Route B — voll (MP-Envelope+binär)",-50} {routeBFullBytes,10:N0} {KB(routeBFullBytes),8:N2}");
@@ -158,14 +158,14 @@ Console.WriteLine("Verhältnisse (kleiner = besser):");
 Console.WriteLine(new string('-', 70));
 double Ref(int b) => Math.Round((double)b / grpcBytes, 2);
 Console.WriteLine($"  gRPC-Protobuf              = {Ref(grpcBytes)}×  (Referenz)");
-Console.WriteLine($"  WaevaRpc REST voll (JSON)      = {Ref(waevaRpcFullBytes)}×  vs gRPC");
-Console.WriteLine($"  WaevaRpc REST + relaxed Encoder= {Ref(relaxedFullBytes)}×  vs gRPC");
-Console.WriteLine($"  WaevaRpc REST Single-Pass      = {Ref(singlePassBytes)}×  vs gRPC");
-Console.WriteLine($"  WaevaRpc Payload-Inner (JSON)  = {Ref(waevaRpcPayloadBytes)}×  vs gRPC");
+Console.WriteLine($"  Trame REST voll (JSON)      = {Ref(trameFullBytes)}×  vs gRPC");
+Console.WriteLine($"  Trame REST + relaxed Encoder= {Ref(relaxedFullBytes)}×  vs gRPC");
+Console.WriteLine($"  Trame REST Single-Pass      = {Ref(singlePassBytes)}×  vs gRPC");
+Console.WriteLine($"  Trame Payload-Inner (JSON)  = {Ref(tramePayloadBytes)}×  vs gRPC");
 Console.WriteLine($"  MessagePack Route B voll   = {Ref(routeBFullBytes)}×  vs gRPC");
 Console.WriteLine($"  MessagePack Route A voll   = {Ref(routeAFullBytes)}×  vs gRPC");
 Console.WriteLine();
-Console.WriteLine("Wo sitzen die WaevaRpc-REST-Bytes (vs nativ-REST)?");
+Console.WriteLine("Wo sitzen die Trame-REST-Bytes (vs nativ-REST)?");
 Console.WriteLine($"  Nativ-REST-Body            : {nativeRestBytes:N0} B");
-Console.WriteLine($"  WaevaRpc-Envelope-Tax (Mantel) : {envelopeTax:N0} B  ({envelopeTax*100.0/waevaRpcFullBytes:0.0}% des WaevaRpc-Body)");
-Console.WriteLine($"  → Envelope-Tax allein macht WaevaRpc {envelopeTax:n0} B größer als nötig.");
+Console.WriteLine($"  Trame-Envelope-Tax (Mantel) : {envelopeTax:N0} B  ({envelopeTax*100.0/trameFullBytes:0.0}% des Trame-Body)");
+Console.WriteLine($"  → Envelope-Tax allein macht Trame {envelopeTax:n0} B größer als nötig.");

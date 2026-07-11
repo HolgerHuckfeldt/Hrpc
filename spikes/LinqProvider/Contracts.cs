@@ -1,11 +1,11 @@
-using WaevaRpc.Model;
+using Trame.Model;
 
-namespace WaevaRpc.Spike.LinqProvider;
+namespace Trame.Spike.LinqProvider;
 
 // =====================================================================
 // AUTO-GENERIERT (Prototyp). Diese Datei spiegelt den Output des
 // ContractGenerator (siehe ContractGenerator.cs) wider, der die Discovery
-// (/api/waeva/discovery) in typsichere C#-Verträge übersetzt. Im Prototyp
+// (/api/trame/discovery) in typsichere C#-Verträge übersetzt. Im Prototyp
 // ist sie der Einfachheit halber handgeführt und gegen den Customer-
 // Controller der Sample-App gemodelt. Ein echter Generator würde für jede
 // Discovery-Datei eine solche Datei erzeugen.
@@ -17,21 +17,21 @@ namespace WaevaRpc.Spike.LinqProvider;
 // =====================================================================
 
 /// <summary>Vertrag für den Customer-Controller der Sample-App.</summary>
-[WaevaRpcServiceContract("Customer")]
+[TrameServiceContract("Customer")]
 public interface ICustomerService
 {
-    [WaevaRpcMethodContract("AddCustomer")]
+    [TrameMethodContract("AddCustomer")]
     Task<int> AddCustomer(Arg<string> name);
 
-    [WaevaRpcMethodContract("GetCustomerById")]
+    [TrameMethodContract("GetCustomerById")]
     Task<Customer?> GetCustomerById(Arg<int> id);
 
-    [WaevaRpcMethodContract("GetAllCustomers")]
+    [TrameMethodContract("GetAllCustomers")]
     Task<List<Customer>> GetAllCustomers();
 
-    [WaevaRpcMethodContract("UpdateCustomerName")]
+    [TrameMethodContract("UpdateCustomerName")]
     Task UpdateCustomerName(Arg<int> customerId, Arg<string> newName);
 
-    [WaevaRpcMethodContract("DeleteCustomer")]
+    [TrameMethodContract("DeleteCustomer")]
     Task DeleteCustomer(Arg<int> id);
 }

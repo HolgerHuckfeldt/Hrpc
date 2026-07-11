@@ -6,52 +6,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build the entire solution
-dotnet build WaevaRpc.sln
+dotnet build Trame.sln
 
 # Run all tests
-dotnet test WaevaRpcTests/WaevaTests.csproj
+dotnet test TrameTests/TrameTests.csproj
 
 # Run a specific test class
-dotnet test WaevaRpcTests/WaevaTests.csproj --filter "FullyQualifiedName~WaevaRpcInvokerTests"
+dotnet test TrameTests/TrameTests.csproj --filter "FullyQualifiedName~TrameInvokerTests"
 
 # Run a single test method
-dotnet test WaevaRpcTests/WaevaTests.csproj --filter "FullyQualifiedName~WaevaRpcInvokerTests.MyTestMethod"
+dotnet test TrameTests/TrameTests.csproj --filter "FullyQualifiedName~TrameInvokerTests.MyTestMethod"
 
 # Run benchmarks (Release mode required)
-dotnet run -c Release --project WaevaRpcBench/WaevaBench.csproj
+dotnet run -c Release --project TrameBench/TrameBench.csproj
 
 # Run the sample application
-dotnet run --project WaevaRpc/Waeva.csproj
+dotnet run --project Trame/Trame.csproj
 ```
 
 ## Architecture
 
-WaevaRpc is a **multi-transport RPC framework** for .NET 8 that is **code-first** (no `.proto` files, no IDL). The C# classes decorated with attributes *are* the contract. Discovery metadata is generated at runtime.
+Trame is a **multi-transport RPC framework** for .NET 8 that is **code-first** (no `.proto` files, no IDL). The C# classes decorated with attributes *are* the contract. Discovery metadata is generated at runtime.
 
 ### Project Dependency Graph
 
 ```
-WaevaRpcCommon (shared models, attributes, exceptions)
+TrameCommon (shared models, attributes, exceptions)
     ↑
-WaevaRpcCore (invoker, discovery, dependency resolver, interceptors) ← depends on JsonPath.Net
+TrameCore (invoker, discovery, dependency resolver, interceptors) ← depends on JsonPath.Net
     ↑
 ┌───────────┬──────────────┬──────────────┐
-│ WaevaRpcRest  │ WaevaRpcWebSocket│  WaevaRpcHub     │  ← transport layers
+│ TrameRest  │ TrameWebSocket│  TrameHub     │  ← transport layers
 │ (Minimal  │ (RFC 6455    │  (SignalR +  │
 │  APIs)    │  middleware)  │   MsgPack)   │
 └───────────┴──────────────┴──────────────┘
     ↑              ↑              ↑
-WaevaRpcClient (REST, WebSocket, SignalR clients + fluent WaevaRpcCall builder)
+TrameClient (REST, WebSocket, SignalR clients + fluent TrameCall builder)
     ↑
-WaevaRpc (sample app) · WaevaRpcTests (xUnit + FluentAssertions) · WaevaRpcBench (BenchmarkDotNet)
+Trame (sample app) · TrameTests (xUnit + FluentAssertions) · TrameBench (BenchmarkDotNet)
 ```
 
-### Core Engine (`WaevaRpcCore`)
+### Core Engine (`TrameCore`)
 
-**`WaevaRpcInvoker`** (registered as singleton `IWaevaRpcCore`) is the central execution engine:
-- `Register<T>()` scans `[WaevaRpcController]` and `[WaevaRpcMethod]` attributes, compiles each method into an **Expression Tree delegate** (`Func<object, object?[], object?>`) stored in a `ConcurrentDictionary` cache. No reflection per call.
-- `InvokeDi(WaevaRpcRequest)` runs a single call through the interceptor pipeline → authorization → parameter deserialization → compiled delegate invocation → result serialization.
-- `InvokeDi(IEnumerable<WaevaRpcRequest>, ExecutionMode)` handles batch calls:
+**`TrameInvoker`** (registered as singleton `ITrameCore`) is the central execution engine:
+- `Register<T>()` scans `[TrameController]` and `[TrameMethod]` attributes, compiles each method into an **Expression Tree delegate** (`Func<object, object?[], object?>`) stored in a `ConcurrentDictionary` cache. No reflection per call.
+- `InvokeDi(TrameRequest)` runs a single call through the interceptor pipeline → authorization → parameter deserialization → compiled delegate invocation → result serialization.
+- `InvokeDi(IEnumerable<TrameRequest>, ExecutionMode)` handles batch calls:
   - **Parallel**: `Task.WhenAll` over all requests.
   - **Serial**: sequential execution with `@alias` dependency resolution between calls.
   - **Auto-detect**: if any request has `DependencyMapping`, switches to topological batch execution via `DependencyGraphBuilder`.
@@ -59,50 +59,50 @@ WaevaRpc (sample app) · WaevaRpcTests (xUnit + FluentAssertions) · WaevaRpcBen
 
 **`DependencyGraphBuilder`** performs topological sort (Kahn's algorithm) on requests with `@alias` placeholders. Groups independent requests into parallel batches; detects cycles.
 
-**`IWaevaRpcInterceptor`** / `WaevaRpcInvocationDelegate`: middleware pipeline pattern. Interceptors wrap the actual execution in reverse registration order. Built-in `WaevaRpcLoggingInterceptor` logs call duration.
+**`ITrameInterceptor`** / `TrameInvocationDelegate`: middleware pipeline pattern. Interceptors wrap the actual execution in reverse registration order. Built-in `TrameLoggingInterceptor` logs call duration.
 
-**`WaevaRpcDiscoveryService`** generates `DiscoveryInfo` from registered controllers, including contract types, `[WaevaRpcDocumentation]` summaries, and `[WaevaRpcExample]` JSON samples. Contract types are **inferred from method signatures** by default (Weg C): any class type whose assembly belongs to the registered controllers' assemblies is fully expanded (property schema, example, nested types); types from other assemblies (BCL, framework envelope, third-party) stay opaque unless overridden. `[WaevaRpcDataContract]` is an optional override (bare = force-expand, `Exclude = true` = force-opaque). Cached with invalidation on new registrations.
+**`TrameDiscoveryService`** generates `DiscoveryInfo` from registered controllers, including contract types, `[TrameDocumentation]` summaries, and `[TrameExample]` JSON samples. Contract types are **inferred from method signatures** by default (Weg C): any class type whose assembly belongs to the registered controllers' assemblies is fully expanded (property schema, example, nested types); types from other assemblies (BCL, framework envelope, third-party) stay opaque unless overridden. `[TrameDataContract]` is an optional override (bare = force-expand, `Exclude = true` = force-opaque). Cached with invalidation on new registrations.
 
 ### Transports
 
 | Transport | Project | Endpoint | Wire Format |
 |-----------|---------|----------|-------------|
-| REST | WaevaRpcRest | `POST /api/waeva/json`, `/api/waeva/json/multi`, `GET /api/waeva/discovery` | HTTP/1.1 + JSON |
-| WebSocket | WaevaRpcWebSocket | `ws://host/waevaws` | RFC 6455 + JSON text frames |
-| SignalR | WaevaRpcHub | `/Waeva` hub | WebSocket + MessagePack binary |
+| REST | TrameRest | `POST /api/trame/json`, `/api/trame/json/multi`, `GET /api/trame/discovery` | HTTP/1.1 + JSON |
+| WebSocket | TrameWebSocket | `ws://host/tramews` | RFC 6455 + JSON text frames |
+| SignalR | TrameHub | `/Trame` hub | WebSocket + MessagePack binary |
 
-All transports deserialize the incoming `WaevaRpcRequest`/`WaevaRpcMultiRequest` and delegate to `IWaevaRpcCore.InvokeDi()`.
+All transports deserialize the incoming `TrameRequest`/`TrameMultiRequest` and delegate to `ITrameCore.InvokeDi()`.
 
-### Client Library (`WaevaRpcClient`)
+### Client Library (`TrameClient`)
 
-- `IWaevaRpcClient` interface with `Call(WaevaRpcRequest)`, `Call<T>(WaevaRpcRequest)`, `Call(WaevaRpcMultiRequest)`.
-- `WaevaRpcClientBase`: shared `Call<T>()` with JSON deserialization and `WaevaRpcException` on errors.
-- `WaevaRpcRestJsonClient`: `HttpClient`-based, `IDisposable`.
-- `WaevaRpcWebSocketClient`: persistent `ClientWebSocket` connection, `SemaphoreSlim` for thread safety, `IAsyncDisposable`.
-- `WaevaRpcSignalrClient`: SignalR hub connection with auto-reconnect and exponential backoff.
-- `WaevaRpcCall`: fluent builder — `.Init("Controller", "Method").With(args).Named("id").Exposes("$", "alias").WithAlias("@alias", "default").ToRequest()`. The `Exposes` JSON path is **result-relative** (`$` = whole result, `$.Property`, `$[0].Id`); there is no `$.data` envelope level.
+- `ITrameClient` interface with `Call(TrameRequest)`, `Call<T>(TrameRequest)`, `Call(TrameMultiRequest)`.
+- `TrameClientBase`: shared `Call<T>()` with JSON deserialization and `TrameException` on errors.
+- `TrameRestJsonClient`: `HttpClient`-based, `IDisposable`.
+- `TrameWebSocketClient`: persistent `ClientWebSocket` connection, `SemaphoreSlim` for thread safety, `IAsyncDisposable`.
+- `TrameSignalrClient`: SignalR hub connection with auto-reconnect and exponential backoff.
+- `TrameCall`: fluent builder — `.Init("Controller", "Method").With(args).Named("id").Exposes("$", "alias").WithAlias("@alias", "default").ToRequest()`. The `Exposes` JSON path is **result-relative** (`$` = whole result, `$.Property`, `$[0].Id`); there is no `$.data` envelope level.
 
-### Key Attributes (defined in `WaevaRpcCommon`)
+### Key Attributes (defined in `TrameCommon`)
 
-- `[WaevaRpcController("name")]` — marks a class as an RPC controller
-- `[WaevaRpcMethod("name")]` — marks a method as remotely callable
-- `[WaevaRpcAuthorise]` — requires authentication (optional role parameter)
-- `[WaevaRpcDataContract]` — optional discovery override: bare = force-expand a type (e.g. a third-party type you want documented); `Exclude = true` = force-opaque. By default, discovery infers contract types from method signatures via the controller-assembly boundary.
-- `[WaevaRpcDocumentation("summary")]` — XML-like doc for discovery
-- `[WaevaRpcExample("json")]` — example JSON for developer UI
+- `[TrameController("name")]` — marks a class as an RPC controller
+- `[TrameMethod("name")]` — marks a method as remotely callable
+- `[TrameAuthorise]` — requires authentication (optional role parameter)
+- `[TrameDataContract]` — optional discovery override: bare = force-expand a type (e.g. a third-party type you want documented); `Exclude = true` = force-opaque. By default, discovery infers contract types from method signatures via the controller-assembly boundary.
+- `[TrameDocumentation("summary")]` — XML-like doc for discovery
+- `[TrameExample("json")]` — example JSON for developer UI
 
 ### Request/Response Model
 
-Parameters are sent as `WaevaRpcParameter[]` (name+data pairs), matched by parameter name. `CancellationToken` is injected automatically. `byte[]` parameters receive raw binary from `WaevaRpcRequest.BinaryData`.
+Parameters are sent as `TrameParameter[]` (name+data pairs), matched by parameter name. `CancellationToken` is injected automatically. `byte[]` parameters receive raw binary from `TrameRequest.BinaryData`.
 
-`WaevaRpcResponse` carries `Code` (HTTP-like status), `Data` (JSON result), `Content` (binary), `ExposedDependencies` (for chaining), and `WaevaRpcError` on failure. Clients throw `WaevaRpcException` on non-2xx responses.
+`TrameResponse` carries `Code` (HTTP-like status), `Data` (JSON result), `Content` (binary), `ExposedDependencies` (for chaining), and `TrameError` on failure. Clients throw `TrameException` on non-2xx responses.
 
 ### Error Handling
 
 Controllers signal non-success two ways — use the right one:
-- **Business/domain errors → return `WaevaRpcResponse`** via the `WaevaRpcResults` factory (`WaevaRpcCommon.Results`): `WaevaRpcResults.NotFound("…")`, `WaevaRpcResults.BadRequest("…")`, `WaevaRpcResults.Error(code, message, details?)`, `WaevaRpcResults.Ok(obj)`. The invoker passes a returned `WaevaRpcResponse` through verbatim (`ReturnResponse`), so your `Code`+`Data`+`Error` reach the client. The message is **not** gated by `EnableDetailedErrors`.
+- **Business/domain errors → return `TrameResponse`** via the `TrameResults` factory (`TrameCommon.Results`): `TrameResults.NotFound("…")`, `TrameResults.BadRequest("…")`, `TrameResults.Error(code, message, details?)`, `TrameResults.Ok(obj)`. The invoker passes a returned `TrameResponse` through verbatim (`ReturnResponse`), so your `Code`+`Data`+`Error` reach the client. The message is **not** gated by `EnableDetailedErrors`.
 - **Unexpected/internal failures → throw**. Any throw becomes a generic `500` (no message leak); the stack only lands in `error.details` when `EnableDetailedErrors` (Development) is on.
-- Do **not** throw `WaevaRpcException` to set a custom code — the server has no `catch(WaevaRpcException)`; it becomes generic 500. Control the code via `WaevaRpcResults.Error(...)`.
+- Do **not** throw `TrameException` to set a custom code — the server has no `catch(TrameException)`; it becomes generic 500. Control the code via `TrameResults.Error(...)`.
 
 ### Dependency Chaining
 
@@ -110,26 +110,26 @@ Request A declares `DependencyMapping: { "alias" → "$.Path" }` (a **result-rel
 
 ### Registration Flow
 
-`AddWaevaRpc(WaevaRpcOptions)` in `WaevaRpcHub`:
+`AddTrame(TrameOptions)` in `TrameHub`:
 1. Registers SignalR (optional, with MessagePack support)
 2. Configures rate limiting (fixed-window, configurable)
-3. Registers `IWaevaRpcCore` as singleton (`WaevaRpcInvoker`)
-4. Registers `WaevaRpcLoggingInterceptor`
-5. Auto-discovers all `[WaevaRpcController]` types across assemblies and registers them as scoped services
+3. Registers `ITrameCore` as singleton (`TrameInvoker`)
+4. Registers `TrameLoggingInterceptor`
+5. Auto-discovers all `[TrameController]` types across assemblies and registers them as scoped services
 
-`UseWaevaRpc()` resolves `IWaevaRpcCore` and triggers controller registration. `MapWaevaRpcEndpoints()` (in `WaevaRpcRest`) adds the REST endpoints.
+`UseTrame()` resolves `ITrameCore` and triggers controller registration. `MapTrameEndpoints()` (in `TrameRest`) adds the REST endpoints.
 
-### Test Project (`WaevaRpcTests`)
+### Test Project (`TrameTests`)
 
 Uses **xUnit** + **FluentAssertions** + **Moq**. Tests are organized as:
-- `Unit/Core/` — `WaevaRpcInvokerTests`, `DependencyGraphBuilderTests`, `DependencyResolverTests`, `WaevaRpcDiscoveryServiceTests`
-- `Unit/Client/` — `WaevaRpcClientTests`
+- `Unit/Core/` — `TrameInvokerTests`, `DependencyGraphBuilderTests`, `DependencyResolverTests`, `TrameDiscoveryServiceTests`
+- `Unit/Client/` — `TrameClientTests`
 - `Integration/` — `RestTransportTests` (uses `WebApplicationFactory`)
 - `Fixtures/` — test controller definitions
 
 ### Code Conventions
 
 - The codebase uses **German** for comments, log messages, and error strings. New code should follow this convention.
-- Controllers are registered via attribute scanning (`[WaevaRpcController]`), not manual registration.
-- The `WaevaRpcInvoker` is a singleton — controllers are resolved per-call via `IServiceScopeFactory.CreateScope()`.
+- Controllers are registered via attribute scanning (`[TrameController]`), not manual registration.
+- The `TrameInvoker` is a singleton — controllers are resolved per-call via `IServiceScopeFactory.CreateScope()`.
 - Expression Tree compilation happens once at registration time, not per invocation.

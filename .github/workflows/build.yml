@@ -24,19 +24,19 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore
-        run: dotnet restore WaevaRpc.sln
+        run: dotnet restore Trame.sln
 
       - name: Build
-        run: dotnet build WaevaRpc.sln --configuration Release --no-restore
+        run: dotnet build Trame.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test WaevaRpcTests/WaevaTests.csproj --configuration Release --no-build --verbosity normal
+        run: dotnet test TrameTests/TrameTests.csproj --configuration Release --no-build --verbosity normal
 
       - name: Check formatting
-        run: dotnet format WaevaRpc.sln --verify-no-changes --severity warn
+        run: dotnet format Trame.sln --verify-no-changes --severity warn
 
       - name: Check vulnerable packages
-        run: dotnet list WaevaRpc.sln package --vulnerable
+        run: dotnet list Trame.sln package --vulnerable
 
   pack:
     runs-on: ubuntu-latest
@@ -51,17 +51,17 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore
-        run: dotnet restore WaevaRpc.sln
+        run: dotnet restore Trame.sln
 
       - name: Pack NuGet packages
         run: |
-          dotnet pack WaevaRpcCommon/WaevaCommon.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack WaevaRpcCore/WaevaCore.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack WaevaRpcHub/WaevaHub.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack WaevaRpcRest/WaevaRest.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack WaevaRpcWebSocket/WaevaWebSocket.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack WaevaRpcClient/WaevaClient.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack WaevaRpcDeveloperUi/WaevaDeveloperUi.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack TrameCommon/TrameCommon.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack TrameCore/TrameCore.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack TrameHub/TrameHub.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack TrameRest/TrameRest.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack TrameWebSocket/TrameWebSocket.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack TrameClient/TrameClient.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack TrameDeveloperUi/TrameDeveloperUi.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
 
       - name: Publish to NuGet
         run: dotnet nuget push "**/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

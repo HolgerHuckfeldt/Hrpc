@@ -1,9 +1,9 @@
-// Kanonische Wire-Typen des WaevaRpc-Protokolls (camelCase, siehe PROTOCOL.md).
-// Port aus WaevaRpcDeveloperUi/src/lib/types/discovery.ts; Binary-Felder sind hier
+// Kanonische Wire-Typen des Trame-Protokolls (camelCase, siehe PROTOCOL.md).
+// Port aus TrameDeveloperUi/src/lib/types/discovery.ts; Binary-Felder sind hier
 // korrekt als base64-String getypt (System.Text.Json serialisiert byte[] als
 // base64), nicht als number[].
 
-/** Ausführungsmodus für Batch-Requests (WaevaRpcMultiRequest.mode). */
+/** Ausführungsmodus für Batch-Requests (TrameMultiRequest.mode). */
 export enum ExecutionMode {
   /** 0 — alle Requests parallel (Dependencies werden ignoriert). */
   Parallel = 0,
@@ -11,8 +11,8 @@ export enum ExecutionMode {
   Serial = 1,
 }
 
-/** Lebenszyklus-Zustand des WebSocket-Clients (Spiegel von C# WaevaRpcConnectionState). */
-export enum WaevaRpcConnectionState {
+/** Lebenszyklus-Zustand des WebSocket-Clients (Spiegel von C# TrameConnectionState). */
+export enum TrameConnectionState {
   /** 0 — keine aktive Verbindung (vor dem ersten Connect oder nach erschöpftem Reconnect). */
   Disconnected = 0,
   /** 1 — Verbindungsaufbau läuft. */
@@ -23,16 +23,16 @@ export enum WaevaRpcConnectionState {
   Reconnecting = 3,
 }
 
-/** Strukturierter Fehler im WaevaRpcResponse.error-Feld (code != 2xx). */
-export interface WaevaRpcErrorBody {
+/** Strukturierter Fehler im TrameResponse.error-Feld (code != 2xx). */
+export interface TrameErrorBody {
   code: number;
   message: string;
   details?: string | null;
   requestId?: string | null;
 }
 
-/** Ein einzelner Parameter innerhalb von WaevaRpcRequest.stringData. */
-export interface WaevaRpcParameter {
+/** Ein einzelner Parameter innerhalb von TrameRequest.stringData. */
+export interface TrameParameter {
   /** Parametername (Server bindet danach). Bei Positionalen leer/ein Platzhalter. */
   parameterName: string;
   /** JSON-String des Werts (z. B. "42", "\"hi\"", "{\"id\":1}"). */
@@ -42,10 +42,10 @@ export interface WaevaRpcParameter {
 }
 
 /** Einzelner RPC-Request. */
-export interface WaevaRpcRequest {
+export interface TrameRequest {
   controller: string;
   method: string;
-  /** JSON-String eines Arrays von WaevaRpcParameter. */
+  /** JSON-String eines Arrays von TrameParameter. */
   stringData?: string;
   id?: string;
   /** alias → JsonPath; Werte aus dieser Response werden für Folgerequests exposed. */
@@ -55,13 +55,13 @@ export interface WaevaRpcRequest {
 }
 
 /** Batch-Request (mehrere Calls in einem Roundtrip). */
-export interface WaevaRpcMultiRequest {
-  requests: WaevaRpcRequest[];
+export interface TrameMultiRequest {
+  requests: TrameRequest[];
   mode: ExecutionMode;
 }
 
 /** Antwort eines RPC-Calls. */
-export interface WaevaRpcResponse {
+export interface TrameResponse {
   /** Logischer Status-Code (im Body, nicht HTTP-Status). 200–299 = Erfolg. */
   code: number;
   /** Strukturierter Ergebniswert (roh, null bei 204/void/Fehler). Seit dem
@@ -74,7 +74,7 @@ export interface WaevaRpcResponse {
   /** Aufgelöste alias → Wert-Map für Dependency-Chaining. */
   exposedDependencies?: Record<string, string> | null;
   /** Strukturierter Fehler bei non-2xx. */
-  error?: WaevaRpcErrorBody | null;
+  error?: TrameErrorBody | null;
   /**
    * true, wenn code 200–299. Server-seitig `[JsonIgnore]` und aus `code`
    * abgeleitet — das Wire-Frame enthält dieses Feld NICHT. Der Client füllt
@@ -83,7 +83,7 @@ export interface WaevaRpcResponse {
   isSuccess?: boolean;
 }
 
-// --- Discovery (GET /api/waeva/discovery) ---
+// --- Discovery (GET /api/trame/discovery) ---
 
 export interface DiscoveryInfo {
   controllers: ControllerMeta[];

@@ -9,14 +9,14 @@
 // DependencyMapping (siehe 04).
 // ==============================================================================
 
-import { WaevaRpcRestClient, WaevaRpcCall, ExecutionMode } from "waeva-rpc-client";
+import { TrameRestClient, TrameCall, ExecutionMode } from "trame-client";
 
-const rest = new WaevaRpcRestClient("https://localhost:5001", { bearer: token });
+const rest = new TrameRestClient("https://localhost:5001", { bearer: token });
 
-const batch = WaevaRpcCall.batch(
+const batch = TrameCall.batch(
   [
-    WaevaRpcCall.init("Customer", "GetCustomerById").with({ id: 1 }).named("a").toRequest(),
-    WaevaRpcCall.init("Customer", "GetCustomerById").with({ id: 2 }).named("b").toRequest(),
+    TrameCall.init("Customer", "GetCustomerById").with({ id: 1 }).named("a").toRequest(),
+    TrameCall.init("Customer", "GetCustomerById").with({ id: 2 }).named("b").toRequest(),
   ],
   ExecutionMode.Serial,
 );

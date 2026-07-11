@@ -1,6 +1,6 @@
-# WaevaRpc (Deutsch)
+# Trame (Deutsch)
 
-**WaevaRpc** ist ein hochperformantes, Multi-Transport-RPC-Framework für .NET 8, das die Einfachheit von REST mit der Performance persistenter Verbindungen verbindet.
+**Trame** ist ein hochperformantes, Multi-Transport-RPC-Framework für .NET 8, das die Einfachheit von REST mit der Performance persistenter Verbindungen verbindet.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -23,36 +23,36 @@ GraphQL löst Teile davon durch Query-Komposition, bringt aber eigene Komplexit�
 
 gRPC ist die offensichtliche Wahl für RPC auf .NET — also warum etwas anderes bauen?
 
-1. **gRPC war nicht gut unterstützt**, als WaevaRpc entstand. gRPC-Web (für Browser) brauchte einen Proxy, native Browser-Unterstützung fehlte, und die .NET-Tooling war noch unausgereift.
+1. **gRPC war nicht gut unterstützt**, als Trame entstand. gRPC-Web (für Browser) brauchte einen Proxy, native Browser-Unterstützung fehlte, und die .NET-Tooling war noch unausgereift.
 2. **Schema-first ist der falsche Default für .NET-Entwickler.** gRPC erfordert `.proto`-Dateien, einen Code-Generator und einen extra Build-Schritt. Man schreibt das Schema in einer DSL, generiert C#-Stubs und implementiert diese. In .NET *sind* die C#-Klassen bereits das Schema — warum eine zweite Definition in einer anderen Sprache pflegen?
 3. **gRPC bindet an einen Transport.** HTTP/2 + Protobuf ist toll für Server-zu-Server, aber Browser brauchen gRPC-Web, und über WebSocket oder REST geht es nur mit separater Implementierung.
 
-WaevaRpc ist **code-first**: Man schreibt C#-Klassen und Methoden, dekoriert sie mit Attributen, und das Framework erledigt den Rest. Keine `.proto`-Dateien, keine Code-Generierung, kein separates Schema. Discovery-Metadaten werden zur Laufzeit aus dem Code generiert.
+Trame ist **code-first**: Man schreibt C#-Klassen und Methoden, dekoriert sie mit Attributen, und das Framework erledigt den Rest. Keine `.proto`-Dateien, keine Code-Generierung, kein separates Schema. Discovery-Metadaten werden zur Laufzeit aus dem Code generiert.
 
-## Wie vergleicht sich WaevaRpc mit JSON-RPC?
+## Wie vergleicht sich Trame mit JSON-RPC?
 
-[JSON-RPC 2.0](https://www.jsonrpc.org/) ist der geistige Vorläufer von WaevaRpc — beide sind methodenorientiert, nicht ressourcenorientiert, und beide nutzen JSON. Also warum nicht einfach JSON-RPC nutzen?
+[JSON-RPC 2.0](https://www.jsonrpc.org/) ist der geistige Vorläufer von Trame — beide sind methodenorientiert, nicht ressourcenorientiert, und beide nutzen JSON. Also warum nicht einfach JSON-RPC nutzen?
 
-| | JSON-RPC 2.0 | **WaevaRpc** |
+| | JSON-RPC 2.0 | **Trame** |
 |---|---|---|
 | Methodenorientierte Aufrufe | ✅ | ✅ |
 | Batch-Calls | ✅ (JSON-Array) | ✅ |
 | Dependency-Chaining | ❌ Aufrufe sind unabhängig | ✅ `@alias`-Auflösung |
-| Typ-Verträge | ❌ untypisierte `params` | ✅ Signatur-Inferenz (`[WaevaRpcDataContract]` optional) |
-| API-Discovery | ❌ (braucht OpenRPC) | ✅ eingebaut `/api/waeva/discovery` |
-| Dokumentation | ❌ (extern) | ✅ `[WaevaRpcDocumentation]` + `[WaevaRpcExample]` |
+| Typ-Verträge | ❌ untypisierte `params` | ✅ Signatur-Inferenz (`[TrameDataContract]` optional) |
+| API-Discovery | ❌ (braucht OpenRPC) | ✅ eingebaut `/api/trame/discovery` |
+| Dokumentation | ❌ (extern) | ✅ `[TrameDocumentation]` + `[TrameExample]` |
 | Streaming | ❌ | ✅ `IAsyncEnumerable<T>` |
-| Autorisierung | ❌ (Transport-Ebene) | ✅ `[WaevaRpcAuthorise]` |
-| Fehlermodell | ✅ einfach (`code` + `message`) | ✅ `WaevaRpcError` mit Details + RequestId |
+| Autorisierung | ❌ (Transport-Ebene) | ✅ `[TrameAuthorise]` |
+| Fehlermodell | ✅ einfach (`code` + `message`) | ✅ `TrameError` mit Details + RequestId |
 | .NET-Integration | ❌ (Bibliotheken existieren, aber kein Framework) | ✅ native ASP.NET-Core-Middleware |
 | Transport-Definitionen | ❌ (Spec ist nur Format) | ✅ REST + WebSocket + SignalR definiert |
 | Vorkompilierte Ausführung | ❌ (Reflection) | ✅ Expression Trees |
 
-**Kurz gesagt**: JSON-RPC definiert ein *Wire-Format*, WaevaRpc ist ein *Framework*. JSON-RPC sagt, wie man das JSON formatiert, aber hilft nicht bei Methoden-Discovery, Abhängigkeitsauflösung, Streaming, Autorisierung oder .NET-DI-Integration. WaevaRpc wurde entwickelt, ohne JSON-RPC zu kennen, löst aber dasselbe Kernproblem (REST ist falsch für RPC) mit deutlich mehr Funktionalität.
+**Kurz gesagt**: JSON-RPC definiert ein *Wire-Format*, Trame ist ein *Framework*. JSON-RPC sagt, wie man das JSON formatiert, aber hilft nicht bei Methoden-Discovery, Abhängigkeitsauflösung, Streaming, Autorisierung oder .NET-DI-Integration. Trame wurde entwickelt, ohne JSON-RPC zu kennen, löst aber dasselbe Kernproblem (REST ist falsch für RPC) mit deutlich mehr Funktionalität.
 
-## Warum WaevaRpc?
+## Warum Trame?
 
-| | REST | gRPC | GraphQL | JSON-RPC | **WaevaRpc** |
+| | REST | gRPC | GraphQL | JSON-RPC | **Trame** |
 |---|---|---|---|---|---|
 | Für RPC gemacht | ❌ | ✅ | teils | ✅ | ✅ |
 | Code-first (ohne IDL) | ✅ | ❌ (`.proto`) | ❌ (Schema) | ✅ | ✅ |
@@ -67,15 +67,15 @@ WaevaRpc ist **code-first**: Man schreibt C#-Klassen und Methoden, dekoriert sie
 | Developer-UI | Swagger | ❌ | GraphiQL | ❌ | ✅ |
 | Rate-Limiting | manuell | ❌ | ❌ | ❌ | ✅ eingebaut |
 
-WaevaRpc wurde von Grund auf für RPC entwickelt — nicht als REST-Wrapper, sondern als echtes RPC-Framework, das REST lediglich als einen von mehreren Transports nutzt:
+Trame wurde von Grund auf für RPC entwickelt — nicht als REST-Wrapper, sondern als echtes RPC-Framework, das REST lediglich als einen von mehreren Transports nutzt:
 
-1. **Methodenorientiert, nicht ressourcenorientiert**: `[WaevaRpcController("Customer")]` + `[WaevaRpcMethod("AddOrder")]` — kein URL-Routing, keine HTTP-Verben, kein DTO-Mapping
+1. **Methodenorientiert, nicht ressourcenorientiert**: `[TrameController("Customer")]` + `[TrameMethod("AddOrder")]` — kein URL-Routing, keine HTTP-Verben, kein DTO-Mapping
 2. **Batch-Calls**: 10 RPC-Aufrufe in einem Roundtrip — der Server führt sie aus und liefert 10 Antworten
 3. **Dependency-Chaining** (von GraphQL inspiriert): Ein Request exponiert Werte via `Exposes("$", "orderId")` (ergebnisrelativer JSON-Path), der nächste nutzt `WithAlias("@orderId")` — der Server löst Abhängigkeiten in einem Roundtrip
 4. **Multi-Transport**: REST für Kompatibilität, WebSocket für niedrige Latenz, SignalR für Browser-Clients — gleiche API, verschiedene Wire-Protokolle
 5. **Expression-Tree-Ausführung**: Methoden werden zur Registrierungszeit zu Delegates kompiliert — keine Reflection pro Aufruf
 
-| | REST | gRPC | SignalR | **WaevaRpc** |
+| | REST | gRPC | SignalR | **Trame** |
 |---|---|---|---|---|
 | Multi-Transport | nein | nein | nein | **ja** (REST + WebSocket + SignalR) |
 | Batch-Calls | nein | nein | nein | **ja** |
@@ -90,54 +90,54 @@ WaevaRpc wurde von Grund auf für RPC entwickelt — nicht als REST-Wrapper, son
 
 Gemessen mit BenchmarkDotNet auf .NET 8.0, Intel Core i7-12700H:
 
-| Szenario | REST | WaevaRpc REST | WaevaRpc WebSocket | Beschleunigung |
+| Szenario | REST | Trame REST | Trame WebSocket | Beschleunigung |
 |----------|------:|----------:|---------------:|--------:|
 | Einzelner Call (GetCustomerById) | 606 µs | 627 µs | **267 µs** | **2,3x** |
 | Batch 10x (parallel) | 4.906 µs | 974 µs | **693 µs** | **7,1x** |
 | Dependency-Chain (3 Calls, 1 Roundtrip) | 206 ms | 205 ms | **204 ms** | ersetzt 3 Roundtrips |
 
-> Vollständige Benchmarks: siehe `WaevaRpcBench/BENCHMARK-RESULTS.md`
+> Vollständige Benchmarks: siehe `TrameBench/BENCHMARK-RESULTS.md`
 
 ## Schnellstart
 
 ### Server
 
 ```csharp
-using WaevaRpcHub.Extensions;
+using TrameHub.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// WaevaRpc mit allen Transportschichten registrieren
-builder.Services.AddWaevaRpc(new WaevaRpcOptions
+// Trame mit allen Transportschichten registrieren
+builder.Services.AddTrame(new TrameOptions
 {
     UseSignalR = true,
     UseMessagePack = true,
     MaximumParallelInvocationsPerClient = 100
 });
 
-// Controller registrieren (automatisch via [WaevaRpcController] erkannt)
+// Controller registrieren (automatisch via [TrameController] erkannt)
 builder.Services.AddSingleton<MyService>();
 
 var app = builder.Build();
-app.UseWaevaRpc();              // WaevaRpc REST-Endpunkte registrieren
+app.UseTrame();              // Trame REST-Endpunkte registrieren
 app.UseWebSockets();
-app.UseWaevaRpcWebSocket("/waevaws");  // WebSocket-Transport
-app.MapHub<WaevaRpcHub.Hub.WaevaRpcHub>("/Waeva");  // SignalR-Transport
+app.UseTrameWebSocket("/tramews");  // WebSocket-Transport
+app.MapHub<TrameHub.Hub.TrameHub>("/Trame");  // SignalR-Transport
 app.Run();
 ```
 
 ### Controller
 
 ```csharp
-[WaevaRpcController("Customer")]
+[TrameController("Customer")]
 public class CustomerHandler(CustomerService service)
 {
-    [WaevaRpcMethod("GetById")]
+    [TrameMethod("GetById")]
     public async Task<Customer?> GetById(int id, CancellationToken ct)
         => await service.GetById(id, ct);
 
-    [WaevaRpcMethod("Create")]
-    [WaevaRpcAuthorise]  // Optional: erfordert Authentifizierung
+    [TrameMethod("Create")]
+    [TrameAuthorise]  // Optional: erfordert Authentifizierung
     public async Task<int> Create(string name)
         => await service.Add(name);
 }
@@ -146,15 +146,15 @@ public class CustomerHandler(CustomerService service)
 ### Client
 
 ```csharp
-using WaevaRpcClient.WaevaRpc;
+using TrameClient.Trame;
 
 // Transport wählen
-var client = new WaevaRpcRestJsonClient("https://localhost:5001/");
-// oder: new WaevaRpcWebSocketClient("https://localhost:5001/")
-// oder: new WaevaRpcSignalrClient("https://localhost:5001/")
+var client = new TrameRestJsonClient("https://localhost:5001/");
+// oder: new TrameWebSocketClient("https://localhost:5001/")
+// oder: new TrameSignalrClient("https://localhost:5001/")
 
 // Einzelner Aufruf
-var request = WaevaRpcCall.Init("Customer", "GetById")
+var request = TrameCall.Init("Customer", "GetById")
     .With(42)
     .ToRequest();
 var response = await client.Call(request);
@@ -163,16 +163,16 @@ var response = await client.Call(request);
 var customer = await client.Call<Customer>(request);
 
 // Batch mit Dependency-Chaining
-var batch = new WaevaRpcMultiRequest
+var batch = new TrameMultiRequest
 {
     Mode = ExecutionMode.Serial,
-    Requests = new List<WaevaRpcRequest>
+    Requests = new List<TrameRequest>
     {
-        WaevaRpcCall.Init("Customer", "Create")
+        TrameCall.Init("Customer", "Create")
             .With("Alice").Named("step1")
             .Exposes("$", "newId")
             .ToRequest(),
-        WaevaRpcCall.Init("Customer", "GetById")
+        TrameCall.Init("Customer", "GetById")
             .WithAlias("@newId", "0")
             .Named("step2")
             .ToRequest()
@@ -185,9 +185,9 @@ var responses = await client.Call(batch);
 
 | Transport | Endpunkt | Anwendungsfall |
 |-----------|----------|---------------|
-| **REST** | `POST /api/waeva/json` | Zustandslose Aufrufe, Load-Balancing |
-| **WebSocket** | `ws://host/waevaws` | Persistente Verbindungen, niedrige Latenz, viele kleine Calls |
-| **SignalR** | `/Waeva` Hub | Browser-Clients, Auto-Reconnect, MessagePack |
+| **REST** | `POST /api/trame/json` | Zustandslose Aufrufe, Load-Balancing |
+| **WebSocket** | `ws://host/tramews` | Persistente Verbindungen, niedrige Latenz, viele kleine Calls |
+| **SignalR** | `/Trame` Hub | Browser-Clients, Auto-Reconnect, MessagePack |
 
 ## Features
 
@@ -195,42 +195,42 @@ var responses = await client.Call(batch);
 - **Batch-Calls**: Mehrere RPC-Aufrufe in einem Roundtrip (parallel oder seriell)
 - **Dependency-Chaining**: Aufrufe verketten mit `@alias`-Platzhaltern, serverseitig aufgelöst
 - **Streaming**: `IAsyncEnumerable<T>`-Support, als JSON-Arrays serialisiert
-- **Interceptor-Pipeline**: `IWaevaRpcInterceptor` für Logging, Tracing, Caching, Validierung
-- **Discovery/MEX**: `GET /api/waeva/discovery` liefert vollständige API-Metadaten
+- **Interceptor-Pipeline**: `ITrameInterceptor` für Logging, Tracing, Caching, Validierung
+- **Discovery/MEX**: `GET /api/trame/discovery` liefert vollständige API-Metadaten
 - **Developer-UI**: Eingebaute Web-Oberfläche unter `/developer`
 - **Rate-Limiting**: Eingebauter Fixed-Window-Rate-Limiter
-- **Autorisierung**: `[WaevaRpcAuthorise]`-Attribut mit rollenbasiertem Zugriff
+- **Autorisierung**: `[TrameAuthorise]`-Attribut mit rollenbasiertem Zugriff
 - **Expression-Tree-Ausführung**: Vorkompilierte Methoden-Delegates für maximale Performance
 
 ## Projektstruktur
 
 | Projekt | Beschreibung |
 |---------|-------------|
-| `WaevaRpcCommon` | Geteilte Modelle, Attribute, Exceptions |
-| `WaevaRpcCore` | Invoker, Discovery, Dependency-Resolver, Interceptors |
-| `WaevaRpcHub` | SignalR-Transport + `AddWaevaRpc()` / `UseWaevaRpc()` |
-| `WaevaRpcRest` | REST-Transport (Minimal APIs + MVC-Controller) |
-| `WaevaRpcWebSocket` | WebSocket-Transport (RFC 6455, JSON-Text-Frames) |
-| `WaevaRpcClient` | Client-Bibliothek (REST, WebSocket, SignalR) |
-| `WaevaRpcDeveloperUi` | Eingebaute Developer-Web-UI |
-| `WaevaRpc` | Beispielanwendung |
-| `WaevaRpcTests` | Unit- + Integrationstests |
-| `WaevaRpcBench` | Performance-Benchmarks |
+| `TrameCommon` | Geteilte Modelle, Attribute, Exceptions |
+| `TrameCore` | Invoker, Discovery, Dependency-Resolver, Interceptors |
+| `TrameHub` | SignalR-Transport + `AddTrame()` / `UseTrame()` |
+| `TrameRest` | REST-Transport (Minimal APIs + MVC-Controller) |
+| `TrameWebSocket` | WebSocket-Transport (RFC 6455, JSON-Text-Frames) |
+| `TrameClient` | Client-Bibliothek (REST, WebSocket, SignalR) |
+| `TrameDeveloperUi` | Eingebaute Developer-Web-UI |
+| `Trame` | Beispielanwendung |
+| `TrameTests` | Unit- + Integrationstests |
+| `TrameBench` | Performance-Benchmarks |
 
 ## Installation (NuGet)
 
 ```xml
 <!-- Server: alle Transports -->
-<PackageReference Include="WaevaRpc.All" Version="1.0.0" />
+<PackageReference Include="Trame.All" Version="1.0.0" />
 
 <!-- Oder einzelne Transports -->
-<PackageReference Include="WaevaRpc.Core" Version="1.0.0" />
-<PackageReference Include="WaevaRpc.Hub" Version="1.0.0" />
-<PackageReference Include="WaevaRpc.Rest" Version="1.0.0" />
-<PackageReference Include="WaevaRpc.WebSocket" Version="1.0.0" />
+<PackageReference Include="Trame.Core" Version="1.0.0" />
+<PackageReference Include="Trame.Hub" Version="1.0.0" />
+<PackageReference Include="Trame.Rest" Version="1.0.0" />
+<PackageReference Include="Trame.WebSocket" Version="1.0.0" />
 
 <!-- Client -->
-<PackageReference Include="WaevaRpc.Client" Version="1.0.0" />
+<PackageReference Include="Trame.Client" Version="1.0.0" />
 ```
 
 ## Anforderungen

@@ -16,29 +16,29 @@
 //     ohnehin auf topologische Batch-Ausführung — Mode wird dann ignoriert).
 // ==============================================================================
 
-using WaevaRpcClient.WaevaRpc;
-using WaevaRpcCommon.Models;
+using TrameClient.Trame;
+using TrameCommon.Models;
 using System.Text.Json;
 
-using var client = new WaevaRpcRestJsonClient("https://localhost:5001");
+using var client = new TrameRestJsonClient("https://localhost:5001");
 
 // -----------------------------------------------------------------------------
 // Variante A — Fluent Builder (einfach, 2-Step, Ein-Parameter-@alias)
 // -----------------------------------------------------------------------------
 // AddCustomer → liefert neue Id (int) → weiter als @newId an GetCustomerById.
-var multi = new WaevaRpcMultiRequest
+var multi = new TrameMultiRequest
 {
     Mode = ExecutionMode.Serial,
-    Requests = new List<WaevaRpcRequest>
+    Requests = new List<TrameRequest>
     {
-        WaevaRpcCall.Init("Customer", "AddCustomer")
+        TrameCall.Init("Customer", "AddCustomer")
             .Named("step1")
             .Param("name", "Alice")
             .Param("email", "alice@x.com")
             .Exposes("$", "newId")          // ganzer int-Rückgabewert → Alias "newId"
             .ToRequest(),
 
-        WaevaRpcCall.Init("Customer", "GetCustomerById")
+        TrameCall.Init("Customer", "GetCustomerById")
             .Named("step2")
             .WithAlias("@newId")            // Data="@newId"; ParameterName="newId"
             .ToRequest(),
@@ -59,44 +59,44 @@ var responses = (await client.Call(multi))!.ToList();
 // → GetOrder(@orderId). CreateOrder hat ZWEI Parameter, davon einer @alias —
 // deshalb setzen wir ParameterName auf den echten Parameternamen ("customerId"),
 // damit der Server nach Name bindet (sicherer als positional).
-var chain = new WaevaRpcMultiRequest
+var chain = new TrameMultiRequest
 {
     Mode = ExecutionMode.Serial,
-    Requests = new List<WaevaRpcRequest>
+    Requests = new List<TrameRequest>
     {
         // step1: Kunden anlegen, neue Id als "custId" weitergeben.
-        new WaevaRpcRequest
+        new TrameRequest
         {
             Controller = "Customer", Method = "AddCustomer", Id = "step1",
             StringData = JsonSerializer.Serialize(new[]
             {
-                new WaevaRpcParameter { Num = 0, ParameterName = "name",  Data = JsonSerializer.Serialize("Alice") },
-                new WaevaRpcParameter { Num = 1, ParameterName = "email", Data = JsonSerializer.Serialize("alice@x.com") },
+                new TrameParameter { Num = 0, ParameterName = "name",  Data = JsonSerializer.Serialize("Alice") },
+                new TrameParameter { Num = 1, ParameterName = "email", Data = JsonSerializer.Serialize("alice@x.com") },
             }),
             DependencyMapping = new Dictionary<string, string> { ["custId"] = "$" },
         },
 
         // step2: Bestellung für diesen Kunden anlegen; customerId kommt von @custId,
         // total ist ein Literal. OrderId als "orderId" weitergeben.
-        new WaevaRpcRequest
+        new TrameRequest
         {
             Controller = "Order", Method = "CreateOrder", Id = "step2",
             StringData = JsonSerializer.Serialize(new[]
             {
                 // Data="@custId" → Server erkennt @-Präfix und substituiert.
-                new WaevaRpcParameter { Num = 0, ParameterName = "customerId", Data = "@custId" },
-                new WaevaRpcParameter { Num = 1, ParameterName = "total",      Data = JsonSerializer.Serialize(99.90m) },
+                new TrameParameter { Num = 0, ParameterName = "customerId", Data = "@custId" },
+                new TrameParameter { Num = 1, ParameterName = "total",      Data = JsonSerializer.Serialize(99.90m) },
             }),
             DependencyMapping = new Dictionary<string, string> { ["orderId"] = "$" },
         },
 
         // step3: Bestellung anhand der weitergegebenen OrderId laden.
-        new WaevaRpcRequest
+        new TrameRequest
         {
             Controller = "Order", Method = "GetOrderById", Id = "step3",
             StringData = JsonSerializer.Serialize(new[]
             {
-                new WaevaRpcParameter { Num = 0, ParameterName = "id", Data = "@orderId" },
+                new TrameParameter { Num = 0, ParameterName = "id", Data = "@orderId" },
             }),
         },
     },

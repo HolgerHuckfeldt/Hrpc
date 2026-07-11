@@ -15,23 +15,23 @@
 //     ohnehin auf topologische Batch-Ausführung — mode wird dann ignoriert).
 // ==============================================================================
 
-import { WaevaRpcRestClient, WaevaRpcCall, ExecutionMode, type WaevaRpcRequest } from "waeva-rpc-client";
+import { TrameRestClient, TrameCall, ExecutionMode, type TrameRequest } from "trame-client";
 
-const rest = new WaevaRpcRestClient("https://localhost:5001", { bearer: token });
+const rest = new TrameRestClient("https://localhost:5001", { bearer: token });
 
 // -----------------------------------------------------------------------------
 // Variante A — Fluent Builder (einfach, 2-Step, Ein-Parameter-@alias)
 // -----------------------------------------------------------------------------
 // AddCustomer → liefert neue Id (int) → weiter als @newId an GetCustomerById.
-const batch = WaevaRpcCall.batch(
+const batch = TrameCall.batch(
   [
-    WaevaRpcCall.init("Customer", "AddCustomer")
+    TrameCall.init("Customer", "AddCustomer")
       .named("step1")
       .with({ name: "Alice", email: "alice@x.com" })
       .exposes("$", "newId") // ganzer int-Rückgabewert → Alias "newId"
       .toRequest(),
 
-    WaevaRpcCall.init("Customer", "GetCustomerById")
+    TrameCall.init("Customer", "GetCustomerById")
       .named("step2")
       .withAlias("@newId") // data: "@newId", parameterName: "newId"
       .toRequest(),
@@ -54,7 +54,7 @@ const [first, second] = await rest.callBatch(batch.requests, batch.mode);
 // → GetOrder(@orderId). CreateOrder hat ZWEI Parameter, davon einer @alias —
 // deshalb setzen wir parameterName auf den echten Parameternamen ("customerId"),
 // damit der Server nach Name bindet (sicherer als positional).
-const chain: WaevaRpcRequest[] = [
+const chain: TrameRequest[] = [
   {
     controller: "Customer",
     method: "AddCustomer",
