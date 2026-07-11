@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -e
-cd D:/Develop/Hrpc
+cd D:/Develop/Waeva
 echo "=== BUILD ==="
-dotnet build HrpcBench/HrpcBench.csproj -c Release > /dev/null 2>&1
-DLL="D:/Develop/Hrpc/HrpcBench/bin/Release/net8.0/HrpcBench.dll"
+dotnet build WaevaRpcBench/WaevaBench.csproj -c Release > /dev/null 2>&1
+DLL="D:/Develop/Waeva/WaevaBench/bin/Release/net8.0/WaevaBench.dll"
 rm -f bench-stable.log
 for i in 1 2 3; do
   echo "=== RUN $i ==="

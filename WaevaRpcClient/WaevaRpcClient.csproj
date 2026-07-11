@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>WaevaRpc.Client</PackageId>
+    <Version>1.0.1</Version>
+    <Authors>Hrpc</Authors>
+    <Description>Client library for WaevaRpc RPC framework (REST, WebSocket, SignalR)</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" Version="3.1.3" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.13" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="8.0.13" />
+  </ItemGroup>
+
+  <!-- JsonElement-Formatter + WaevaRpcResponse-Formatter gegen die hier referenced
+       MessagePack-Version (3.1.3). Source geteilt mit WaevaRpcHub (dort 2.5.187).
+       Bewiesen in spikes/MpFormatterProbe/. -->
+  <ItemGroup>
+    <Compile Include="..\WaevaRpcCommon\MessagePack\JsonElementMessagePackFormatter.cs" Link="MessagePack\JsonElementMessagePackFormatter.cs" />
+    <Compile Include="..\WaevaRpcCommon\MessagePack\WaevaRpcResponseMessagePackFormatter.cs" Link="MessagePack\WaevaRpcResponseMessagePackFormatter.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WaevaRpcCore\WaevaRpcCore.csproj" />
+  </ItemGroup>
+
+</Project>

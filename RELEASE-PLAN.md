@@ -1,6 +1,6 @@
-# Hrpc Release-Readiness-Plan
+# WaevaRpc Release-Readiness-Plan
 
-> Ziel: Hrpc von Prototyp-Stadium zu einem produktionstauglichen, release-fähigen RPC-Framework führen.
+> Ziel: WaevaRpc von Prototyp-Stadium zu einem produktionstauglichen, release-fähigen RPC-Framework führen.
 >
 > Erstellt: 2026-07-01 · Basierend auf der technischen Bewertung
 
@@ -10,7 +10,7 @@
 
 ```mermaid
 gantt
-    title Hrpc Release Roadmap
+    title WaevaRpc Release Roadmap
     dateFormat YYYY-MM-DD
     axisFormat %d.%m
 
@@ -55,20 +55,20 @@ gantt
 
 ### 1.1 Test-Foundation aufbauen
 
-- [ ] `HrpcTests`-Projekt strukturieren:
+- [ ] `WaevaRpcTests`-Projekt strukturieren:
   ```
-  HrpcTests/
+  WaevaRpcTests/
   ├── Unit/
   │   ├── Core/
-  │   │   ├── HrpcInvokerTests.cs
-  │   │   ├── HrpcDiscoveryServiceTests.cs
+  │   │   ├── WaevaRpcInvokerTests.cs
+  │   │   ├── WaevaRpcDiscoveryServiceTests.cs
   │   │   ├── DependencyResolverTests.cs
   │   │   └── JsonDependencyReplacerTests.cs
   │   ├── Client/
-  │   │   ├── HrpcCallTests.cs
-  │   │   ├── HrpcRestJsonClientTests.cs
-  │   │   ├── HrpcSignalrClientTests.cs
-  │   │   └── HrpcWebSocketClientTests.cs
+  │   │   ├── WaevaRpcCallTests.cs
+  │   │   ├── WaevaRpcRestJsonClientTests.cs
+  │   │   ├── WaevaRpcSignalrClientTests.cs
+  │   │   └── WaevaRpcWebSocketClientTests.cs
   │   └── Common/
   │       └── AttributeTests.cs
   ├── Integration/
@@ -83,12 +83,12 @@ gantt
 - [ ] Test-Dependencies hinzufügen: `xunit`, `Moq`, `FluentAssertions`, `Microsoft.AspNetCore.Mvc.Testing`
 - [ ] `WebApplicationFactory<Program>`-Fixture für Integrationstests
 
-### 1.2 Unit-Tests für HrpcCore
+### 1.2 Unit-Tests für WaevaRpcCore
 
 | Komponente | Test-Cases | Beschreibung |
 |-----------|------------|-------------|
-| `HrpcInvoker` | 12+ | Controller-Registrierung, Methoden-Lookup, Parameter-Auflösung, Async/Sync, CancellationToken-Injection, Expression-Tree-Kompilierung, Autorisierungs-Check |
-| `HrpcDiscoveryService` | 8+ | Cache-Verhalten, Type-Registrierung, Nested Types, Generic Types, Beispiel-Generierung, Invalidate |
+| `WaevaRpcInvoker` | 12+ | Controller-Registrierung, Methoden-Lookup, Parameter-Auflösung, Async/Sync, CancellationToken-Injection, Expression-Tree-Kompilierung, Autorisierungs-Check |
+| `WaevaRpcDiscoveryService` | 8+ | Cache-Verhalten, Type-Registrierung, Nested Types, Generic Types, Beispiel-Generierung, Invalidate |
 | `DependencyResolver` | 6+ | JsonPath-Extraktion, fehlende Pfade, komplexe JSON, Arrays |
 | `JsonDependencyReplacer` | 8+ | Alias-Ersetzung, rekursive Traversierung, Parent-Update, fehlende Aliase |
 | `InvokeInfo` | 4+ | IsAsync, HasResult, CompiledInvocation |
@@ -98,12 +98,12 @@ gantt
 - [ ] **REST**: Single-Call, Multi-Call, Discovery-Endpoint, Error-Responses, CamelCase-Filter
 - [ ] **SignalR**: Single `DoWork`, Batch `DoWorkMany`, Reconnect-Verhalten, Auth-Token
 - [ ] **WebSocket**: Single/Multi-Erkennung, Multi-Frame-Nachrichten, Close-Handling
-- [ ] **Cross-Transport**: Gleiches `HrpcRequest` über alle 3 Transporte → gleiche Response
+- [ ] **Cross-Transport**: Gleiches `WaevaRpcRequest` über alle 3 Transporte → gleiche Response
 - [ ] **Batch**: Parallel vs. Serial, Dependency-Chaining im Serial-Mode
 
 ### 1.4 Akzeptanzkriterien Phase 1
-- [ ] Mindestens **80% Code-Abdeckung** für `HrpcCore`
-- [ ] Mindestens **70% Code-Abdeckung** für `HrpcClient`
+- [ ] Mindestens **80% Code-Abdeckung** für `WaevaRpcCore`
+- [ ] Mindestens **70% Code-Abdeckung** für `WaevaRpcClient`
 - [ ] Alle Integrationstests für 3 Transporte grün
 - [ ] CI-Pipeline (GitHub Actions) mit Test-Run bei jedem Push
 
@@ -113,60 +113,60 @@ gantt
 
 ### 2.1 Model-Duplikate auflösen
 
-**Problem**: `HrpcRequest`, `HrpcResponse`, `HrpcMultiRequest`, `HrpcParameter`, `ExecutionMode` existieren dupliziert in `HrpcCore` und `HrpcClient`.
+**Problem**: `WaevaRpcRequest`, `WaevaRpcResponse`, `WaevaRpcMultiRequest`, `WaevaRpcParameter`, `ExecutionMode` existieren dupliziert in `WaevaRpcCore` und `WaevaRpcClient`.
 
-- [ ] Alle Shared-Models nach `HrpcCommon` verschieben
-- [ ] `HrpcCommon` von `netstandard2.1` → `net8.0` ändern (Konsistenz)
-- [ ] MessagePack-Attribute in `HrpcCommon` (benötigt `MessagePack.Annotations`-Dependency)
-- [ ] `HrpcCore` und `HrpcClient` referenzieren `HrpcCommon` statt eigener Kopien
-- [ ] Duplikate in `HrpcCore` und `HrpcClient` löschen
-- [ ] Namespaces vereinheitlichen: `Hrpc.Common.Models`
+- [ ] Alle Shared-Models nach `WaevaRpcCommon` verschieben
+- [ ] `WaevaRpcCommon` von `netstandard2.1` → `net8.0` ändern (Konsistenz)
+- [ ] MessagePack-Attribute in `WaevaRpcCommon` (benötigt `MessagePack.Annotations`-Dependency)
+- [ ] `WaevaRpcCore` und `WaevaRpcClient` referenzieren `WaevaRpcCommon` statt eigener Kopien
+- [ ] Duplikate in `WaevaRpcCore` und `WaevaRpcClient` löschen
+- [ ] Namespaces vereinheitlichen: `WaevaRpc.Common.Models`
 
 **Zielstruktur**:
 ```
-HrpcCommon/
+WaevaRpcCommon/
 ├── Models/
-│   ├── HrpcRequest.cs
-│   ├── HrpcResponse.cs
-│   ├── HrpcMultiRequest.cs
-│   ├── HrpcParameter.cs
+│   ├── WaevaRpcRequest.cs
+│   ├── WaevaRpcResponse.cs
+│   ├── WaevaRpcMultiRequest.cs
+│   ├── WaevaRpcParameter.cs
 │   └── ExecutionMode.cs
 ├── Attributes/
 │   └── (bestehende)
 └── Exceptions/
-    └── HrpcException.cs
+    └── WaevaRpcException.cs
 ```
 
 ### 2.2 Exceptions konsolidieren
 
-**Problem**: `HrpcException` ist in `HrpcCommon/Exceptions/` und `HrpcClient/Exceptions/` dupliziert.
+**Problem**: `WaevaRpcException` ist in `WaevaRpcCommon/Exceptions/` und `WaevaRpcClient/Exceptions/` dupliziert.
 
-- [ ] `HrpcClient/Exceptions/HrpcException.cs` löschen
-- [ ] `HrpcClient` referenziert `HrpcCommon.HrpcException`
-- [ ] Falls Client-spezifische Exceptions nötig: `HrpcTransportException`, `HrpcConnectionException` als Subklassen
+- [ ] `WaevaRpcClient/Exceptions/WaevaException.cs` löschen
+- [ ] `WaevaRpcClient` referenziert `WaevaRpcCommon.WaevaRpcException`
+- [ ] Falls Client-spezifische Exceptions nötig: `WaevaRpcTransportException`, `WaevaRpcConnectionException` als Subklassen
 
 ### 2.3 Serialisierungsstrategie vereinheitlichen
 
 **Problem**: Gleichzeitige Nutzung von `System.Text.Json`, `Newtonsoft.Json` und `MessagePack` mit geschichteter Serialisierung (MessagePack außen, JSON innen).
 
 - [ ] Entscheidung treffen:
-  - **Option A** (empfohlen): `System.Text.Json` als primäres JSON-Framework in allen Projekten. `Newtonsoft.Json` aus `HrpcRest` entfernen.
+  - **Option A** (empfohlen): `System.Text.Json` als primäres JSON-Framework in allen Projekten. `Newtonsoft.Json` aus `WaevaRpcRest` entfernen.
   - **Option B**: MessagePack als alleiniges Wire-Format, JSON nur für Discovery/UI.
 - [ ] `CamelCaseJsonFilterAttribute` auf `System.Text.Json` umstellen (falls Option A)
-- [ ] Einheitliche `JsonSerializerOptions` in `HrpcCommon` zentral definieren
-- [ ] `HrpcClientBase` nutzt bereits `System.Text.Json` – als Standard etablieren
+- [ ] Einheitliche `JsonSerializerOptions` in `WaevaRpcCommon` zentral definieren
+- [ ] `WaevaRpcClientBase` nutzt bereits `System.Text.Json` – als Standard etablieren
 
 ### 2.4 Aufräumarbeiten
 
-- [ ] `HrpcCore.csproj.bak` und `HrpcHub.csproj.bak` löschen
-- [ ] `HrpcRest.csproj.user`, `Hrpc.csproj.user`, `Hrpc.sln.DotSettings.user` → `.gitignore`
+- [ ] `WaevaRpcCore.csproj.bak` und `WaevaRpcHub.csproj.bak` löschen
+- [ ] `WaevaRpcRest.csproj.user`, `WaevaRpc.csproj.user`, `WaevaRpc.sln.DotSettings.user` → `.gitignore`
 - [ ] Auskommentierten Code in `Program.cs` entfernen (statische Dateien, `MapGrpcService`)
-- [ ] `Hrpc.http` mit relevanten Hrpc-Beispiel-Requests füllen
+- [ ] `WaevaRpc.http` mit relevanten WaevaRpc-Beispiel-Requests füllen
 - [ ] `bin/` und `obj/` Verzeichnisse → `.gitignore` (falls noch nicht geschehen)
 
 ### 2.5 Akzeptanzkriterien Phase 2
 - [ ] Keine Model-Duplikate mehr zwischen Projekten
-- [ ] Nur eine `HrpcException`-Klasse
+- [ ] Nur eine `WaevaRpcException`-Klasse
 - [ ] Nur ein JSON-Framework (`System.Text.Json`)
 - [ ] Keine `.bak`-Dateien oder auskommentierter Tot-Code
 
@@ -180,7 +180,7 @@ HrpcCommon/
 
 - [x] Einheitliches Fehlermodell definieren:
   ```csharp
-  public class HrpcError
+  public class WaevaRpcError
   {
       public int Code { get; set; }           // HTTP-ähnlicher Statuscode
       public string Message { get; set; }     // Fehlermeldung
@@ -188,10 +188,10 @@ HrpcCommon/
       public string? RequestId { get; set; }  // Korrelations-ID
   }
   ```
-- [x] Alle Transporte mappen Server-Fehler → `HrpcResponse.Code != 200` + `HrpcError`
-- [x] Alle Clients werfen `HrpcException` mit `HrpcError` als Payload
+- [x] Alle Transporte mappen Server-Fehler → `WaevaRpcResponse.Code != 200` + `WaevaRpcError`
+- [x] Alle Clients werfen `WaevaRpcException` mit `WaevaRpcError` als Payload
 - [x] `OperationCanceledException` → Code 499 (Client Closed Request) – jetzt auf beiden REST-Endpunkten (Minimal-API + MVC-Controller)
-- [x] `[HrpcAuthorise]`-Fehler → Code 401 (vorher fälschlich 405). `RequestId` wird auf allen Fehler-Pfaden gesetzt. `Details` nur bei `EnableDetailedErrors`/Development. *(Offen: 403 für "authentifiziert, aber nicht erlaubt" — benötigt Rollen-Unterscheidung im Attribut; Roadmap.)*
+- [x] `[WaevaRpcAuthorise]`-Fehler → Code 401 (vorher fälschlich 405). `RequestId` wird auf allen Fehler-Pfaden gesetzt. `Details` nur bei `EnableDetailedErrors`/Development. *(Offen: 403 für "authentifiziert, aber nicht erlaubt" — benötigt Rollen-Unterscheidung im Attribut; Roadmap.)*
 
 ### 3.2 Sicherheits-Härtung
 
@@ -199,12 +199,12 @@ HrpcCommon/
   ```csharp
   EnableDetailedErrors = builder.Environment.IsDevelopment()
   ```
-  *(Verdrahtet in `AddHrpc`: `HrpcOptions.EnableDetailedErrors || env.IsDevelopment()`.)*
+  *(Verdrahtet in `AddWaevaRpc`: `WaevaRpcOptions.EnableDetailedErrors || env.IsDevelopment()`.)*
 - [ ] CORS-Default-Policy restriktiver konfigurieren (kein `AllowAnyOrigin` als Fallback)
 - [ ] Rate-Limiting: `Microsoft.AspNetCore.RateLimiting` integrieren (z.B. Token Bucket pro Connection)
 - [ ] Request-Size-Limit konfigurierbar machen und validieren
-- [ ] `[HrpcAuthorise]` um Policy-basierte Autorisierung erweitern (`IAuthorizationHandler`)
-- [ ] JWT-Bearer-Auth-Middleware als optionales Hrpc-Feature anbieten
+- [ ] `[WaevaRpcAuthorise]` um Policy-basierte Autorisierung erweitern (`IAuthorizationHandler`)
+- [ ] JWT-Bearer-Auth-Middleware als optionales WaevaRpc-Feature anbieten
 - [ ] Input-Validation: Parameter-Validierung mit `DataAnnotations` oder FluentValidation
 
 ### 3.3 Thread-Safety in Sample-App
@@ -228,8 +228,8 @@ HrpcCommon/
 **Aktueller Status**: Parallel-Mode ignoriert Dependencies. Keine Zykluserkennung. Keine topologische Sortierung.
 
 - [ ] **Dependency-Deklaration**:
-  - `[HrpcMethod]` um `Inputs` und `Outputs` erweitern (deklarative Dependencies)
-  - Beispiel: `[HrpcMethod("CreateOrder", Outputs = ["orderId"], Inputs = ["customerId"])]`
+  - `[WaevaRpcMethod]` um `Inputs` und `Outputs` erweitern (deklarative Dependencies)
+  - Beispiel: `[WaevaRpcMethod("CreateOrder", Outputs = ["orderId"], Inputs = ["customerId"])]`
 - [ ] **Topologische Sortierung**:
   - `DependencyGraphBuilder` implementieren
   - Anfragen nach Abhängigkeiten sortieren
@@ -269,16 +269,16 @@ graph LR
 **Entscheidung erforderlich**:
 
 - **Option A – Implementieren**:
-  - `.proto`-Definition für `HrpcService` erstellen
-  - `HrpcGrpcService : HrpcService.HrpcServiceBase` implementieren
-  - Delegation an `IHrpcCore.InvokeDi()`
-  - `MapGrpcService<HrpcGrpcService>()` in `Program.cs` aktivieren
-  - Client: `HrpcGrpcClient : IHrpcClient` in `HrpcClient` hinzufügen
+  - `.proto`-Definition für `WaevaRpcService` erstellen
+  - `WaevaRpcGrpcService : WaevaRpcService.WaevaRpcServiceBase` implementieren
+  - Delegation an `IWaevaRpcCore.InvokeDi()`
+  - `MapGrpcService<WaevaRpcGrpcService>()` in `Program.cs` aktivieren
+  - Client: `WaevaRpcGrpcClient : IWaevaRpcClient` in `WaevaRpcClient` hinzufügen
   - Vorteil: Binary-Protokoll, HTTP/2-Multiplexing, offizieller Standard
 
 - **Option B – Entfernen** (empfohlen wenn gRPC nicht auf Roadmap):
-  - `HrpcGrpc`-Projekt aus Solution entfernen
-  - `Grpc.AspNetCore`-Dependency aus `Hrpc.csproj` entfernen
+  - `WaevaRpcGrpc`-Projekt aus Solution entfernen
+  - `Grpc.AspNetCore`-Dependency aus `WaevaRpc.csproj` entfernen
   - Auskommentierte `MapGrpcService`-Zeile löschen
   - README um gRPC-Referenz bereinigen
 
@@ -293,18 +293,18 @@ graph LR
 
 ### 4.4 Interceptors / Middleware-Pipeline
 
-- [ ] `IHrpcInterceptor`-Interface definieren:
+- [ ] `IWaevaRpcInterceptor`-Interface definieren:
   ```csharp
-  public interface IHrpcInterceptor
+  public interface IWaevaRpcInterceptor
   {
-      Task<HrpcResponse?> InvokeAsync(
-          HrpcRequest request,
-          HrpcInvocationDelegate next,
+      Task<WaevaRpcResponse?> InvokeAsync(
+          WaevaRpcRequest request,
+          WaevaRpcInvocationDelegate next,
           CancellationToken ct);
   }
   ```
 - [ ] Vor/nach Methodenaufruf: Logging, Tracing, Caching, Validation, Metrics
-- [ ] Registrierung via DI: `builder.Services.AddHrpcInterceptor<LoggingInterceptor>()`
+- [ ] Registrierung via DI: `builder.Services.AddWaevaRpcInterceptor<LoggingInterceptor>()`
 - [ ] OpenTelemetry-Kompatibilität (Tracing-Spans pro RPC-Call)
 
 ### 4.5 Akzeptanzkriterien Phase 4
@@ -342,7 +342,7 @@ graph LR
     - `CustomTransport/` – Eigenen Transport implementieren
     - `Authorization/` – JWT + Rollen
 - [ ] **Migration-Guide** falls Breaking Changes
-- [ ] `Hrpc.http` mit vollständigen Beispiel-Requests:
+- [ ] `WaevaRpc.http` mit vollständigen Beispiel-Requests:
   - Single-Call, Multi-Call, Discovery
 
 ### 5.2 CI/CD Pipeline
@@ -368,7 +368,7 @@ graph LR
 - [ ] Versioning-Strategie festlegen: SemVer 2.0
 - [ ] NuGet-Metadaten in `.csproj`-Dateien:
   ```xml
-  <PackageId>Hrpc.Core</PackageId>
+  <PackageId>WaevaRpc.Core</PackageId>
   <Version>1.0.0</Version>
   <Authors>...</Authors>
   <Description>...</Description>
@@ -377,14 +377,14 @@ graph LR
   <License>LICENSE</License>
   ```
 - [ ] Pakete definieren:
-  - `Hrpc.Common` – Attribute, Exceptions, Models
-  - `Hrpc.Core` – Invoker, Discovery
-  - `Hrpc.Hub` – SignalR-Transport
-  - `Hrpc.Rest` – REST-Transport
-  - `Hrpc.WebSocket` – WebSocket-Transport
-  - `Hrpc.Client` – Client-Bibliothek
-  - `Hrpc.DeveloperUi` – Developer-UI
-  - `Hrpc.All` – Meta-Paket (referenziert alle)
+  - `WaevaRpc.Common` – Attribute, Exceptions, Models
+  - `WaevaRpc.Core` – Invoker, Discovery
+  - `WaevaRpc.Hub` – SignalR-Transport
+  - `WaevaRpc.Rest` – REST-Transport
+  - `WaevaRpc.WebSocket` – WebSocket-Transport
+  - `WaevaRpc.Client` – Client-Bibliothek
+  - `WaevaRpc.DeveloperUi` – Developer-UI
+  - `WaevaRpc.All` – Meta-Paket (referenziert alle)
 - [ ] `dotnet pack` in CI-Pipeline
 - [ ] NuGet-Source-Set (öffentliche Registry oder Private Feed)
 - [ ] Symbol-Packages (`snupkg`) für Debugging

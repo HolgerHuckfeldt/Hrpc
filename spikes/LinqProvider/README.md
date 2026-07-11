@@ -1,25 +1,25 @@
 # LINQ-Provider-Spike (Prototyp)
 
-> **Spike / Prototyp — kein Produktionscode.** Demonstriert, wie sich Hrpc-Calls
+> **Spike / Prototyp — kein Produktionscode.** Demonstriert, wie sich WaevaRpc-Calls
 > typsicher aus C#-Code heraus konstruieren lassen, sodass Controller, Methode,
 > Parametertypen und vor allem die `@alias`/JsonPath-Verdrahtung eines Batches
 > vom Compiler geprüft werden statt zur Laufzeit aus JSON-Strings zusammengebaut.
 
 ## Idee
 
-Im Status quo baut der Client einen Batch aus handgeschriebenen `HrpcRequest`-JSON:
+Im Status quo baut der Client einen Batch aus handgeschriebenen `WaevaRpcRequest`-JSON:
 `dependencyMapping: { "newId": "$" }` hier, `data: "@newId"` dort — beides untypisierte
 Strings, die der Compiler nicht prüft. Ein Tippfehler im Alias oder ein falscher
 JsonPath fällt erst zur Laufzeit (als 500) auf.
 
 Der Spike kehrt das um: **die C#-Verträge sind der Contract.** Ein LINQ-Provider-artiger
 Client nimmt ein Lambda `c => c.GetCustomerById(newId)`, übersetzt den
-`MethodCallExpression` in einen `HrpcRequest` (Controller/Methode aus Attributen,
+`MethodCallExpression` in einen `WaevaRpcRequest` (Controller/Methode aus Attributen,
 Parameter aus der Signatur) und erkennt `Dep<T>`-Platzhalter, die dann zu `@alias`
 werden. Die Verdrahtung entsteht typsicher:
 
 ```csharp
-var client = new HrpcLinqClient(restClient);
+var client = new WaevaRpcLinqClient(restClient);
 
 // Ein typsicherer Call:
 int newId = await client.SendAsync(
@@ -30,7 +30,7 @@ var create = client.Build((ICustomerService c) => c.AddCustomer("Bob"));
 Dep<int> id = create.Expose();                       // ganzes Resultat ($) → int
 var fetch  = client.Build((ICustomerService c) => c.GetCustomerById(id));
 
-var responses = await client.SendAsync(new HrpcBatch(create, fetch));
+var responses = await client.SendAsync(new WaevaRpcBatch(create, fetch));
 Customer bob = client.ResultOf<Customer>(fetch, responses);  // typisierte Extraktion
 ```
 
@@ -46,12 +46,12 @@ angestrebt (siehe `ROADMAP.md` „v1.1 — Versionierung & Build-Time-Vertrag").
 
 ### Ehrliche Einordnung
 
-- **Kein echter LINQ-Provider.** Hrpc braucht keine Query-Tree-Übersetzung
+- **Kein echter LINQ-Provider.** WaevaRpc braucht keine Query-Tree-Übersetzung
   (kein `IQueryable`, kein Where/Select/OrderBy serverseitig) — nur Methoden-
   aufrufe + Parameter-Verdrahtung. Der Spike ist ein **Expression-Tree-getypter
   RPC-Proxy**. Das ist *gute* Nachricht: das schwierige IQueryable-Monad-Problem
   entfällt. Der Name „LINQ-Provider" ist aspirativ; „getypter Proxy" trifft es.
-- **ROI begrenzt.** Der untypisierte `HrpcCall`-Builder + `WithAlias` funktioniert
+- **ROI begrenzt.** Der untypisierte `WaevaRpcCall`-Builder + `WithAlias` funktioniert
   heute. Die getypte Schicht bringt Compile-Zeit-Sicherheit für Controller/
   Methode/Parametertyp/Dep-Typ. Davon fallen Methoden-/Parameterfehler ohnehin
   in der Entwicklung sofort zur Laufzeit auf; der **größte** Gewinn (typisierte
@@ -65,7 +65,7 @@ angestrebt (siehe `ROADMAP.md` „v1.1 — Versionierung & Build-Time-Vertrag").
 - Codegen als `dotnet tool` / Source-Generator gegen einen **committed
   Discovery-Snapshot** (nicht gegen einen zur Build-Zeit laufenden Server), plus
   **Drift-Check** serverseitig (sonst Vertrag ≠ Server — die wsdl-Falle).
-- Generator baut intern weiter auf `HrpcCall`/`IHrpcClient` — getypter Wrapper,
+- Generator baut intern weiter auf `WaevaRpcCall`/`IWaevaRpcClient` — getypter Wrapper,
   kein zweites Protokoll (wie in ROADMAP vorgesehen).
 
 ### Aus dem Spike gelernte, für ein v1.x zu lösende Punkte
@@ -80,30 +80,30 @@ angestrebt (siehe `ROADMAP.md` „v1.1 — Versionierung & Build-Time-Vertrag").
   je Argument. Ein echter Provider faltet Konstanten zur Bauzeit und cacht.
 - **Server-Constraint leckt ins Codegen** — Aliase müssen `[A-Za-z0-9_]` sein,
   weil `DependencyGraphBuilder.ExtractAliases` an `.`/`#` abbricht (siehe
-  `HrpcCallSpec.ExposePath`). Sauberer wäre, den Server Aliase freier extrahieren
+  `WaevaRpcCallSpec.ExposePath`). Sauberer wäre, den Server Aliase freier extrahieren
   zu lassen — ein Server-Change, kein Client-Workaround.
 - **Offen für v1.x**: Cancellation im Lambda (bricht das reine Expression-Modell),
   `IAsyncEnumerable`-Streaming, `byte[]`-Binary, void-Return — der untypisierte
-  `HrpcRestJsonClient` kann das schon, die getypte Schicht müsste es durchreichen.
+  `WaevaRpcRestJsonClient` kann das schon, die getypte Schicht müsste es durchreichen.
 
 ## Komponenten
 
 | Datei | Rolle |
 |-------|-------|
-| `ContractAttributes.cs` | `[HrpcServiceContract]`/`[HrpcMethodContract]` — Metadaten auf generierten Verträgen |
+| `ContractAttributes.cs` | `[WaevaRpcServiceContract]`/`[WaevaRpcMethodContract]` — Metadaten auf generierten Verträgen |
 | `Contracts.cs` | Repräsentativer Generator-Output (`ICustomerService`) gegen den Customer-Controller |
 | `ContractGenerator.cs` | `discovery.json → C#` (das „discovery-generiert"-Modell, Option c) |
 | `Arg.cs` | `Arg<T>`-Wrapper + implizite Konvertierungen aus `T` und `Dep<T>`; `IArg` als nicht-generische Sicht |
-| `Dep.cs` / `HrpcCallSpec.cs` | `Dep<T>`-Marker; `HrpcCallSpec<T>.Expose()`/`Expose(x => x.Name)` |
+| `Dep.cs` / `WaevaRpcCallSpec.cs` | `Dep<T>`-Marker; `WaevaRpcCallSpec<T>.Expose()`/`Expose(x => x.Name)` |
 | `JsonPathBuilder.cs` | Selector-Expression → ergebnisrelativer JsonPath (`$`, `$.Name`, `$[0].Id`) |
-| `HrpcLinqClient.cs` | Expression-Visitor → `HrpcCallSpec`; Send/ResultOf |
-| `HrpcBatch.cs` | sammelt Specs → `HrpcMultiRequest` |
-| `HrpcLinqClientTests.cs` | In-memory-xUnit gegen `WebApplicationFactory<Program>` (reparierte Chaining-Basis) |
+| `WaevaRpcLinqClient.cs` | Expression-Visitor → `WaevaRpcCallSpec`; Send/ResultOf |
+| `WaevaRpcBatch.cs` | sammelt Specs → `WaevaRpcMultiRequest` |
+| `WaevaRpcLinqClientTests.cs` | In-memory-xUnit gegen `WebApplicationFactory<Program>` (reparierte Chaining-Basis) |
 
 ## Verifizierung
 
 ```bash
-dotnet test spikes/LinqProvider/Hrpc.Spike.LinqProvider.csproj   # 5/5 grün
+dotnet test spikes/LinqProvider/Waeva.Spike.LinqProvider.csproj   # 5/5 grün
 ```
 
 Die Integrationstests laufen in-memory gegen die Sample-App und decken:
@@ -134,4 +134,4 @@ einen 500 liefern — genau der Pfad, den der Spike abdeckt.
   Bauzeit ein.
 - **Kein Cancel­lation/Streaming/byte[]** im Spike — Fokus auf die Verdrahtung.
 - **Alias-Schema** ist `_`-sanitisiert, weil der serverseitige `DependencyGraphBuilder`
-  `@alias` nur als `[A-Za-z0-9_]+` extrahiert (siehe `HrpcCallSpec.ExposePath`).
+  `@alias` nur als `[A-Za-z0-9_]+` extrahiert (siehe `WaevaRpcCallSpec.ExposePath`).

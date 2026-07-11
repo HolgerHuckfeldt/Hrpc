@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { HrpcError, CancelledError, isCancelled } from "../../src/errors.js";
+import { WaevaRpcError, CancelledError, isCancelled } from "../../src/errors.js";
 
-describe("HrpcError", () => {
+describe("WaevaRpcError", () => {
   it("fromBody übernimmt code/message/requestId", () => {
-    const e = HrpcError.fromBody({ code: 404, message: "not found", requestId: "x" });
-    expect(e).toBeInstanceOf(HrpcError);
+    const e = WaevaRpcError.fromBody({ code: 404, message: "not found", requestId: "x" });
+    expect(e).toBeInstanceOf(WaevaRpcError);
     expect(e).toBeInstanceOf(Error);
     expect(e.code).toBe(404);
     expect(e.message).toBe("not found");
@@ -12,13 +12,13 @@ describe("HrpcError", () => {
   });
 
   it("fromResponse nutzt Fallback-Message, wenn kein error-Feld (Data trägt seit Single-Pass-Fix keine Fehlertexte)", () => {
-    const e = HrpcError.fromResponse({ code: 500, isSuccess: false });
+    const e = WaevaRpcError.fromResponse({ code: 500, isSuccess: false });
     expect(e.code).toBe(500);
-    expect(e.message).toBe("Hrpc call failed with code 500.");
+    expect(e.message).toBe("WaevaRpc call failed with code 500.");
   });
 
   it("fromResponse bevorzugt strukturiertes error-Feld", () => {
-    const e = HrpcError.fromResponse({
+    const e = WaevaRpcError.fromResponse({
       code: 400,
       data: "x",
       isSuccess: false,
@@ -29,16 +29,16 @@ describe("HrpcError", () => {
   });
 
   it("fromResponse mit Fallback-Message bei leerem data", () => {
-    const e = HrpcError.fromResponse({ code: 403, data: null, isSuccess: false });
+    const e = WaevaRpcError.fromResponse({ code: 403, data: null, isSuccess: false });
     expect(e.message).toContain("403");
   });
 });
 
 describe("CancelledError", () => {
-  it("ist keine HrpcError (unverpackt)", () => {
+  it("ist keine WaevaRpcError (unverpackt)", () => {
     const c = new CancelledError("x", true);
     expect(c).toBeInstanceOf(CancelledError);
-    expect(c).not.toBeInstanceOf(HrpcError);
+    expect(c).not.toBeInstanceOf(WaevaRpcError);
     expect(c.timedOut).toBe(true);
     expect(isCancelled(c)).toBe(true);
   });

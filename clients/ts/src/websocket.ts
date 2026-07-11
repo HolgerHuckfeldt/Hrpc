@@ -1,6 +1,6 @@
-import { HrpcError, CancelledError } from "./errors.js";
-import { ExecutionMode, HrpcConnectionState } from "./types.js";
-import type { HrpcMultiRequest, HrpcRequest, HrpcResponse } from "./types.js";
+import { WaevaRpcError, CancelledError } from "./errors.js";
+import { ExecutionMode, WaevaRpcConnectionState } from "./types.js";
+import type { WaevaRpcMultiRequest, WaevaRpcRequest, WaevaRpcResponse } from "./types.js";
 import { fromBase64, normalizeResponse, normalizeResponses } from "./request.js";
 
 const READY_CONNECTING = 0;
@@ -56,8 +56,8 @@ export interface WsCallOptions {
 }
 
 /** Optionen für den WebSocket-Client. */
-export interface HrpcWebSocketClientOptions {
-  /** WS-Pfad (Default "hrpcws"). */
+export interface WaevaRpcWebSocketClientOptions {
+  /** WS-Pfad (Default "waevaws"). */
   wsPath?: string;
   /** Bearer-Token (Node: als Authorization-Header; Browser: als ?access_token=). */
   bearer?: string;
@@ -72,11 +72,11 @@ export interface HrpcWebSocketClientOptions {
   /** Backoff-Intervalle in ms (Default SignalR-Spiegel). Leeres Array schaltet Reconnect aus. */
   reconnectDelays?: number[];
   /** Observer für Zustandswechsel (UI/Logs). */
-  onStateChanged?: (state: HrpcConnectionState) => void;
+  onStateChanged?: (state: WaevaRpcConnectionState) => void;
 }
 
 interface PendingCall {
-  resolve: (v: HrpcResponse | HrpcResponse[]) => void;
+  resolve: (v: WaevaRpcResponse | WaevaRpcResponse[]) => void;
   reject: (e: Error) => void;
   isBatch: boolean;
   timer?: ReturnType<typeof setTimeout>;
@@ -98,7 +98,7 @@ async function resolveDefaultFactory(): Promise<WsFactory> {
     const mod: any = await import("ws");
     const WS = mod.WebSocket ?? mod.default?.WebSocket ?? mod.default;
     if (typeof WS !== "function") {
-      throw new HrpcError(
+      throw new WaevaRpcError(
         0,
         "No WebSocket implementation found. In Node, install the optional 'ws' package.",
       );
@@ -109,7 +109,7 @@ async function resolveDefaultFactory(): Promise<WsFactory> {
 }
 
 /**
- * WebSocket-Client für Hrpc (RFC 6455 + JSON-Text-Frames), isomorph.
+ * WebSocket-Client für WaevaRpc (RFC 6455 + JSON-Text-Frames), isomorph.
  *
  * Connect-Race (B1): konkurrierende `call()` erwarten denselben in-flight
  * Connect-Promise statt abgewiesen zu werden. Correlation (B3): jede Antwort
@@ -124,7 +124,7 @@ async function resolveDefaultFactory(): Promise<WsFactory> {
  * authentifizierte Browser-WS-Calls brauchen serverseitige `?access_token=`-
  * Unterstützung (Roadmap) oder REST. Node (`ws`) sendet den Header korrekt.
  */
-export class HrpcWebSocketClient {
+export class WaevaRpcWebSocketClient {
   private readonly _baseUrl: string;
   private readonly _wsPath: string;
   private readonly _bearer?: string;
@@ -133,23 +133,23 @@ export class HrpcWebSocketClient {
   private readonly _wsCtor?: WsFactory;
   private readonly _reconnect: boolean;
   private readonly _reconnectDelays: number[];
-  private readonly _onStateChanged?: (state: HrpcConnectionState) => void;
+  private readonly _onStateChanged?: (state: WaevaRpcConnectionState) => void;
 
   private _ws?: IWebSocket;
   private _connectPromise?: Promise<void>;
   private _pending = new Map<string, PendingCall>();
-  private _state: HrpcConnectionState = HrpcConnectionState.Disconnected;
+  private _state: WaevaRpcConnectionState = WaevaRpcConnectionState.Disconnected;
   private _closedByClient = false;
   private _disposed = false;
   private _reconnectPromise?: Promise<void>;
   private _reconnectAbort?: AbortController;
 
-  constructor(baseUrl: string, options: HrpcWebSocketClientOptions = {}) {
+  constructor(baseUrl: string, options: WaevaRpcWebSocketClientOptions = {}) {
     if (!baseUrl || baseUrl.trim().length === 0) {
-      throw new Error("HrpcWebSocketClient: baseUrl darf nicht leer sein.");
+      throw new Error("WaevaRpcWebSocketClient: baseUrl darf nicht leer sein.");
     }
     this._baseUrl = baseUrl.replace(/\/+$/, "");
-    this._wsPath = (options.wsPath ?? "hrpcws").replace(/^\/+|\/+$/g, "");
+    this._wsPath = (options.wsPath ?? "waevaws").replace(/^\/+|\/+$/g, "");
     this._bearer = options.bearer;
     this._callTimeout = options.callTimeout;
     this._connectTimeout = options.connectTimeout ?? 15000;
@@ -160,11 +160,11 @@ export class HrpcWebSocketClient {
   }
 
   /** Aktueller Verbindungs-Zustand (Observer-Oberfläche für UI/Logs). */
-  get state(): HrpcConnectionState {
+  get state(): WaevaRpcConnectionState {
     return this._state;
   }
 
-  private setState(s: HrpcConnectionState): void {
+  private setState(s: WaevaRpcConnectionState): void {
     this._state = s;
     try {
       this._onStateChanged?.(s);
@@ -175,12 +175,12 @@ export class HrpcWebSocketClient {
 
   /** Stellt eine offene Verbindung sicher (B1: concurrent-safe). */
   async connect(): Promise<void> {
-    if (this._disposed) throw new Error("HrpcWebSocketClient: disposed.");
+    if (this._disposed) throw new Error("WaevaRpcWebSocketClient: disposed.");
     if (this._ws && this._ws.readyState === READY_OPEN) return;
 
     // Läuft ein Hintergrund-Reconnect? Darauf warten (nicht selbst verbinden),
     // damit parallele Calls denselben in-flight Reconnect teilen.
-    if (this._reconnectPromise && this._state === HrpcConnectionState.Reconnecting) {
+    if (this._reconnectPromise && this._state === WaevaRpcConnectionState.Reconnecting) {
       try {
         await this._reconnectPromise;
       } catch {
@@ -190,9 +190,9 @@ export class HrpcWebSocketClient {
     }
 
     if (this._connectPromise) return this._connectPromise;
-    this.setState(HrpcConnectionState.Connecting);
+    this.setState(WaevaRpcConnectionState.Connecting);
     this._connectPromise = this.connectSlow()
-      .then(() => this.setState(HrpcConnectionState.Connected))
+      .then(() => this.setState(WaevaRpcConnectionState.Connected))
       .finally(() => {
         this._connectPromise = undefined;
       });
@@ -200,40 +200,40 @@ export class HrpcWebSocketClient {
   }
 
   /** Sendet einen einzelnen Request. */
-  async call(req: HrpcRequest, opts?: WsCallOptions): Promise<HrpcResponse> {
+  async call(req: WaevaRpcRequest, opts?: WsCallOptions): Promise<WaevaRpcResponse> {
     if (!req.id) req.id = `${req.controller}.${req.method}`;
     await this.connect();
-    return this.sendAndAwait(req, false, opts) as Promise<HrpcResponse>;
+    return this.sendAndAwait(req, false, opts) as Promise<WaevaRpcResponse>;
   }
 
   /** Sendet einen Batch (Multi-Request). Auto-Setzt leere Ids. */
   async callBatch(
-    requests: HrpcRequest[],
+    requests: WaevaRpcRequest[],
     mode: ExecutionMode = ExecutionMode.Parallel,
     opts?: WsCallOptions,
-  ): Promise<HrpcResponse[]> {
+  ): Promise<WaevaRpcResponse[]> {
     const normalized = requests.map((r) =>
       r.id ? r : { ...r, id: `${r.controller}.${r.method}` },
     );
     await this.connect();
-    const multi: HrpcMultiRequest = { requests: normalized, mode };
+    const multi: WaevaRpcMultiRequest = { requests: normalized, mode };
     const key = normalized[0]?.id;
-    if (!key) throw new HrpcError(0, "Batch requires at least one request with an id.");
-    return this.sendAndAwait(multi as unknown as HrpcRequest, true, opts, key) as Promise<
-      HrpcResponse[]
+    if (!key) throw new WaevaRpcError(0, "Batch requires at least one request with an id.");
+    return this.sendAndAwait(multi as unknown as WaevaRpcRequest, true, opts, key) as Promise<
+      WaevaRpcResponse[]
     >;
   }
 
   /** Ruft auf und deserialisiert `response.data` als T. Wirft bei Nicht-2xx. */
-  async callJson<T>(req: HrpcRequest, opts?: WsCallOptions): Promise<T | null> {
+  async callJson<T>(req: WaevaRpcRequest, opts?: WsCallOptions): Promise<T | null> {
     const response = await this.call(req, opts);
     return parseData<T>(response);
   }
 
   /** Ruft eine byte[]-Methode auf; liefert `response.content` als Uint8Array. Wirft bei Nicht-2xx. */
-  async callBinary(req: HrpcRequest, opts?: WsCallOptions): Promise<Uint8Array | null> {
+  async callBinary(req: WaevaRpcRequest, opts?: WsCallOptions): Promise<Uint8Array | null> {
     const response = await this.call(req, opts);
-    if (!response.isSuccess) throw HrpcError.fromResponse(response);
+    if (!response.isSuccess) throw WaevaRpcError.fromResponse(response);
     return response.content ? fromBase64(response.content) : null;
   }
 
@@ -242,7 +242,7 @@ export class HrpcWebSocketClient {
     this._closedByClient = true;
     this._disposed = true;
     this.stopReconnect();
-    this.rejectAllPending(new HrpcError(0, "WebSocket closed by client."));
+    this.rejectAllPending(new WaevaRpcError(0, "WebSocket closed by client."));
     if (this._ws) {
       try {
         this._ws.close(1000, "client close");
@@ -251,7 +251,7 @@ export class HrpcWebSocketClient {
       }
     }
     this._ws = undefined;
-    this.setState(HrpcConnectionState.Disconnected);
+    this.setState(WaevaRpcConnectionState.Disconnected);
   }
 
   /** Alias für {@link close} (Symmetrie zum REST-Client). */
@@ -288,7 +288,7 @@ export class HrpcWebSocketClient {
       };
 
       connectTimer = setTimeout(
-        () => fail(new HrpcError(0, "WebSocket connect timed out.")),
+        () => fail(new WaevaRpcError(0, "WebSocket connect timed out.")),
         this._connectTimeout,
       );
 
@@ -301,11 +301,11 @@ export class HrpcWebSocketClient {
       ws.onclose = (ev) => {
         this.onClosed();
         if (!opened) {
-          fail(new HrpcError(0, `WebSocket closed before open (code ${ev?.code ?? "n/a"}).`));
+          fail(new WaevaRpcError(0, `WebSocket closed before open (code ${ev?.code ?? "n/a"}).`));
         }
       };
       ws.onerror = () => {
-        if (!opened) fail(new HrpcError(0, "WebSocket connection failed."));
+        if (!opened) fail(new WaevaRpcError(0, "WebSocket connection failed."));
         // nach open folgt onclose, das alle pending ablehnt.
       };
     });
@@ -322,27 +322,27 @@ export class HrpcWebSocketClient {
   }
 
   private sendAndAwait(
-    payload: HrpcRequest,
+    payload: WaevaRpcRequest,
     isBatch: boolean,
     opts: WsCallOptions | undefined,
     explicitKey?: string,
-  ): Promise<HrpcResponse | HrpcResponse[]> {
+  ): Promise<WaevaRpcResponse | WaevaRpcResponse[]> {
     const key = explicitKey ?? payload.id!;
     const deferred = this.registerPending(key, isBatch, opts);
     try {
       const ws = this._ws;
       if (!ws || ws.readyState !== READY_OPEN) {
         this.disposePending(key);
-        return Promise.reject(new HrpcError(0, "WebSocket is not open."));
+        return Promise.reject(new WaevaRpcError(0, "WebSocket is not open."));
       }
       ws.send(JSON.stringify(payload));
       return deferred.promise;
     } catch (err) {
       this.disposePending(key);
       return Promise.reject(
-        err instanceof HrpcError
+        err instanceof WaevaRpcError
           ? err
-          : new HrpcError(0, `WebSocket send error: ${(err as Error)?.message ?? err}`),
+          : new WaevaRpcError(0, `WebSocket send error: ${(err as Error)?.message ?? err}`),
       );
     }
   }
@@ -351,10 +351,10 @@ export class HrpcWebSocketClient {
     key: string,
     isBatch: boolean,
     opts: WsCallOptions | undefined,
-  ): { promise: Promise<HrpcResponse | HrpcResponse[]> } {
-    let resolve!: (v: HrpcResponse | HrpcResponse[]) => void;
+  ): { promise: Promise<WaevaRpcResponse | WaevaRpcResponse[]> } {
+    let resolve!: (v: WaevaRpcResponse | WaevaRpcResponse[]) => void;
     let reject!: (e: Error) => void;
-    const promise = new Promise<HrpcResponse | HrpcResponse[]>((res, rej) => {
+    const promise = new Promise<WaevaRpcResponse | WaevaRpcResponse[]>((res, rej) => {
       resolve = res;
       reject = rej;
     });
@@ -364,7 +364,7 @@ export class HrpcWebSocketClient {
 
     if (timeoutMs && timeoutMs > 0) {
       pending.timer = setTimeout(
-        () => this.rejectPending(key, new CancelledError("Hrpc call timed out.", true)),
+        () => this.rejectPending(key, new CancelledError("WaevaRpc call timed out.", true)),
         timeoutMs,
       );
     }
@@ -372,11 +372,11 @@ export class HrpcWebSocketClient {
     if (opts?.signal) {
       if (opts.signal.aborted) {
         // Sofort abgelehnt (unverpackt).
-        queueMicrotask(() => this.rejectPending(key, new CancelledError("Hrpc call was cancelled.")));
+        queueMicrotask(() => this.rejectPending(key, new CancelledError("WaevaRpc call was cancelled.")));
       } else {
         pending.callerSignal = opts.signal;
         pending.onCallerAbort = () =>
-          this.rejectPending(key, new CancelledError("Hrpc call was cancelled."));
+          this.rejectPending(key, new CancelledError("WaevaRpc call was cancelled."));
         opts.signal.addEventListener("abort", pending.onCallerAbort, { once: true });
       }
     }
@@ -407,7 +407,7 @@ export class HrpcWebSocketClient {
     this._pending.delete(key);
   }
 
-  private resolvePending(key: string, value: HrpcResponse | HrpcResponse[]): boolean {
+  private resolvePending(key: string, value: WaevaRpcResponse | WaevaRpcResponse[]): boolean {
     const pending = this._pending.get(key);
     if (!pending) return false;
     if (pending.timer) clearTimeout(pending.timer);
@@ -435,14 +435,14 @@ export class HrpcWebSocketClient {
 
     if (Array.isArray(parsed)) {
       // Batch-Response: Korrelation über das erste Element.
-      const arr = normalizeResponses(parsed as HrpcResponse[]);
+      const arr = normalizeResponses(parsed as WaevaRpcResponse[]);
       const key = arr[0]?.id ?? undefined;
       if (key && this.resolvePending(key, arr)) return;
       this.dropUnmatched(text, key);
       return;
     }
 
-    const resp = normalizeResponse(parsed as HrpcResponse);
+    const resp = normalizeResponse(parsed as WaevaRpcResponse);
     const key = resp?.id ?? undefined;
     if (key && this.resolvePending(key, resp)) return;
     this.dropUnmatched(text, key);
@@ -452,29 +452,29 @@ export class HrpcWebSocketClient {
     // B3: kein Last-Resort — nicht zuordnen, verwerfen. Der pending Caller läuft
     // über seinen Timeout/sein Signal ab.
     console.warn(
-      `[hrpc-client] Received WebSocket response with no matching pending request (id=${key ?? "n/a"}). Dropping.`,
+      `[waeva-rpc-client] Received WebSocket response with no matching pending request (id=${key ?? "n/a"}). Dropping.`,
     );
     void text;
   }
 
   private onClosed(): void {
     this._ws = undefined;
-    this.rejectAllPending(new HrpcError(0, "WebSocket connection closed."));
+    this.rejectAllPending(new WaevaRpcError(0, "WebSocket connection closed."));
 
     // Unerwarteter Disconnect (nicht durch close()/dispose() ausgelöst) -> Reconnect.
     if (!this._closedByClient && !this._disposed && this._reconnect) {
       this.startReconnect();
     } else {
-      this.setState(HrpcConnectionState.Disconnected);
+      this.setState(WaevaRpcConnectionState.Disconnected);
     }
   }
 
   /** Startet den Hintergrund-Reconnect mit Backoff (idempotent). */
   private startReconnect(): void {
     if (this._disposed) return;
-    if (this._reconnectPromise && this._state === HrpcConnectionState.Reconnecting) return;
+    if (this._reconnectPromise && this._state === WaevaRpcConnectionState.Reconnecting) return;
 
-    this.setState(HrpcConnectionState.Reconnecting);
+    this.setState(WaevaRpcConnectionState.Reconnecting);
     this._reconnectAbort?.abort();
     this._reconnectAbort = new AbortController();
     const signal = this._reconnectAbort.signal;
@@ -498,7 +498,7 @@ export class HrpcWebSocketClient {
         try {
           await this._connectPromise;
           if (this._ws && this._ws.readyState === READY_OPEN) {
-            this.setState(HrpcConnectionState.Connected);
+            this.setState(WaevaRpcConnectionState.Connected);
             return; // Erfolg
           }
         } catch {
@@ -506,7 +506,7 @@ export class HrpcWebSocketClient {
         }
       }
       // Backoff erschöpft -> aufgeben.
-      if (!this._disposed) this.setState(HrpcConnectionState.Disconnected);
+      if (!this._disposed) this.setState(WaevaRpcConnectionState.Disconnected);
     })();
   }
 
@@ -519,11 +519,11 @@ export class HrpcWebSocketClient {
 
 // --- Shared (gleichlautend mit rest.ts) ---
 
-function parseData<T>(response: HrpcResponse): T | null {
+function parseData<T>(response: WaevaRpcResponse): T | null {
   // Seit dem Single-Pass-Fix ist data bereits ein strukturierter Wert (kein JSON-String).
   if (response.isSuccess && response.data != null) {
     return response.data as T;
   }
-  if (!response.isSuccess) throw HrpcError.fromResponse(response);
+  if (!response.isSuccess) throw WaevaRpcError.fromResponse(response);
   return null;
 }

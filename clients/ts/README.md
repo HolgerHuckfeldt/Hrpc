@@ -1,25 +1,25 @@
-# hrpc-client
+# waeva-rpc-client
 
-Isomorphic JavaScript/TypeScript client for [Hrpc](../../README.md) — the code-first,
+Isomorphic JavaScript/TypeScript client for [WaevaRpc](../../README.md) — the code-first,
 multi-transport RPC framework for .NET 8. Runs in the **browser** and **Node.js** with
 the same API.
 
 - **Transports:** REST (`fetch`) + WebSocket. (SignalR is a roadmap item — see
   [ROADMAP.md](../../ROADMAP.md).)
-- **API:** fluent `HrpcCall` builder **and** functional `client.call("C","M",{...})`.
+- **API:** fluent `WaevaRpcCall` builder **and** functional `client.call("C","M",{...})`.
 - **Batching + dependency chaining** in a single roundtrip (resolved server-side).
 - **Binary:** `byte[]` parameters and binary results, base64 over the wire.
 - **Cancellation & timeout** via `AbortSignal` → `CancelledError` (not wrapped as
-  `HrpcError`).
+  `WaevaRpcError`).
 - **Discovery:** `client.discover()` returns the full API metadata from
-  `GET /api/hrpc/discovery`.
+  `GET /api/waeva/discovery`.
 
 The wire format is specified in [PROTOCOL.md](../../PROTOCOL.md).
 
 ## Install
 
 ```bash
-npm i hrpc-client
+npm i waeva-rpc-client
 ```
 
 In Node, the WebSocket transport uses the optional [`ws`](https://www.npmjs.com/package/ws)
@@ -29,7 +29,7 @@ native `WebSocket` is used — no extra dependency.
 ## Quick start
 
 ```ts
-import { createClient, HrpcCall, ExecutionMode } from "hrpc-client";
+import { createClient, WaevaRpcCall, ExecutionMode } from "waeva-rpc-client";
 
 const { rest, ws } = createClient("https://localhost:5001", { bearer: token });
 
@@ -37,7 +37,7 @@ const { rest, ws } = createClient("https://localhost:5001", { bearer: token });
 const customer = await rest.callJson<Customer>("Customer", "GetById", { id: 42 });
 
 // --- REST, fluent ---
-const req = HrpcCall.init("Customer", "Create")
+const req = WaevaRpcCall.init("Customer", "Create")
   .with({ name: "Alice" })
   .named("step1")
   .exposes("$", "newId")
@@ -45,10 +45,10 @@ const req = HrpcCall.init("Customer", "Create")
 const created = await rest.call(req);
 
 // --- Batch with dependency chaining (single roundtrip) ---
-const batch = HrpcCall.batch(
+const batch = WaevaRpcCall.batch(
   [
-    HrpcCall.init("Customer", "Create").with({ name: "Alice" }).named("step1").exposes("$", "newId").toRequest(),
-    HrpcCall.init("Customer", "GetById").withAlias("@newId").named("step2").toRequest(),
+    WaevaRpcCall.init("Customer", "Create").with({ name: "Alice" }).named("step1").exposes("$", "newId").toRequest(),
+    WaevaRpcCall.init("Customer", "GetById").withAlias("@newId").named("step2").toRequest(),
   ],
   ExecutionMode.Serial, // Serial => @alias resolution between calls
 );
@@ -56,20 +56,20 @@ const [first, second] = await rest.callBatch(batch.requests, batch.mode);
 
 // --- WebSocket (persistent connection) ---
 await ws.connect();
-const live = await ws.callJson<Customer>(HrpcCall.init("Customer", "GetById").with({ id: 42 }).toRequest());
+const live = await ws.callJson<Customer>(WaevaRpcCall.init("Customer", "GetById").with({ id: 42 }).toRequest());
 ws.close();
 ```
 
 ## REST client
 
 ```ts
-import { HrpcRestClient } from "hrpc-client";
+import { WaevaRpcRestClient } from "waeva-rpc-client";
 
-const client = new HrpcRestClient("https://localhost:5001", {
+const client = new WaevaRpcRestClient("https://localhost:5001", {
   bearer: "eyJ...",
   callTimeout: 10_000,   // ms; AbortController pro Call
   headers: { "X-Trace": "abc" }, // Default-Header
-  apiPath: "api/hrpc",   // Default; Slashes werden abgeschnitten
+  apiPath: "api/waeva",   // Default; Slashes werden abgeschnitten
   fetch,                 // injizierbar (Tests / älteres Node)
 });
 
@@ -90,25 +90,25 @@ const arr = await client.callBatch([req1, req2], ExecutionMode.Parallel);
 const meta = await client.discover();
 ```
 
-Overloads: every `call*` accepts either a pre-built `HrpcRequest` or
+Overloads: every `call*` accepts either a pre-built `WaevaRpcRequest` or
 `(controller, method, params)`.
 
 ## WebSocket client
 
 ```ts
-import { HrpcWebSocketClient, HrpcCall } from "hrpc-client";
+import { WaevaRpcWebSocketClient, WaevaRpcCall } from "waeva-rpc-client";
 
-const ws = new HrpcWebSocketClient("https://localhost:5001", {
+const ws = new WaevaRpcWebSocketClient("https://localhost:5001", {
   bearer: "eyJ...",
-  wsPath: "hrpcws",     // Default
+  wsPath: "waevaws",     // Default
   callTimeout: 10_000,
   connectTimeout: 15_000,
 });
 
 await ws.connect();     // wird von call() implizit aufgerufen; concurrent-safe (B1)
-const r = await ws.call(HrpcCall.init("Customer", "GetById").with({ id: 42 }).toRequest());
+const r = await ws.call(WaevaRpcCall.init("Customer", "GetById").with({ id: 42 }).toRequest());
 const batch = await ws.callBatch([req1, req2], ExecutionMode.Parallel);
-ws.close();             // lehnt alle pending Calls mit HrpcError ab
+ws.close();             // lehnt alle pending Calls mit WaevaRpcError ab
 ```
 
 Correlation: each response is matched by `id` (single) or `requests[0].id` (batch).
@@ -117,21 +117,21 @@ Responses with no matching pending call are warned + dropped (no last-resort mis
 ## Errors
 
 ```ts
-import { HrpcError, CancelledError, isCancelled } from "hrpc-client";
+import { WaevaRpcError, CancelledError, isCancelled } from "waeva-rpc-client";
 
 try {
   await rest.callJson("Customer", "GetById", { id: 42 });
 } catch (e) {
   if (isCancelled(e)) {
-    // Abbruch oder Timeout -> CancelledError (KEIN HrpcError)
+    // Abbruch oder Timeout -> CancelledError (KEIN WaevaRpcError)
     // (e as CancelledError).timedOut === true bei Timeout
-  } else if (e instanceof HrpcError) {
+  } else if (e instanceof WaevaRpcError) {
     console.error(e.code, e.message, e.details, e.requestId);
   }
 }
 ```
 
-- **`HrpcError`**: transport/logical failures (`code`, `message`, `details?`, `requestId?`).
+- **`WaevaRpcError`**: transport/logical failures (`code`, `message`, `details?`, `requestId?`).
 - **`CancelledError`**: caller abort or timeout — propagated **unwrapped** (consistent
   with the C# client). `timedOut` distinguishes a timeout from a caller abort.
 
@@ -155,7 +155,7 @@ await rest.call("C", "M", { id: 1 }, { signal: ac.signal, timeout: 5_000 }); // 
 
 ## Known limitations
 
-- **Browser WebSocket auth:** the Hrpc server authenticates the WS upgrade **only** via the
+- **Browser WebSocket auth:** the WaevaRpc server authenticates the WS upgrade **only** via the
   HTTP `Authorization` header, which the browser WebSocket API cannot set. The client
   falls back to `?access_token=` in the URL for browser WS, which the server does not yet
   accept — so authenticated browser-WS calls need REST (or server-side `?access_token=`
@@ -171,7 +171,7 @@ npm install
 npm run build        # tsc -> dist/
 npm run typecheck    # src + test, 0 Fehler
 npm test             # vitest unit tests
-HRPC_E2E=1 npm run test:e2e   # optional, gegen laufende Sample-App
+WAEVARPC_E2E=1 npm run test:e2e   # optional, gegen laufende Sample-App
 ```
 
 ## License

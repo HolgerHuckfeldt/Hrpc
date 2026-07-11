@@ -9,14 +9,14 @@
 // DependencyMapping (siehe 04).
 // ==============================================================================
 
-import { HrpcRestClient, HrpcCall, ExecutionMode } from "hrpc-client";
+import { WaevaRpcRestClient, WaevaRpcCall, ExecutionMode } from "waeva-rpc-client";
 
-const rest = new HrpcRestClient("https://localhost:5001", { bearer: token });
+const rest = new WaevaRpcRestClient("https://localhost:5001", { bearer: token });
 
-const batch = HrpcCall.batch(
+const batch = WaevaRpcCall.batch(
   [
-    HrpcCall.init("Customer", "GetCustomerById").with({ id: 1 }).named("a").toRequest(),
-    HrpcCall.init("Customer", "GetCustomerById").with({ id: 2 }).named("b").toRequest(),
+    WaevaRpcCall.init("Customer", "GetCustomerById").with({ id: 1 }).named("a").toRequest(),
+    WaevaRpcCall.init("Customer", "GetCustomerById").with({ id: 2 }).named("b").toRequest(),
   ],
   ExecutionMode.Serial,
 );

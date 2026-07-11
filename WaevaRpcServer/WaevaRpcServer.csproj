@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>WaevaRpc.Server</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Hrpc</Authors>
+    <Description>Unified ASP.NET Core server integration for WaevaRpc — AddWaevaRpc + UseWaevaRpcTransports + MapWaevaRpc in einem Paket.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/HolgerHuckfeldt/WaevaRpc</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <!-- ASP.NET Core-Typen (IApplicationBuilder/IEndpointRouteBuilder/MapHub) —
+       Consumer ist ohnehin eine ASP.NET-App. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Aggregiert alle Transporte + DevUI; transitiv WaevaRpcCore/WaevaCommon. -->
+  <ItemGroup>
+    <ProjectReference Include="..\WaevaRpcHub\WaevaRpcHub.csproj" />
+    <ProjectReference Include="..\WaevaRpcRest\WaevaRpcRest.csproj" />
+    <ProjectReference Include="..\WaevaRpcWebSocket\WaevaRpcWebSocket.csproj" />
+    <ProjectReference Include="..\WaevaRpcDeveloperUi\WaevaRpcDeveloperUi.csproj" />
+  </ItemGroup>
+
+  <!-- Root-README ins Paket einbinden (löst NU5048-Warnung). -->
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+
+</Project>

@@ -1,4 +1,4 @@
-# Hrpc Roadmap
+# WaevaRpc Roadmap
 
 > Nach-v1, nach vorne gerichtet. Diese Datei listet Features, die bewusst *nicht* in
 > den ersten öffentlichen Release gekommen sind — entweder weil sie den v1-Vertrag
@@ -6,19 +6,19 @@
 > verändern dürfen. Stand: 2026-07-08.
 >
 > **Mit v1 geliefert:** Ein isomorpher JS/TypeScript-Client (REST + WebSocket) unter
-> [`clients/ts/`](clients/ts/) (`npm i hrpc-client`). SignalR für JS/TS und
+> [`clients/ts/`](clients/ts/) (`npm i waeva-rpc-client`). SignalR für JS/TS und
 > Discovery→TS-Codegen bleiben offen (siehe „Später").
 
 ---
 
 ## Motivation: Was Batching + Dependency-Auflösung in der Praxis bringen
 
-Hrpcs Kernversprechen ist nicht „eine hübsche Client-API", sondern **N+1- und
+WaevaRpcs Kernversprechen ist nicht „eine hübsche Client-API", sondern **N+1- und
 Roundtrip-Kosten eliminieren, ohne dass der Server dafür Spezialmethoden baut.**
 Ein beobachtetes Beispiel aus einer realen Anwendung:
 
 > Eine Seite, die zum Laden ursprünglich **über 5 Sekunden** brauchte, fiel mit
-> gezieltem Hrpc-Batching auf **rund 100 ms** — **ohne Server-seitige Änderung**,
+> gezieltem WaevaRpc-Batching auf **rund 100 ms** — **ohne Server-seitige Änderung**,
 > also ohne eine extra Methode nur für genau diesen Fall. Die Liste der Kunden,
 > das Prefetchen der ersten beiden und die Bestellpositionen des ersten Kunden
 > laufen in einem Roundtrip, so parallel wie die Abhängigkeiten es zulassen.
@@ -37,9 +37,9 @@ Versionierung ist das einzige Problem, das **jede RPC-Generation wieder eingehol
 hat (CORBA → COM → SOAP → gRPC). Und die einzige Maßnahme, die verlässlich greift,
 ist **Build-Time-Stub-Erzeugung**: ein Interface-Drift, der beim Kompilieren
 knallt, statt erst im Produktionstraffic. Das war damals `wsdl.exe`/`svcutil`,
-heute protobuf — und fehlt in Hrpc bislang.
+heute protobuf — und fehlt in WaevaRpc bislang.
 
-v1 löst Versionierung rein als **Konvention** (`[HrpcController("Customer.v1")]`,
+v1 löst Versionierung rein als **Konvention** (`[WaevaRpcController("Customer.v1")]`,
 dotted Namespace, siehe README *Known Limitations*). Das erlaubt Koexistenz von
 v1/v2, bietet aber keine Build-Time-Sicherung: ein Client, der gegen eine alte
 Form compiliert wurde, merkt einen Server-seitigen Interface-Bruch erst zur
@@ -55,18 +55,18 @@ Ein **optionales, opt-in** zweites Modell neben dem Code-first-Default:
 
 ### Architektur (zweistückig — wie wsdl.exe, nur .NET-nativ)
 
-Ein Roslyn-Source-Generator kann zur Build-Zeit **kein** `/api/hrpc/discovery`
+Ein Roslyn-Source-Generator kann zur Build-Zeit **kein** `/api/waeva/discovery`
 abrufen (kein Netz, kein laufender Server). Deshalb zwei Stücke:
 
 1. **Contract-Export (Server-Seite).** Ein MSBuild-Target oder CLI-Tool erzeugt
-   das Discovery-JSON — das mit `/api/hrpc/discovery` bereits existiert — und
-   schreibt es in eine Datei, die ins Repo committed wird (z. B. `contract.hrpc.json`).
+   das Discovery-JSON — das mit `/api/waeva/discovery` bereits existiert — und
+   schreibt es in eine Datei, die ins Repo committed wird (z. B. `contract.waeva-rpc.json`).
 2. **Source-Generator (Client-Seite).** Ein `IIncrementalGenerator` liest die
    committed Datei via `AdditionalFiles` und erzeugt pro Controller eine
    partielle Klasse `CustomerClient` mit stark getypteten Methoden
    (`Task<Customer?> GetById(int id, CancellationToken ct)`) plus einer
-   `HrpcControllerVersion`-Konstante. Intern bauen die Stubs weiterhin auf
-   `HrpcCall`/`IHrpcClient` auf — sie sind ein getypter Wrapper, kein zweites
+   `WaevaRpcControllerVersion`-Konstante. Intern bauen die Stubs weiterhin auf
+   `WaevaRpcCall`/`IWaevaRpcClient` auf — sie sind ein getypter Wrapper, kein zweites
    Protokoll.
 3. **Drift-Check (Pflichtbestandteil).** Ein MSBuild-Target auf dem
    Server-Projekt regeneriert das Discovery zur Build-Zeit und lässt den Build
@@ -83,7 +83,7 @@ abrufen (kein Netz, kein laufender Server). Deshalb zwei Stücke:
   Version als Konstante in den Stub; der Server kann bei Mismatch hart
   `409`/`400` „Version mismatch" returnen — explizit statt stillschweigend.
 - **Compatibility-Gate (alternative):** ein typisiertes `version`-Feld im
-  `HrpcRequest`, ein Controller, Server lehnt nicht-passende Versionen ab. Mehr
+  `WaevaRpcRequest`, ein Controller, Server lehnt nicht-passende Versionen ab. Mehr
   Metadata, größere Protokolländerung. Nur wählen, wenn Routing-Key nicht reicht.
 
 ### Bewusst akzeptierte Trade-offs
@@ -94,7 +94,7 @@ abrufen (kein Netz, kein laufender Server). Deshalb zwei Stücke:
   erst zur Laufzeit als `400`. Das ist ein bewusstes Opfer für die Flexibilität
   des Code-first-Modells; der Generator ist das Gegenstück für Teams, die
   Build-Time-Sicherung brauchen.
-- **Zweites Verkaufsmodell.** Hrpcs Pitch bislang: „code-first, no IDL, no code
+- **Zweites Verkaufsmodell.** WaevaRpcs Pitch bislang: „code-first, no IDL, no code
   generation." Das bleibt als Default wahr. Der Generator muss klar als *opt-in*
   positioniert werden, nicht als Ersatz — sonst widerspricht er der Kernposition.
 - **Contract-Snapshot ist Drift-anfällig per se.** Daher der Drift-Check als
@@ -104,12 +104,12 @@ abrufen (kein Netz, kein laufender Server). Deshalb zwei Stücke:
 
 - Konkrete Form der Contract-Datei (reines Discovery-JSON vs. eigene
   Contract-Schema-Datei mit Versions-Metadaten).
-- Ob der Generator nur Stubs oder auch Request/Response-DTOs (`[HrpcDataContract]`)
+- Ob der Generator nur Stubs oder auch Request/Response-DTOs (`[WaevaRpcDataContract]`)
   als C#-Typen erzeugt — und wie er mit Typen umgeht, die client-seitig schon
   existieren (Namenskollisionen).
 - Ob `version` als Wire-Feld (Gate) oder nur als Generatorkonstante (Routing-Key)
   umgesetzt wird.
-- NuGet-Paketierung: separater Generator-Analyzer vs. Bestandteil von `Hrpc.Client`.
+- NuGet-Paketierung: separater Generator-Analyzer vs. Bestandteil von `WaevaRpc.Client`.
 
 ### Beziehung zu v1
 
@@ -124,7 +124,7 @@ Ein Expression-Tree-getypter RPC-Proxy-Spike validiert die Machbarkeit des
 getypteten Client-Modells end-to-end gegen die Sample-App:
 
 - `client.Build((ICustomerService c) => c.GetCustomerById(id))` → korrekter
-  `HrpcRequest` aus dem `MethodCallExpression` (Controller/Methode aus
+  `WaevaRpcRequest` aus dem `MethodCallExpression` (Controller/Methode aus
   Vertrags-Attributen, Parameter aus der Signatur).
 - **Typsichere Dep-Verdrahtung** über `Dep<T>`-Marker + `Arg<T>`-Wrapper mit
   impliziten Konvertierungen: ein `Dep<string>` an einer `Arg<int>`-Stelle ist
@@ -138,7 +138,7 @@ drei Server-Bugs im Dependency-Chaining (`$.data`-Konvention, typgetreue
 `@alias`-Substitution, nicht auflösender topologischer Batch-Pfad) überhaupt
 erst sichtbar gemacht, weil sie einen numerischen Chain end-to-end ausführt.
 Ehrlich eingeordnet ist der ROI aber begrenzt: der untypisierte
-`HrpcCall`-Builder funktioniert, Methoden-/Parameterfehler fallen in der
+`WaevaRpcCall`-Builder funktioniert, Methoden-/Parameterfehler fallen in der
 Entwicklung ohnehin sofort zur Laufzeit auf, und der größte Gewinn (typisierte
 Dep-Verdrahtung) deckt den engsten Fall (Batch-Chains). Der Codegen +
 `Arg<T>`-Tax rechtfertigt sich nur als opt-in.
@@ -158,31 +158,31 @@ Dep-Verdrahtung) deckt den engsten Fall (Batch-Chains). Der Codegen +
 - **Konstanten-Faltung + Caching** der Argument-Evaluation (`Expression.Lambda(arg).Compile().DynamicInvoke()`
   pro Call ist für heiße Loops zu teuer).
 - **Durchreichung** von Cancellation, `IAsyncEnumerable`, `byte[]` — der
-  untypisierte `IHrpcClient` kann das schon; die getypte Schicht muss es spiegeln.
+  untypisierte `IWaevaRpcClient` kann das schon; die getypte Schicht muss es spiegeln.
 
 Details und vollständige Entscheidung im Spike unter
 [`spikes/LinqProvider/README.md`](spikes/LinqProvider/README.md). Der Spike ist
-bewusst *nicht* Teil von `Hrpc.sln` — er läuft isoliert:
-`dotnet test spikes/LinqProvider/Hrpc.Spike.LinqProvider.csproj`.
+bewusst *nicht* Teil von `WaevaRpc.sln` — er läuft isoliert:
+`dotnet test spikes/LinqProvider/Waeva.Spike.LinqProvider.csproj`.
 
 ---
 
 ## Später (v1.x+, unsortiert)
 
 - **SignalR-Client für JS/TS.** Der `clients/ts/`-Client (v1) deckt REST +
-  WebSocket ab. Ein SignalR-Transport (`/Hrpc`-Hub, MessagePack) für den
+  WebSocket ab. Ein SignalR-Transport (`/Waeva`-Hub, MessagePack) für den
   Browser/Node folgt als v1.1 — bewusst nicht in v1, um die schwere
   `@microsoft/signalr`-Abhängigkeit + MessagePack aus dem Default-Build
   herauszuhalten. REST + WebSocket decken Browser-RPC bereits ab.
-- **Discovery→TypeScript-Codegen.** `/api/hrpc/discovery` liefert vollständige
+- **Discovery→TypeScript-Codegen.** `/api/waeva/discovery` liefert vollständige
   Typ-Metadaten. Ein Generator, der daraus getypte Client-Stubs (statt der
   heute rein funktionalen API) erzeugt, ist das JS-Äquivalent des oben
   beschriebenen .NET-Source-Generators und teilt dessen Drift-Check-Anforderung.
-- **Policy-basierte Autorisierung** für `[HrpcAuthorise]` via `IAuthorizationHandler`,
+- **Policy-basierte Autorisierung** für `[WaevaRpcAuthorise]` via `IAuthorizationHandler`,
   damit `403` (authentifiziert, aber nicht erlaubt) von `401` (nicht
   authentifiziert) unterschieden werden kann — aktuell Roadmap im
   RELEASE-PLAN Phase 3.1.
-- **Direkte/Fluent-Handler-Registrierung** ohne `[HrpcController]`/`[HrpcMethod]`
+- **Direkte/Fluent-Handler-Registrierung** ohne `[WaevaRpcController]`/`[WaevaRpcMethod]`
   — für Szenarien, die keine Attribut-Scan-Registrierung wollen.
 - **Input-Validierung** der Parameter (DataAnnotations / FluentValidation) im
   Interceptor-Pipeline.

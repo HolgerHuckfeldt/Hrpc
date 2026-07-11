@@ -1,6 +1,6 @@
-# Hrpc (Deutsch)
+# WaevaRpc (Deutsch)
 
-**Hrpc** ist ein hochperformantes, Multi-Transport-RPC-Framework für .NET 8, das die Einfachheit von REST mit der Performance persistenter Verbindungen verbindet.
+**WaevaRpc** ist ein hochperformantes, Multi-Transport-RPC-Framework für .NET 8, das die Einfachheit von REST mit der Performance persistenter Verbindungen verbindet.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -23,36 +23,36 @@ GraphQL löst Teile davon durch Query-Komposition, bringt aber eigene Komplexit�
 
 gRPC ist die offensichtliche Wahl für RPC auf .NET — also warum etwas anderes bauen?
 
-1. **gRPC war nicht gut unterstützt**, als Hrpc entstand. gRPC-Web (für Browser) brauchte einen Proxy, native Browser-Unterstützung fehlte, und die .NET-Tooling war noch unausgereift.
+1. **gRPC war nicht gut unterstützt**, als WaevaRpc entstand. gRPC-Web (für Browser) brauchte einen Proxy, native Browser-Unterstützung fehlte, und die .NET-Tooling war noch unausgereift.
 2. **Schema-first ist der falsche Default für .NET-Entwickler.** gRPC erfordert `.proto`-Dateien, einen Code-Generator und einen extra Build-Schritt. Man schreibt das Schema in einer DSL, generiert C#-Stubs und implementiert diese. In .NET *sind* die C#-Klassen bereits das Schema — warum eine zweite Definition in einer anderen Sprache pflegen?
 3. **gRPC bindet an einen Transport.** HTTP/2 + Protobuf ist toll für Server-zu-Server, aber Browser brauchen gRPC-Web, und über WebSocket oder REST geht es nur mit separater Implementierung.
 
-Hrpc ist **code-first**: Man schreibt C#-Klassen und Methoden, dekoriert sie mit Attributen, und das Framework erledigt den Rest. Keine `.proto`-Dateien, keine Code-Generierung, kein separates Schema. Discovery-Metadaten werden zur Laufzeit aus dem Code generiert.
+WaevaRpc ist **code-first**: Man schreibt C#-Klassen und Methoden, dekoriert sie mit Attributen, und das Framework erledigt den Rest. Keine `.proto`-Dateien, keine Code-Generierung, kein separates Schema. Discovery-Metadaten werden zur Laufzeit aus dem Code generiert.
 
-## Wie vergleicht sich Hrpc mit JSON-RPC?
+## Wie vergleicht sich WaevaRpc mit JSON-RPC?
 
-[JSON-RPC 2.0](https://www.jsonrpc.org/) ist der geistige Vorläufer von Hrpc — beide sind methodenorientiert, nicht ressourcenorientiert, und beide nutzen JSON. Also warum nicht einfach JSON-RPC nutzen?
+[JSON-RPC 2.0](https://www.jsonrpc.org/) ist der geistige Vorläufer von WaevaRpc — beide sind methodenorientiert, nicht ressourcenorientiert, und beide nutzen JSON. Also warum nicht einfach JSON-RPC nutzen?
 
-| | JSON-RPC 2.0 | **Hrpc** |
+| | JSON-RPC 2.0 | **WaevaRpc** |
 |---|---|---|
 | Methodenorientierte Aufrufe | ✅ | ✅ |
 | Batch-Calls | ✅ (JSON-Array) | ✅ |
 | Dependency-Chaining | ❌ Aufrufe sind unabhängig | ✅ `@alias`-Auflösung |
-| Typ-Verträge | ❌ untypisierte `params` | ✅ `[HrpcDataContract]` |
-| API-Discovery | ❌ (braucht OpenRPC) | ✅ eingebaut `/api/hrpc/discovery` |
-| Dokumentation | ❌ (extern) | ✅ `[HrpcDocumentation]` + `[HrpcExample]` |
+| Typ-Verträge | ❌ untypisierte `params` | ✅ `[WaevaRpcDataContract]` |
+| API-Discovery | ❌ (braucht OpenRPC) | ✅ eingebaut `/api/waeva/discovery` |
+| Dokumentation | ❌ (extern) | ✅ `[WaevaRpcDocumentation]` + `[WaevaRpcExample]` |
 | Streaming | ❌ | ✅ `IAsyncEnumerable<T>` |
-| Autorisierung | ❌ (Transport-Ebene) | ✅ `[HrpcAuthorise]` |
-| Fehlermodell | ✅ einfach (`code` + `message`) | ✅ `HrpcError` mit Details + RequestId |
+| Autorisierung | ❌ (Transport-Ebene) | ✅ `[WaevaRpcAuthorise]` |
+| Fehlermodell | ✅ einfach (`code` + `message`) | ✅ `WaevaRpcError` mit Details + RequestId |
 | .NET-Integration | ❌ (Bibliotheken existieren, aber kein Framework) | ✅ native ASP.NET-Core-Middleware |
 | Transport-Definitionen | ❌ (Spec ist nur Format) | ✅ REST + WebSocket + SignalR definiert |
 | Vorkompilierte Ausführung | ❌ (Reflection) | ✅ Expression Trees |
 
-**Kurz gesagt**: JSON-RPC definiert ein *Wire-Format*, Hrpc ist ein *Framework*. JSON-RPC sagt, wie man das JSON formatiert, aber hilft nicht bei Methoden-Discovery, Abhängigkeitsauflösung, Streaming, Autorisierung oder .NET-DI-Integration. Hrpc wurde entwickelt, ohne JSON-RPC zu kennen, löst aber dasselbe Kernproblem (REST ist falsch für RPC) mit deutlich mehr Funktionalität.
+**Kurz gesagt**: JSON-RPC definiert ein *Wire-Format*, WaevaRpc ist ein *Framework*. JSON-RPC sagt, wie man das JSON formatiert, aber hilft nicht bei Methoden-Discovery, Abhängigkeitsauflösung, Streaming, Autorisierung oder .NET-DI-Integration. WaevaRpc wurde entwickelt, ohne JSON-RPC zu kennen, löst aber dasselbe Kernproblem (REST ist falsch für RPC) mit deutlich mehr Funktionalität.
 
-## Warum Hrpc?
+## Warum WaevaRpc?
 
-| | REST | gRPC | GraphQL | JSON-RPC | **Hrpc** |
+| | REST | gRPC | GraphQL | JSON-RPC | **WaevaRpc** |
 |---|---|---|---|---|---|
 | Für RPC gemacht | ❌ | ✅ | teils | ✅ | ✅ |
 | Code-first (ohne IDL) | ✅ | ❌ (`.proto`) | ❌ (Schema) | ✅ | ✅ |
@@ -67,15 +67,15 @@ Hrpc ist **code-first**: Man schreibt C#-Klassen und Methoden, dekoriert sie mit
 | Developer-UI | Swagger | ❌ | GraphiQL | ❌ | ✅ |
 | Rate-Limiting | manuell | ❌ | ❌ | ❌ | ✅ eingebaut |
 
-Hrpc wurde von Grund auf für RPC entwickelt — nicht als REST-Wrapper, sondern als echtes RPC-Framework, das REST lediglich als einen von mehreren Transports nutzt:
+WaevaRpc wurde von Grund auf für RPC entwickelt — nicht als REST-Wrapper, sondern als echtes RPC-Framework, das REST lediglich als einen von mehreren Transports nutzt:
 
-1. **Methodenorientiert, nicht ressourcenorientiert**: `[HrpcController("Customer")]` + `[HrpcMethod("AddOrder")]` — kein URL-Routing, keine HTTP-Verben, kein DTO-Mapping
+1. **Methodenorientiert, nicht ressourcenorientiert**: `[WaevaRpcController("Customer")]` + `[WaevaRpcMethod("AddOrder")]` — kein URL-Routing, keine HTTP-Verben, kein DTO-Mapping
 2. **Batch-Calls**: 10 RPC-Aufrufe in einem Roundtrip — der Server führt sie aus und liefert 10 Antworten
 3. **Dependency-Chaining** (von GraphQL inspiriert): Ein Request exponiert Werte via `Exposes("$", "orderId")` (ergebnisrelativer JSON-Path), der nächste nutzt `WithAlias("@orderId")` — der Server löst Abhängigkeiten in einem Roundtrip
 4. **Multi-Transport**: REST für Kompatibilität, WebSocket für niedrige Latenz, SignalR für Browser-Clients — gleiche API, verschiedene Wire-Protokolle
 5. **Expression-Tree-Ausführung**: Methoden werden zur Registrierungszeit zu Delegates kompiliert — keine Reflection pro Aufruf
 
-| | REST | gRPC | SignalR | **Hrpc** |
+| | REST | gRPC | SignalR | **WaevaRpc** |
 |---|---|---|---|---|
 | Multi-Transport | nein | nein | nein | **ja** (REST + WebSocket + SignalR) |
 | Batch-Calls | nein | nein | nein | **ja** |
@@ -90,54 +90,54 @@ Hrpc wurde von Grund auf für RPC entwickelt — nicht als REST-Wrapper, sondern
 
 Gemessen mit BenchmarkDotNet auf .NET 8.0, Intel Core i7-12700H:
 
-| Szenario | REST | Hrpc REST | Hrpc WebSocket | Beschleunigung |
+| Szenario | REST | WaevaRpc REST | WaevaRpc WebSocket | Beschleunigung |
 |----------|------:|----------:|---------------:|--------:|
 | Einzelner Call (GetCustomerById) | 606 µs | 627 µs | **267 µs** | **2,3x** |
 | Batch 10x (parallel) | 4.906 µs | 974 µs | **693 µs** | **7,1x** |
 | Dependency-Chain (3 Calls, 1 Roundtrip) | 206 ms | 205 ms | **204 ms** | ersetzt 3 Roundtrips |
 
-> Vollständige Benchmarks: siehe `HrpcBench/BENCHMARK-RESULTS.md`
+> Vollständige Benchmarks: siehe `WaevaRpcBench/BENCHMARK-RESULTS.md`
 
 ## Schnellstart
 
 ### Server
 
 ```csharp
-using HrpcHub.Extensions;
+using WaevaRpcHub.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Hrpc mit allen Transportschichten registrieren
-builder.Services.AddHrpc(new HrpcOptions
+// WaevaRpc mit allen Transportschichten registrieren
+builder.Services.AddWaevaRpc(new WaevaRpcOptions
 {
     UseSignalR = true,
     UseMessagePack = true,
     MaximumParallelInvocationsPerClient = 100
 });
 
-// Controller registrieren (automatisch via [HrpcController] erkannt)
+// Controller registrieren (automatisch via [WaevaRpcController] erkannt)
 builder.Services.AddSingleton<MyService>();
 
 var app = builder.Build();
-app.UseHrpc();              // Hrpc REST-Endpunkte registrieren
+app.UseWaevaRpc();              // WaevaRpc REST-Endpunkte registrieren
 app.UseWebSockets();
-app.UseHrpcWebSocket("/hrpcws");  // WebSocket-Transport
-app.MapHub<HrpcHub.Hub.HrpcHub>("/Hrpc");  // SignalR-Transport
+app.UseWaevaRpcWebSocket("/waevaws");  // WebSocket-Transport
+app.MapHub<WaevaRpcHub.Hub.WaevaRpcHub>("/Waeva");  // SignalR-Transport
 app.Run();
 ```
 
 ### Controller
 
 ```csharp
-[HrpcController("Customer")]
+[WaevaRpcController("Customer")]
 public class CustomerHandler(CustomerService service)
 {
-    [HrpcMethod("GetById")]
+    [WaevaRpcMethod("GetById")]
     public async Task<Customer?> GetById(int id, CancellationToken ct)
         => await service.GetById(id, ct);
 
-    [HrpcMethod("Create")]
-    [HrpcAuthorise]  // Optional: erfordert Authentifizierung
+    [WaevaRpcMethod("Create")]
+    [WaevaRpcAuthorise]  // Optional: erfordert Authentifizierung
     public async Task<int> Create(string name)
         => await service.Add(name);
 }
@@ -146,15 +146,15 @@ public class CustomerHandler(CustomerService service)
 ### Client
 
 ```csharp
-using HrpcClient.Hrpc;
+using WaevaRpcClient.WaevaRpc;
 
 // Transport wählen
-var client = new HrpcRestJsonClient("https://localhost:5001/");
-// oder: new HrpcWebSocketClient("https://localhost:5001/")
-// oder: new HrpcSignalrClient("https://localhost:5001/")
+var client = new WaevaRpcRestJsonClient("https://localhost:5001/");
+// oder: new WaevaRpcWebSocketClient("https://localhost:5001/")
+// oder: new WaevaRpcSignalrClient("https://localhost:5001/")
 
 // Einzelner Aufruf
-var request = HrpcCall.Init("Customer", "GetById")
+var request = WaevaRpcCall.Init("Customer", "GetById")
     .With(42)
     .ToRequest();
 var response = await client.Call(request);
@@ -163,16 +163,16 @@ var response = await client.Call(request);
 var customer = await client.Call<Customer>(request);
 
 // Batch mit Dependency-Chaining
-var batch = new HrpcMultiRequest
+var batch = new WaevaRpcMultiRequest
 {
     Mode = ExecutionMode.Serial,
-    Requests = new List<HrpcRequest>
+    Requests = new List<WaevaRpcRequest>
     {
-        HrpcCall.Init("Customer", "Create")
+        WaevaRpcCall.Init("Customer", "Create")
             .With("Alice").Named("step1")
             .Exposes("$", "newId")
             .ToRequest(),
-        HrpcCall.Init("Customer", "GetById")
+        WaevaRpcCall.Init("Customer", "GetById")
             .WithAlias("@newId", "0")
             .Named("step2")
             .ToRequest()
@@ -185,9 +185,9 @@ var responses = await client.Call(batch);
 
 | Transport | Endpunkt | Anwendungsfall |
 |-----------|----------|---------------|
-| **REST** | `POST /api/hrpc/json` | Zustandslose Aufrufe, Load-Balancing |
-| **WebSocket** | `ws://host/hrpcws` | Persistente Verbindungen, niedrige Latenz, viele kleine Calls |
-| **SignalR** | `/Hrpc` Hub | Browser-Clients, Auto-Reconnect, MessagePack |
+| **REST** | `POST /api/waeva/json` | Zustandslose Aufrufe, Load-Balancing |
+| **WebSocket** | `ws://host/waevaws` | Persistente Verbindungen, niedrige Latenz, viele kleine Calls |
+| **SignalR** | `/Waeva` Hub | Browser-Clients, Auto-Reconnect, MessagePack |
 
 ## Features
 
@@ -195,42 +195,42 @@ var responses = await client.Call(batch);
 - **Batch-Calls**: Mehrere RPC-Aufrufe in einem Roundtrip (parallel oder seriell)
 - **Dependency-Chaining**: Aufrufe verketten mit `@alias`-Platzhaltern, serverseitig aufgelöst
 - **Streaming**: `IAsyncEnumerable<T>`-Support, als JSON-Arrays serialisiert
-- **Interceptor-Pipeline**: `IHrpcInterceptor` für Logging, Tracing, Caching, Validierung
-- **Discovery/MEX**: `GET /api/hrpc/discovery` liefert vollständige API-Metadaten
+- **Interceptor-Pipeline**: `IWaevaRpcInterceptor` für Logging, Tracing, Caching, Validierung
+- **Discovery/MEX**: `GET /api/waeva/discovery` liefert vollständige API-Metadaten
 - **Developer-UI**: Eingebaute Web-Oberfläche unter `/developer`
 - **Rate-Limiting**: Eingebauter Fixed-Window-Rate-Limiter
-- **Autorisierung**: `[HrpcAuthorise]`-Attribut mit rollenbasiertem Zugriff
+- **Autorisierung**: `[WaevaRpcAuthorise]`-Attribut mit rollenbasiertem Zugriff
 - **Expression-Tree-Ausführung**: Vorkompilierte Methoden-Delegates für maximale Performance
 
 ## Projektstruktur
 
 | Projekt | Beschreibung |
 |---------|-------------|
-| `HrpcCommon` | Geteilte Modelle, Attribute, Exceptions |
-| `HrpcCore` | Invoker, Discovery, Dependency-Resolver, Interceptors |
-| `HrpcHub` | SignalR-Transport + `AddHrpc()` / `UseHrpc()` |
-| `HrpcRest` | REST-Transport (Minimal APIs + MVC-Controller) |
-| `HrpcWebSocket` | WebSocket-Transport (RFC 6455, JSON-Text-Frames) |
-| `HrpcClient` | Client-Bibliothek (REST, WebSocket, SignalR) |
-| `HrpcDeveloperUi` | Eingebaute Developer-Web-UI |
-| `Hrpc` | Beispielanwendung |
-| `HrpcTests` | Unit- + Integrationstests |
-| `HrpcBench` | Performance-Benchmarks |
+| `WaevaRpcCommon` | Geteilte Modelle, Attribute, Exceptions |
+| `WaevaRpcCore` | Invoker, Discovery, Dependency-Resolver, Interceptors |
+| `WaevaRpcHub` | SignalR-Transport + `AddWaevaRpc()` / `UseWaevaRpc()` |
+| `WaevaRpcRest` | REST-Transport (Minimal APIs + MVC-Controller) |
+| `WaevaRpcWebSocket` | WebSocket-Transport (RFC 6455, JSON-Text-Frames) |
+| `WaevaRpcClient` | Client-Bibliothek (REST, WebSocket, SignalR) |
+| `WaevaRpcDeveloperUi` | Eingebaute Developer-Web-UI |
+| `WaevaRpc` | Beispielanwendung |
+| `WaevaRpcTests` | Unit- + Integrationstests |
+| `WaevaRpcBench` | Performance-Benchmarks |
 
 ## Installation (NuGet)
 
 ```xml
 <!-- Server: alle Transports -->
-<PackageReference Include="Hrpc.All" Version="1.0.0" />
+<PackageReference Include="WaevaRpc.All" Version="1.0.0" />
 
 <!-- Oder einzelne Transports -->
-<PackageReference Include="Hrpc.Core" Version="1.0.0" />
-<PackageReference Include="Hrpc.Hub" Version="1.0.0" />
-<PackageReference Include="Hrpc.Rest" Version="1.0.0" />
-<PackageReference Include="Hrpc.WebSocket" Version="1.0.0" />
+<PackageReference Include="WaevaRpc.Core" Version="1.0.0" />
+<PackageReference Include="WaevaRpc.Hub" Version="1.0.0" />
+<PackageReference Include="WaevaRpc.Rest" Version="1.0.0" />
+<PackageReference Include="WaevaRpc.WebSocket" Version="1.0.0" />
 
 <!-- Client -->
-<PackageReference Include="Hrpc.Client" Version="1.0.0" />
+<PackageReference Include="WaevaRpc.Client" Version="1.0.0" />
 ```
 
 ## Anforderungen

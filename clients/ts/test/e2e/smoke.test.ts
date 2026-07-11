@@ -1,21 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { createClient, HrpcCall } from "../../src/index.js";
-import type { HrpcRestClient, HrpcWebSocketClient } from "../../src/index.js";
+import { createClient, WaevaRpcCall } from "../../src/index.js";
+import type { WaevaRpcRestClient, WaevaRpcWebSocketClient } from "../../src/index.js";
 
 /**
- * End-to-End-Smoke-Test gegen die laufende Sample-App (Hrpc).
+ * End-to-End-Smoke-Test gegen die laufende Sample-App (WaevaRpc).
  *
- * Opt-in: nur aktiv, wenn HRPC_E2E=1 gesetzt ist. Startet nichts selbst —
- * erwartet einen laufenden Server unter HRPC_BASE_URL (Default
+ * Opt-in: nur aktiv, wenn WAEVARPC_E2E=1 gesetzt ist. Startet nichts selbst —
+ * erwartet einen laufenden Server unter WAEVARPC_BASE_URL (Default
  * http://localhost:5052, wie launchSettings). Node-seitiges fetch/`ws` lösen
  * CORS nicht aus (im Gegensatz zum Browser).
  *
  * Aufruf:
- *   dotnet run --project Hrpc   # in einem separaten Terminal
- *   HRPC_E2E=1 npm run test:e2e
+ *   dotnet run --project WaevaRpc   # in einem separaten Terminal
+ *   WAEVARPC_E2E=1 npm run test:e2e
  */
-const ENABLED = process.env.HRPC_E2E === "1";
-const BASE = process.env.HRPC_BASE_URL ?? "http://localhost:5052";
+const ENABLED = process.env.WAEVARPC_E2E === "1";
+const BASE = process.env.WAEVARPC_BASE_URL ?? "http://localhost:5052";
 const { rest, ws } = createClient(BASE);
 
 const itIf = ENABLED ? it : it.skip;
@@ -44,7 +44,7 @@ describe("E2E gegen Sample-App", () => {
 
   itIf("REST: Batch mit zwei parallelen Calls", async () => {
     const req = (id: number) =>
-      HrpcCall.init("TestService", "GetAdresse")
+      WaevaRpcCall.init("TestService", "GetAdresse")
         .with({ id, greet: "g" })
         .named(`e2e-${id}`)
         .toRequest();
@@ -54,19 +54,19 @@ describe("E2E gegen Sample-App", () => {
   });
 
   itIf("WebSocket: TestService.GetAdresse über persistente Verbindung", async () => {
-    await (ws as HrpcWebSocketClient).connect();
+    await (ws as WaevaRpcWebSocketClient).connect();
     try {
-      const a = await (ws as HrpcWebSocketClient).callJson<AdresseX>(
-        HrpcCall.init("TestService", "GetAdresse").with({ id: 2, greet: "ws" }).toRequest(),
+      const a = await (ws as WaevaRpcWebSocketClient).callJson<AdresseX>(
+        WaevaRpcCall.init("TestService", "GetAdresse").with({ id: 2, greet: "ws" }).toRequest(),
       );
       expect(a?.Id).toBe(2);
       expect(a?.Greet).toBe("ws");
     } finally {
-      (ws as HrpcWebSocketClient).close();
+      (ws as WaevaRpcWebSocketClient).close();
     }
   });
 });
 
 // Statische Referenz, damit ungenutzte Imports bei Skip kein Lint-Problem werden.
-void (rest as HrpcRestClient);
-void (ws as HrpcWebSocketClient);
+void (rest as WaevaRpcRestClient);
+void (ws as WaevaRpcWebSocketClient);

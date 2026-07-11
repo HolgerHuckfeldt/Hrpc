@@ -1,14 +1,14 @@
 import { ExecutionMode } from "./types.js";
-import type { HrpcMultiRequest, HrpcParameter, HrpcRequest } from "./types.js";
+import type { WaevaRpcMultiRequest, WaevaRpcParameter, WaevaRpcRequest } from "./types.js";
 import { toBase64 } from "./request.js";
 
 /**
- * Fluent Builder für einen HrpcRequest — Spiegel des C#-HrpcCall.
- * Transport-agnostisch: liefert einen {@link HrpcRequest}, den jeder Client
+ * Fluent Builder für einen WaevaRpcRequest — Spiegel des C#-WaevaRpcCall.
+ * Transport-agnostisch: liefert einen {@link WaevaRpcRequest}, den jeder Client
  * (REST/WebSocket) senden kann.
  *
  * ```ts
- * HrpcCall.init("Customer", "Add")
+ * WaevaRpcCall.init("Customer", "Add")
  *   .with({ name: "Alice" })        // benannt
  *   .with([42, "x"])                // oder positional
  *   .withBinary(blob)               // -> binaryData (base64)
@@ -18,11 +18,11 @@ import { toBase64 } from "./request.js";
  *   .toRequest();
  * ```
  */
-export class HrpcCall {
+export class WaevaRpcCall {
   private readonly _controller: string;
   private readonly _method: string;
   private _id?: string;
-  private _params: HrpcParameter[] = [];
+  private _params: WaevaRpcParameter[] = [];
   private _num = 0;
   private _exposed = new Map<string, string>();
   private _binary?: Uint8Array;
@@ -33,8 +33,8 @@ export class HrpcCall {
   }
 
   /** Startet einen Builder für `controller.method`. */
-  static init(controller: string, method: string): HrpcCall {
-    return new HrpcCall(controller, method);
+  static init(controller: string, method: string): WaevaRpcCall {
+    return new WaevaRpcCall(controller, method);
   }
 
   /** Setzt die Request-Id (Korrelation). Default: `${controller}.${method}`. */
@@ -105,8 +105,8 @@ export class HrpcCall {
     return this;
   }
 
-  /** Wandelt den Builder in einen versandfertigen HrpcRequest um. */
-  toRequest(): HrpcRequest {
+  /** Wandelt den Builder in einen versandfertigen WaevaRpcRequest um. */
+  toRequest(): WaevaRpcRequest {
     const id = this._id ?? `${this._controller}.${this._method}`;
     return {
       controller: this._controller,
@@ -119,10 +119,10 @@ export class HrpcCall {
   }
 
   /**
-   * Batch-Factory: baut einen HrpcMultiRequest aus mehreren (vorab gebauten)
-   * HrpcRequests. `mode` Serial aktiviert @alias-Abhängigkeitsauflösung.
+   * Batch-Factory: baut einen WaevaRpcMultiRequest aus mehreren (vorab gebauten)
+   * WaevaRpcRequests. `mode` Serial aktiviert @alias-Abhängigkeitsauflösung.
    */
-  static batch(requests: HrpcRequest[], mode: ExecutionMode = ExecutionMode.Serial): HrpcMultiRequest {
+  static batch(requests: WaevaRpcRequest[], mode: ExecutionMode = ExecutionMode.Serial): WaevaRpcMultiRequest {
     return { requests, mode };
   }
 

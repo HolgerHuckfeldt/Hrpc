@@ -1,9 +1,9 @@
-// Kanonische Wire-Typen des Hrpc-Protokolls (camelCase, siehe PROTOCOL.md).
-// Port aus HrpcDeveloperUi/src/lib/types/discovery.ts; Binary-Felder sind hier
+// Kanonische Wire-Typen des WaevaRpc-Protokolls (camelCase, siehe PROTOCOL.md).
+// Port aus WaevaRpcDeveloperUi/src/lib/types/discovery.ts; Binary-Felder sind hier
 // korrekt als base64-String getypt (System.Text.Json serialisiert byte[] als
 // base64), nicht als number[].
 
-/** Ausführungsmodus für Batch-Requests (HrpcMultiRequest.mode). */
+/** Ausführungsmodus für Batch-Requests (WaevaRpcMultiRequest.mode). */
 export enum ExecutionMode {
   /** 0 — alle Requests parallel (Dependencies werden ignoriert). */
   Parallel = 0,
@@ -11,8 +11,8 @@ export enum ExecutionMode {
   Serial = 1,
 }
 
-/** Lebenszyklus-Zustand des WebSocket-Clients (Spiegel von C# HrpcConnectionState). */
-export enum HrpcConnectionState {
+/** Lebenszyklus-Zustand des WebSocket-Clients (Spiegel von C# WaevaRpcConnectionState). */
+export enum WaevaRpcConnectionState {
   /** 0 — keine aktive Verbindung (vor dem ersten Connect oder nach erschöpftem Reconnect). */
   Disconnected = 0,
   /** 1 — Verbindungsaufbau läuft. */
@@ -23,16 +23,16 @@ export enum HrpcConnectionState {
   Reconnecting = 3,
 }
 
-/** Strukturierter Fehler im HrpcResponse.error-Feld (code != 2xx). */
-export interface HrpcErrorBody {
+/** Strukturierter Fehler im WaevaRpcResponse.error-Feld (code != 2xx). */
+export interface WaevaRpcErrorBody {
   code: number;
   message: string;
   details?: string | null;
   requestId?: string | null;
 }
 
-/** Ein einzelner Parameter innerhalb von HrpcRequest.stringData. */
-export interface HrpcParameter {
+/** Ein einzelner Parameter innerhalb von WaevaRpcRequest.stringData. */
+export interface WaevaRpcParameter {
   /** Parametername (Server bindet danach). Bei Positionalen leer/ein Platzhalter. */
   parameterName: string;
   /** JSON-String des Werts (z. B. "42", "\"hi\"", "{\"id\":1}"). */
@@ -42,10 +42,10 @@ export interface HrpcParameter {
 }
 
 /** Einzelner RPC-Request. */
-export interface HrpcRequest {
+export interface WaevaRpcRequest {
   controller: string;
   method: string;
-  /** JSON-String eines Arrays von HrpcParameter. */
+  /** JSON-String eines Arrays von WaevaRpcParameter. */
   stringData?: string;
   id?: string;
   /** alias → JsonPath; Werte aus dieser Response werden für Folgerequests exposed. */
@@ -55,13 +55,13 @@ export interface HrpcRequest {
 }
 
 /** Batch-Request (mehrere Calls in einem Roundtrip). */
-export interface HrpcMultiRequest {
-  requests: HrpcRequest[];
+export interface WaevaRpcMultiRequest {
+  requests: WaevaRpcRequest[];
   mode: ExecutionMode;
 }
 
 /** Antwort eines RPC-Calls. */
-export interface HrpcResponse {
+export interface WaevaRpcResponse {
   /** Logischer Status-Code (im Body, nicht HTTP-Status). 200–299 = Erfolg. */
   code: number;
   /** Strukturierter Ergebniswert (roh, null bei 204/void/Fehler). Seit dem
@@ -74,7 +74,7 @@ export interface HrpcResponse {
   /** Aufgelöste alias → Wert-Map für Dependency-Chaining. */
   exposedDependencies?: Record<string, string> | null;
   /** Strukturierter Fehler bei non-2xx. */
-  error?: HrpcErrorBody | null;
+  error?: WaevaRpcErrorBody | null;
   /**
    * true, wenn code 200–299. Server-seitig `[JsonIgnore]` und aus `code`
    * abgeleitet — das Wire-Frame enthält dieses Feld NICHT. Der Client füllt
@@ -83,7 +83,7 @@ export interface HrpcResponse {
   isSuccess?: boolean;
 }
 
-// --- Discovery (GET /api/hrpc/discovery) ---
+// --- Discovery (GET /api/waeva/discovery) ---
 
 export interface DiscoveryInfo {
   controllers: ControllerMeta[];

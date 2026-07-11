@@ -1,9 +1,9 @@
 import { ExecutionMode } from "./types.js";
-import type { HrpcMultiRequest, HrpcParameter, HrpcRequest, HrpcResponse } from "./types.js";
+import type { WaevaRpcMultiRequest, WaevaRpcParameter, WaevaRpcRequest, WaevaRpcResponse } from "./types.js";
 
 /**
- * Baut das `stringData`-Feld (JSON-String eines HrpcParameter-Arrays) aus
- * Aufrufargumenten. Spiegelt den C#-HrpcCall-Builder.
+ * Baut das `stringData`-Feld (JSON-String eines WaevaRpcParameter-Arrays) aus
+ * Aufrufargumenten. Spiegelt den C#-WaevaRpcCall-Builder.
  *
  * - **Named** (Object): `{parameterName: key, data: JSON.stringify(value)}`.
  *   Sichere, positionsunabhängige Bindung (Server bindet nach Parametername).
@@ -19,7 +19,7 @@ export function buildStringData(
   if (params == null) return "[]";
 
   if (Array.isArray(params)) {
-    const arr: HrpcParameter[] = params.map((value, i) => ({
+    const arr: WaevaRpcParameter[] = params.map((value, i) => ({
       parameterName: `param${i}`,
       num: i,
       data: serializeValue(value),
@@ -28,7 +28,7 @@ export function buildStringData(
   }
 
   const entries = Object.entries(params);
-  const arr: HrpcParameter[] = entries.map(([key, value], i) => ({
+  const arr: WaevaRpcParameter[] = entries.map(([key, value], i) => ({
     parameterName: key,
     num: i,
     data: serializeValue(value),
@@ -42,7 +42,7 @@ function serializeValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-/** Baut einen einzelnen HrpcRequest. */
+/** Baut einen einzelnen WaevaRpcRequest. */
 export function buildSingle(opts: {
   controller: string;
   method: string;
@@ -50,9 +50,9 @@ export function buildSingle(opts: {
   id?: string;
   dependencyMapping?: Record<string, string> | null;
   binaryData?: Uint8Array | string | null;
-}): HrpcRequest {
+}): WaevaRpcRequest {
   const id = opts.id ?? `${opts.controller}.${opts.method}`;
-  const request: HrpcRequest = {
+  const request: WaevaRpcRequest = {
     controller: opts.controller,
     method: opts.method,
     stringData: buildStringData(opts.params),
@@ -68,11 +68,11 @@ export function buildSingle(opts: {
   return request;
 }
 
-/** Baut einen HrpcMultiRequest (Batch). */
+/** Baut einen WaevaRpcMultiRequest (Batch). */
 export function buildMulti(
-  requests: HrpcRequest[],
+  requests: WaevaRpcRequest[],
   mode: ExecutionMode = ExecutionMode.Parallel,
-): HrpcMultiRequest {
+): WaevaRpcMultiRequest {
   return { requests, mode };
 }
 
@@ -82,14 +82,14 @@ export function buildMulti(
  * (`Code is >= 200 and <= 299`) — das Wire-Frame enthält es also nie. Der
  * Client spiegelt diese Ableitung, sodass `response.isSuccess` verlässlich ist.
  */
-export function normalizeResponse<T extends HrpcResponse>(resp: T): T {
+export function normalizeResponse<T extends WaevaRpcResponse>(resp: T): T {
   if (typeof resp?.isSuccess === "boolean") return resp;
   const code = typeof resp?.code === "number" ? resp.code : 0;
   return { ...resp, isSuccess: code >= 200 && code <= 299 };
 }
 
 /** `normalizeResponse` für jedes Element eines Batch-Arrays. */
-export function normalizeResponses(arr: HrpcResponse[]): HrpcResponse[] {
+export function normalizeResponses(arr: WaevaRpcResponse[]): WaevaRpcResponse[] {
   return arr.map(normalizeResponse);
 }
 

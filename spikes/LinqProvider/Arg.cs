@@ -1,4 +1,4 @@
-namespace Hrpc.Spike.LinqProvider;
+namespace WaevaRpc.Spike.LinqProvider;
 
 /// <summary>
 /// Nicht-generische Sicht auf ein <see cref="Arg{T}"/>-Argument, damit der

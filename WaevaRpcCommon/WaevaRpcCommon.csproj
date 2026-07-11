@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>WaevaRpc.Common</PackageId>
+    <Version>1.0.2</Version>
+    <Authors>Hrpc</Authors>
+    <Description>Shared models, attributes, and exceptions for WaevaRpc RPC framework</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/HolgerHuckfeldt/WaevaRpc</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <!-- Root-README als Paket-README einpacken (PackageReadmeFile=README.md) -->
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack.Annotations" Version="3.1.3" />
+  </ItemGroup>
+
+  <!-- Der JsonElementMessagePackFormatter und WaevaRpcResponseMessagePackFormatter benötigen
+       die volle MessagePack-Assembly, die WaevaRpcCommon nicht referenziert (nur Annotations).
+       Die Dateien werden daher hier NICHT kompiliert, sondern per <Compile Include> in
+       WaevaRpcHub + WaevaRpcClient gelinkt (jeweils gegen deren eigene MessagePack-Version). -->
+  <ItemGroup>
+    <Compile Remove="MessagePack\JsonElementMessagePackFormatter.cs" />
+    <Compile Remove="MessagePack\WaevaRpcResponseMessagePackFormatter.cs" />
+  </ItemGroup>
+
+</Project>

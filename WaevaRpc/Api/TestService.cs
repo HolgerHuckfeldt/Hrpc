@@ -1,0 +1,103 @@
+using WaevaRpcCommon.Attribute;
+using WaevaRpcCore.Attributes;
+
+namespace WaevaRpc.Api
+{
+    [WaevaRpcController("TestService")]
+    public class TestService
+    {
+        [WaevaRpcMethod("GetAdresse")]
+        public AdresseX? GetAdresse(int id, string greet, CancellationToken ct)
+        {
+            switch (id)
+            {
+                case 1:
+                    return new AdresseX()
+                    {
+                        Id = 1,
+                        Name = "A",
+                        Age = 1,
+                        Greet = greet
+                    };
+                case 2:
+                    return new AdresseX()
+                    {
+                        Id = 2,
+                        Name = "B",
+                        Age = 2,
+                        Greet = greet
+                    };
+            }
+
+            return null;
+        }
+
+        [WaevaRpcMethod("GetAdresses")]
+        public List<AdresseX?> GetAdresses(CancellationToken ct)
+        {
+            return new List<AdresseX?>()
+            {
+                GetAdresse(1,"", ct), GetAdresse(2,"", ct)
+            };
+        }
+
+        [WaevaRpcMethod("AddAdresse")]
+        public Task<bool> AddAdresse(AdresseX? a, int r)
+        {
+            if (a == null)
+                return Task.FromResult(false);
+
+            return Task.FromResult(true);
+        }
+
+
+        [WaevaRpcMethod("GetAdresseParallel")]
+        public async Task<AdresseX?> GetAdresseParallel(int id, string greet, CancellationToken ct)
+        {
+            await Task.Delay(1000, ct);
+            switch (id)
+            {
+                case 1:
+                    return new AdresseX()
+                    {
+                        Id = 1,
+                        Name = "A",
+                        Age = 1,
+                        Greet = greet
+                    };
+                case 2:
+                    return new AdresseX()
+                    {
+                        Id = 2,
+                        Name = "B",
+                        Age = 2,
+                        Greet = greet
+                    };
+            }
+
+
+            return null;
+        }
+    }
+
+    [WaevaRpcDataContract]
+    [WaevaRpcExample("{\"Id\":1,\"Name\":\"Holger\",\"Age\":1,\"Greet\":\"Hallo\",\"Contace\":{\"Id\":10,\"Name\":\"Support\"}}")]
+    [WaevaRpcDocumentation("Diese Klasse repräsentiert eine Adresse mit zugehörigen Kontaktdaten.")]
+    public class AdresseX
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = String.Empty;
+        public int Age { get; set; }
+        public string Greet { get; set; } = String.Empty;
+
+        public Contact? Contace { get; set; }   
+    }
+
+    [WaevaRpcDataContract]
+    public class Contact
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = String.Empty;
+    }
+
+}

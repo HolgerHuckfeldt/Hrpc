@@ -9,18 +9,18 @@
 // Dependency-Chaining siehe 03/04.
 // ==============================================================================
 
-import { HrpcRestClient, HrpcCall, ExecutionMode } from "hrpc-client";
+import { WaevaRpcRestClient, WaevaRpcCall, ExecutionMode } from "waeva-rpc-client";
 
-const rest = new HrpcRestClient("https://localhost:5001", { bearer: token });
+const rest = new WaevaRpcRestClient("https://localhost:5001", { bearer: token });
 
-// HrpcCall.batch(requests, mode) — Default mode ist Serial; hier explizit Parallel.
-const batch = HrpcCall.batch(
+// WaevaRpcCall.batch(requests, mode) — Default mode ist Serial; hier explizit Parallel.
+const batch = WaevaRpcCall.batch(
   [
     // .named(id) setzt die Korrelations-Id (wichtig bei konkurrierenden Batches
     // über WebSocket, wo Responses an requests[0].id korrelieren).
-    HrpcCall.init("Customer", "GetAllCustomers").named("all").toRequest(),
-    HrpcCall.init("Customer", "GetCustomerById").with({ id: 1 }).named("c1").toRequest(),
-    HrpcCall.init("Customer", "GetCustomerById").with({ id: 2 }).named("c2").toRequest(),
+    WaevaRpcCall.init("Customer", "GetAllCustomers").named("all").toRequest(),
+    WaevaRpcCall.init("Customer", "GetCustomerById").with({ id: 1 }).named("c1").toRequest(),
+    WaevaRpcCall.init("Customer", "GetCustomerById").with({ id: 2 }).named("c2").toRequest(),
   ],
   ExecutionMode.Parallel,
 );

@@ -24,19 +24,19 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore
-        run: dotnet restore Hrpc.sln
+        run: dotnet restore WaevaRpc.sln
 
       - name: Build
-        run: dotnet build Hrpc.sln --configuration Release --no-restore
+        run: dotnet build WaevaRpc.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test HrpcTests/HrpcTests.csproj --configuration Release --no-build --verbosity normal
+        run: dotnet test WaevaRpcTests/WaevaTests.csproj --configuration Release --no-build --verbosity normal
 
       - name: Check formatting
-        run: dotnet format Hrpc.sln --verify-no-changes --severity warn
+        run: dotnet format WaevaRpc.sln --verify-no-changes --severity warn
 
       - name: Check vulnerable packages
-        run: dotnet list Hrpc.sln package --vulnerable
+        run: dotnet list WaevaRpc.sln package --vulnerable
 
   pack:
     runs-on: ubuntu-latest
@@ -51,17 +51,17 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore
-        run: dotnet restore Hrpc.sln
+        run: dotnet restore WaevaRpc.sln
 
       - name: Pack NuGet packages
         run: |
-          dotnet pack HrpcCommon/HrpcCommon.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack HrpcCore/HrpcCore.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack HrpcHub/HrpcHub.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack HrpcRest/HrpcRest.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack HrpcWebSocket/HrpcWebSocket.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack HrpcClient/HrpcClient.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
-          dotnet pack HrpcDeveloperUi/HrpcDeveloperUi.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack WaevaRpcCommon/WaevaCommon.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack WaevaRpcCore/WaevaCore.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack WaevaRpcHub/WaevaHub.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack WaevaRpcRest/WaevaRest.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack WaevaRpcWebSocket/WaevaWebSocket.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack WaevaRpcClient/WaevaClient.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
+          dotnet pack WaevaRpcDeveloperUi/WaevaDeveloperUi.csproj --configuration Release -p:PackageVersion=${{ github.ref_name }}
 
       - name: Publish to NuGet
         run: dotnet nuget push "**/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

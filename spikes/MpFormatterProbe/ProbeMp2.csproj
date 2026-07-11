@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Probe gegen MessagePack 2.5.187 = die Version, die HrpcHub (Server) transitiv
+  <!-- Probe gegen MessagePack 2.5.187 = die Version, die WaevaRpcHub (Server) transitiv
        via SignalR.Protocols.MessagePack 8.0.14 resolved. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -8,7 +8,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <IsPackable>false</IsPackable>
-    <RootNamespace>Hrpc.Spikes.MessagePack</RootNamespace>
+    <RootNamespace>WaevaRpc.Spikes.MessagePack</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

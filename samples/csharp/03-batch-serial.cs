@@ -10,18 +10,18 @@
 // wichtig sind oder der Server-Roundtrip einmal bleiben soll.
 // ==============================================================================
 
-using HrpcClient.Hrpc;
-using HrpcCommon.Models;
+using WaevaRpcClient.WaevaRpc;
+using WaevaRpcCommon.Models;
 
-using var client = new HrpcRestJsonClient("https://localhost:5001");
+using var client = new WaevaRpcRestJsonClient("https://localhost:5001");
 
-var multi = new HrpcMultiRequest
+var multi = new WaevaRpcMultiRequest
 {
     Mode = ExecutionMode.Serial,          // sequenziell in Request-Reihenfolge
-    Requests = new List<HrpcRequest>
+    Requests = new List<WaevaRpcRequest>
     {
-        HrpcCall.Init("Customer", "GetCustomerById").With(1).Named("a").ToRequest(),
-        HrpcCall.Init("Customer", "GetCustomerById").With(2).Named("b").ToRequest(),
+        WaevaRpcCall.Init("Customer", "GetCustomerById").With(1).Named("a").ToRequest(),
+        WaevaRpcCall.Init("Customer", "GetCustomerById").With(2).Named("b").ToRequest(),
     },
 };
 

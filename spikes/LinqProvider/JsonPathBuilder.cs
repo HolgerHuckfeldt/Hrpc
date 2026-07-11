@@ -1,11 +1,11 @@
 using System.Linq.Expressions;
 using System.Text;
 
-namespace Hrpc.Spike.LinqProvider;
+namespace WaevaRpc.Spike.LinqProvider;
 
 /// <summary>
 /// Übersetzt einen Selector-Expression-Körper in einen ergebnisrelativen JsonPath
-/// (Konvention des Hrpc-Dependency-Chaining: Wurzel "$" ist das serialisierte
+/// (Konvention des WaevaRpc-Dependency-Chaining: Wurzel "$" ist das serialisierte
 /// Resultat, Eigenschaften sind PascalCase, Listen-Elemente über [i]).
 /// Unterstützte Formen:
 ///   <c>x</c>          → "$"

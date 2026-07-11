@@ -16,29 +16,29 @@
 //     ohnehin auf topologische Batch-Ausführung — Mode wird dann ignoriert).
 // ==============================================================================
 
-using HrpcClient.Hrpc;
-using HrpcCommon.Models;
+using WaevaRpcClient.WaevaRpc;
+using WaevaRpcCommon.Models;
 using System.Text.Json;
 
-using var client = new HrpcRestJsonClient("https://localhost:5001");
+using var client = new WaevaRpcRestJsonClient("https://localhost:5001");
 
 // -----------------------------------------------------------------------------
 // Variante A — Fluent Builder (einfach, 2-Step, Ein-Parameter-@alias)
 // -----------------------------------------------------------------------------
 // AddCustomer → liefert neue Id (int) → weiter als @newId an GetCustomerById.
-var multi = new HrpcMultiRequest
+var multi = new WaevaRpcMultiRequest
 {
     Mode = ExecutionMode.Serial,
-    Requests = new List<HrpcRequest>
+    Requests = new List<WaevaRpcRequest>
     {
-        HrpcCall.Init("Customer", "AddCustomer")
+        WaevaRpcCall.Init("Customer", "AddCustomer")
             .Named("step1")
             .Param("name", "Alice")
             .Param("email", "alice@x.com")
             .Exposes("$", "newId")          // ganzer int-Rückgabewert → Alias "newId"
             .ToRequest(),
 
-        HrpcCall.Init("Customer", "GetCustomerById")
+        WaevaRpcCall.Init("Customer", "GetCustomerById")
             .Named("step2")
             .WithAlias("@newId")            // Data="@newId"; ParameterName="newId"
             .ToRequest(),
@@ -59,44 +59,44 @@ var responses = (await client.Call(multi))!.ToList();
 // → GetOrder(@orderId). CreateOrder hat ZWEI Parameter, davon einer @alias —
 // deshalb setzen wir ParameterName auf den echten Parameternamen ("customerId"),
 // damit der Server nach Name bindet (sicherer als positional).
-var chain = new HrpcMultiRequest
+var chain = new WaevaRpcMultiRequest
 {
     Mode = ExecutionMode.Serial,
-    Requests = new List<HrpcRequest>
+    Requests = new List<WaevaRpcRequest>
     {
         // step1: Kunden anlegen, neue Id als "custId" weitergeben.
-        new HrpcRequest
+        new WaevaRpcRequest
         {
             Controller = "Customer", Method = "AddCustomer", Id = "step1",
             StringData = JsonSerializer.Serialize(new[]
             {
-                new HrpcParameter { Num = 0, ParameterName = "name",  Data = JsonSerializer.Serialize("Alice") },
-                new HrpcParameter { Num = 1, ParameterName = "email", Data = JsonSerializer.Serialize("alice@x.com") },
+                new WaevaRpcParameter { Num = 0, ParameterName = "name",  Data = JsonSerializer.Serialize("Alice") },
+                new WaevaRpcParameter { Num = 1, ParameterName = "email", Data = JsonSerializer.Serialize("alice@x.com") },
             }),
             DependencyMapping = new Dictionary<string, string> { ["custId"] = "$" },
         },
 
         // step2: Bestellung für diesen Kunden anlegen; customerId kommt von @custId,
         // total ist ein Literal. OrderId als "orderId" weitergeben.
-        new HrpcRequest
+        new WaevaRpcRequest
         {
             Controller = "Order", Method = "CreateOrder", Id = "step2",
             StringData = JsonSerializer.Serialize(new[]
             {
                 // Data="@custId" → Server erkennt @-Präfix und substituiert.
-                new HrpcParameter { Num = 0, ParameterName = "customerId", Data = "@custId" },
-                new HrpcParameter { Num = 1, ParameterName = "total",      Data = JsonSerializer.Serialize(99.90m) },
+                new WaevaRpcParameter { Num = 0, ParameterName = "customerId", Data = "@custId" },
+                new WaevaRpcParameter { Num = 1, ParameterName = "total",      Data = JsonSerializer.Serialize(99.90m) },
             }),
             DependencyMapping = new Dictionary<string, string> { ["orderId"] = "$" },
         },
 
         // step3: Bestellung anhand der weitergegebenen OrderId laden.
-        new HrpcRequest
+        new WaevaRpcRequest
         {
             Controller = "Order", Method = "GetOrderById", Id = "step3",
             StringData = JsonSerializer.Serialize(new[]
             {
-                new HrpcParameter { Num = 0, ParameterName = "id", Data = "@orderId" },
+                new WaevaRpcParameter { Num = 0, ParameterName = "id", Data = "@orderId" },
             }),
         },
     },
