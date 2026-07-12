@@ -1334,6 +1334,68 @@ public class TrameInvokerTests
     }
 
     /// <summary>
+    /// List-Fan-out (v1-Killer-Feature): MakeDtoList() → [{id:1},{id:2},{id:3}]
+    /// exposes den Wildcard-Pfad "$[*].id" als "ids" → EchoIntList(values=@ids) muss
+    /// die gesamte Liste [1,2,3] (nicht nur das erste Element) als List&lt;int&gt;
+    /// erhalten. Beweist den vollen Round-Trip: Multi-Match-Extraktion → Array-JSON
+    /// im ExposedDependency → typgetreue Injektion in einen List&lt;int&gt;-Parameter.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_WildcardFanOut_InjectsWholeIntList()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "MakeDtoList",
+            new Dictionary<string, string> { { "ids", "$[*].id" } });
+        var step2 = ChainRequest("s2", "DepChain", "EchoIntList",
+            ("values", "@ids"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s2"].Error.Should().BeNull();
+
+        // Das ExposedDependency ist der Array-JSON-String (kein einzelner Skalar mehr).
+        JsonSerializer.Deserialize<List<int>>(byId["s1"].ExposedDependencies!["ids"])
+            .Should().Equal(1, 2, 3);
+
+        // Der Consumer hat die ganze Liste als List<int> erhalten.
+        byId["s2"].Data.Value.Deserialize<List<int>>().Should().Equal(1, 2, 3);
+    }
+
+    /// <summary>
+    /// Dreistufiger Fan-out (Search → GetOpenByCustomerIds → GetAvailability-Form):
+    /// MakeDtoList exposes $[*].id als "ids"; EchoIntList(@ids) gibt [1,2,3] zurück
+    /// und exposes das Ergebnis per $[*] als "ids2"; ein zweiter EchoIntList(@ids2)
+    /// muss wieder [1,2,3] liefern. Beweist, dass der Array-Fan-out über mehrere
+    /// Stufen komponiert — jede Stufe kann ein Wildcard-Ergebnis weiterreichen.
+    /// </summary>
+    [Fact]
+    public async Task DependencyChain_ThreeStepFanOut_ComposesAcrossSteps()
+    {
+        // Arrange
+        var step1 = ChainRequest("s1", "DepChain", "MakeDtoList",
+            new Dictionary<string, string> { { "ids", "$[*].id" } });
+        var step2 = ChainRequest("s2", "DepChain", "EchoIntList",
+            new Dictionary<string, string> { { "ids2", "$[*]" } },
+            ("values", "@ids"));
+        var step3 = ChainRequest("s3", "DepChain", "EchoIntList",
+            ("values", "@ids2"));
+
+        // Act
+        var responses = (await _invoker.InvokeDi(new[] { step1, step2, step3 }, null)).ToList();
+
+        // Assert
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+        byId["s3"].Code.Should().Be((int)HttpStatusCode.OK);
+        byId["s3"].Error.Should().BeNull();
+        byId["s3"].Data.Value.Deserialize<List<int>>().Should().Equal(1, 2, 3);
+    }
+
+    /// <summary>
     /// Dictionary als Dependency: MakeDict() → {"a":1,"b":2,"c":3} exposes "$" als "map";
     /// EchoDict(@map) muss das Dictionary intakt zurückgeben. Prüft, dass ein JSON-Objekt
     /// mit String-Keys in einen Dictionary-Parameter injiziert wird.

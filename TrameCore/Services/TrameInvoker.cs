@@ -612,7 +612,13 @@ namespace TrameCore.Services
                 }
 
                 var parameters = BuildParameters(request.StringData, invokeInfo.MethodInfo!.GetParameters(), ct);
-                if (parameters == default) return parameters.Response;
+                // BuildParameters liefert bei Fehler (Cap überschritten, Duplikat-Name,
+                // falscher Typ, ungültiges JSON) (Items: null, Response: BadRequest). Der
+                // Vergleich `== default` ((null,null)) fängt (null, BadRequest) NICHT ab —
+                // dann fiel der Fehler durch zu ExecuteMethod(null-Args) → NRE → 500, und
+                // die saubere 400 (z. B. „überschreitet MaxParameterArrayLength") ging
+                // verloren. Auf Items==null prüfen (wie der Single-Call-Pfad bei Zeile 218).
+                if (parameters.Items == null) return parameters.Response;
 
                 var result = await ExecuteMethod(invokeInfo, controllerType, parameters.Items!, ct);
                 if (result != null)

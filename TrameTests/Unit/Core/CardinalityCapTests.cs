@@ -127,6 +127,53 @@ public class CardinalityCapTests
         response!.Code.Should().Be((int)HttpStatusCode.OK);
     }
 
+    [Fact]
+    public async Task MaxParameterArrayLength_RejectsFanOutArrayAssembledFromPriorResult()
+    {
+        // Arrange: Param-Cap 5, Result-Cap 0 (damit step1's 20-Elemente-Stream durchgeht).
+        // step1: StreamNumbers(20) → List<int>[0..19]; Wildcard "$[*]" sammelt alle 20
+        //   Treffer serverseitig zu einem Array "ids" (kein Client hat die 20 geschickt).
+        // step2: EchoIntList(values=@ids) → Parameter List<int> mit 20 Elementen → Cap 5.
+        // Beweist, dass der Parameter-Cap ein per @alias-Fan-out zur Laufzeit gebautes
+        // Array erfasst — Body-Size-Limits greifen hier nicht (das Array entsteht erst
+        // serverseitig aus einem Vorergebnis), der Kardinalitäts-Cap aber schon.
+        var invoker = BuildInvoker(maxParameterArrayLength: 5, maxResultElementCount: 0);
+
+        var step1 = new TrameRequest
+        {
+            Controller = "TestInvoker",
+            Method = "StreamNumbers",
+            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            {
+                new() { ParameterName = "count", Data = "20" }
+            }),
+            Id = "s1",
+            DependencyMapping = new Dictionary<string, string> { { "ids", "$[*]" } }
+        };
+        var step2 = new TrameRequest
+        {
+            Controller = "DepChain",
+            Method = "EchoIntList",
+            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            {
+                new() { ParameterName = "values", Data = "@ids" }
+            }),
+            Id = "s2"
+        };
+
+        // Act — DependencyMapping vorhanden → Auto-Detect Topological-Batch (Serial-Order).
+        var responses = (await invoker.InvokeDi(new[] { step1, step2 }, null)).ToList();
+        var byId = responses.ToDictionary(r => r!.Id ?? string.Empty);
+
+        // Assert: step1 produziert OK (20 Elemente, Result-Cap aus); step2 400 durch Param-Cap.
+        byId["s1"].Code.Should().Be((int)HttpStatusCode.OK);
+        // ExposedDependencies beweist: das 20-Element-Array wurde serverseitig gebaut.
+        JsonSerializer.Deserialize<List<int>>(byId["s1"].ExposedDependencies!["ids"])
+            .Should().HaveCount(20);
+        byId["s2"].Code.Should().Be((int)HttpStatusCode.BadRequest);
+        byId["s2"].Error!.Message.Should().Contain("MaxParameterArrayLength");
+    }
+
     #endregion
 
     #region MaxResultElementCount
