@@ -45,64 +45,161 @@
 
   const emptyMsg = '// Noch keine Batch-Zeilen — im Editor „+ Add" klicken.';
 
+  // --- Hilfsfunktionen: stringData → Fluent-Builder -----------------------------
+  // Der BatchEditor legt die Parameter als JSON-Array in `stringData` ab (jeder
+  // Eintrag: { parameterName, num, data }, `data` ist JSON.stringify(value) ODER
+  // ein "@alias"-Marker). Für den Codegen kehren wir das zurück in einzelne
+  // .Param/.withAlias-Aufrufe, damit der Entwickler lesbaren Code bekommt statt
+  // handgeschriebener JSON-Strings.
+
+  interface ParsedParam {
+    parameterName: string;
+    data: string;
+  }
+
+  /** Parst stringData in die Parameter-Liste, oder null bei unparsebarer Form
+   *  (z. B. manuelle Fallback-Eingabe). */
+  function parseParams(req: TrameRequest): ParsedParam[] | null {
+    if (!req.stringData || req.stringData === '[]') return [];
+    try {
+      const arr = JSON.parse(req.stringData);
+      if (!Array.isArray(arr)) return null;
+      return arr.map((p: { parameterName?: string; data?: string }) => ({
+        parameterName: p.parameterName ?? '',
+        data: p.data ?? '',
+      }));
+    } catch {
+      return null;
+    }
+  }
+
+  function csEscape(s: string): string {
+    return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r/g, '').replace(/\n/g, '\\n');
+  }
+
+  /** JSON-Wert (als JSON-String) → C#-Literal. Skalare direkt, Objekte/Arrays
+   *  über JsonNode.Parse mit C#-11-Raw-String (kein manuelles Escaping). */
+  function csLiteral(data: string): { code: string; usesJsonNode: boolean } {
+    let v: unknown;
+    try {
+      v = JSON.parse(data);
+    } catch {
+      return { code: csStringLiteral(data), usesJsonNode: false };
+    }
+    if (v === null) return { code: 'null', usesJsonNode: false };
+    if (typeof v === 'boolean') return { code: v ? 'true' : 'false', usesJsonNode: false };
+    if (typeof v === 'number') return { code: `${v}`, usesJsonNode: false };
+    if (typeof v === 'string') return { code: csStringLiteral(v), usesJsonNode: false };
+    // Objekt/Array → JsonNode.Parse mit Raw-String (C# 11, .NET 8).
+    const json = JSON.stringify(v, null, 2);
+    return { code: `JsonNode.Parse("""\n${json}\n""")!`, usesJsonNode: true };
+  }
+
+  function csStringLiteral(s: string): string {
+    return '"' + csEscape(s) + '"';
+  }
+
+  /** JSON-Wert → JS/TS-Literal (JSON ist eine Teilmenge von JS für Daten). */
+  function tsLiteral(data: string): string {
+    try {
+      return JSON.stringify(JSON.parse(data));
+    } catch {
+      return JSON.stringify(data);
+    }
+  }
+
   // --- TypeScript ---------------------------------------------------------------
 
   function generateTs(): string {
     if (requests.length === 0) return emptyMsg;
     const modeName = MODE_NAMES[mode] ?? 'Serial';
-    const reqObjects = wireRequests
-      .map((r) => '    ' + JSON.stringify(r, null, 2).replace(/\n/g, '\n    '))
-      .join(',\n');
-    return `import { ExecutionMode, type TrameMultiRequest } from "trame-client";
+    const serialNote = mode === ExecutionMode.Serial ? ' — @alias-Auflösung aktiv' : '';
 
-// Batch-Ausführung (Mode: ${modeName}${mode === ExecutionMode.Serial ? ' — @alias-Auflösung aktiv' : ''})
-const batch: TrameMultiRequest = {
-  mode: ExecutionMode.${modeName},
-  requests: [
-${reqObjects}
-  ],
-};
+    const builders = wireRequests.map((r, idx) => {
+      const parts: string[] = [`TrameCall.init("${r.controller}", "${r.method}")`];
+      if (r.id) parts.push(`  .named("${r.id}")`);
+      const params = parseParams(r);
+      if (params === null) {
+        parts.push(`  // stringData nicht parsebar — manuell anpassen:`);
+        parts.push(`  // stringData: ${JSON.stringify(r.stringData ?? '[]')}`);
+      } else {
+        for (const p of params) {
+          if (p.data.startsWith('@')) {
+            parts.push(`  .withAlias("${p.data}")`);
+          } else {
+            parts.push(`  .param("${p.parameterName}", ${tsLiteral(p.data)})`);
+          }
+        }
+      }
+      if (r.dependencyMapping) {
+        for (const [alias, path] of Object.entries(r.dependencyMapping)) {
+          parts.push(`  .exposes("${path}", "${alias}")`);
+        }
+      }
+      parts.push(`  .toRequest()`);
+      return `const req${idx + 1} = ${parts.join('\n')};`;
+    });
 
+    const reqVars = builders.map((_, idx) => `req${idx + 1}`).join(', ');
+
+    return `import { ExecutionMode, TrameCall, type TrameMultiRequest } from "trame-client";
+
+// Batch-Ausführung (Mode: ${modeName}${serialNote})
+${builders.join('\n\n')}
+
+const batch = TrameCall.batch([${reqVars}], ExecutionMode.${modeName});
 const results = await rest.callBatch(batch.requests, batch.mode);`;
   }
 
   // --- C# -----------------------------------------------------------------------
 
-  function csEscape(s: string): string {
-    return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  }
-
   function generateCs(): string {
     if (requests.length === 0) return emptyMsg;
     const modeName = MODE_NAMES[mode] ?? 'Serial';
-    const reqBlocks = wireRequests
-      .map((r) => {
-        const mappingLine = r.dependencyMapping
-          ? `\n            DependencyMapping = new Dictionary<string, string> { ${Object.entries(r.dependencyMapping)
-              .map(([k, v]) => `["${k}"] = "${v}"`)
-              .join(', ')} },`
-          : '';
-        return `        new TrameRequest
-        {
-            Controller = "${r.controller}",
-            Method = "${r.method}",
-            Id = "${r.id ?? ''}",
-            StringData = "${csEscape(r.stringData ?? '[]')}",${mappingLine}
-        }`;
-      })
-      .join(',\n');
+    const serialNote = mode === ExecutionMode.Serial ? ' — @alias-Auflösung aktiv' : '';
+    let usesJsonNode = false;
+
+    const builders = wireRequests.map((r, idx) => {
+      const parts: string[] = [`TrameCall.Init("${r.controller}", "${r.method}")`];
+      if (r.id) parts.push(`    .Named("${csEscape(r.id)}")`);
+      const params = parseParams(r);
+      if (params === null) {
+        parts.push(`    // StringData nicht parsebar — manuell anpassen:`);
+        parts.push(`    // StringData = ${csStringLiteral(r.stringData ?? '[]')}`);
+      } else {
+        for (const p of params) {
+          if (p.data.startsWith('@')) {
+            parts.push(`    .WithAlias("${csEscape(p.data)}")`);
+          } else {
+            const lit = csLiteral(p.data);
+            if (lit.usesJsonNode) usesJsonNode = true;
+            parts.push(`    .Param("${csEscape(p.parameterName)}", ${lit.code})`);
+          }
+        }
+      }
+      if (r.dependencyMapping) {
+        for (const [alias, path] of Object.entries(r.dependencyMapping)) {
+          parts.push(`    .Exposes("${csEscape(path)}", "${csEscape(alias)}")`);
+        }
+      }
+      parts.push(`    .ToRequest()`);
+      return `var req${idx + 1} =\n${parts.join('\n')};`;
+    });
+
+    const reqVars = builders.map((_, idx) => `req${idx + 1}`).join(', ');
+    const jsonNodeUsing = usesJsonNode ? 'using System.Text.Json.Nodes;\n' : '';
+
     return `using TrameClient.Trame;
 using TrameCommon.Models;
 using System.Collections.Generic;
+${jsonNodeUsing}
+// Batch-Ausführung (Mode: ${modeName}${serialNote})
+${builders.join('\n\n')}
 
-// Batch-Ausführung (Mode: ${modeName}${mode === ExecutionMode.Serial ? ' — @alias-Auflösung aktiv' : ''})
 var multi = new TrameMultiRequest
 {
     Mode = ExecutionMode.${modeName},
-    Requests = new List<TrameRequest>
-    {
-${reqBlocks}
-    }
+    Requests = new List<TrameRequest> { ${reqVars} },
 };
 
 var responses = await client.Call(multi);`;
