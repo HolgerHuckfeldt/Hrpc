@@ -115,7 +115,7 @@ public class BenchmarkFixture
                 {
                     endpoints.MapControllers();
                     endpoints.MapTrameEndpoints();
-                    endpoints.MapHub<TrameHub.Hub.TrameHub>("/Trame");
+                    endpoints.MapHub<TrameHub.Hub.TrameHub>("/tramehub");
                     // gRPC über h2c (Kestrel-Default Http1AndHttp2 verhandelt HTTP/2).
                     endpoints.MapGrpcService<CustomerGrpcService>();
                 });

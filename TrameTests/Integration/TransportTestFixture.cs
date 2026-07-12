@@ -59,7 +59,7 @@ public class TransportTestFixture : IAsyncLifetime
         app.MapTrameEndpoints("/api/trame");
         app.UseWebSockets();
         app.UseTrameWebSocket("/tramews");
-        app.MapHub<global::TrameHub.Hub.TrameHub>("/Trame");
+        app.MapHub<global::TrameHub.Hub.TrameHub>("/tramehub");
 
         await app.StartAsync();
         _app = app;

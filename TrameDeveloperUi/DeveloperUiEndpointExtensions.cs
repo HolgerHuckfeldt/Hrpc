@@ -6,7 +6,7 @@ namespace TrameDeveloperUi;
 
 /// <summary>
 /// Einzeiler-Einstiegspunkt für die Trame-Developer-UI aus einem ASP.NET-Host.
-/// Mappt einen Redirect (Default <c>/developer</c>) auf die SPA-Index unter
+/// Mappt einen Redirect (Default <c>/Trame</c>) auf die SPA-Index unter
 /// <c>/developer-static/developer/index.html</c>.
 /// </summary>
 /// <remarks>
@@ -21,7 +21,7 @@ namespace TrameDeveloperUi;
 public static class DeveloperUiEndpointExtensions
 {
     /// <param name="entryPath">Öffentliche Einstiegs-URL, die auf die SPA weiterleitet.</param>
-    public static IEndpointRouteBuilder MapTrameDeveloperUi(this IEndpointRouteBuilder endpoints, string entryPath = "/developer")
+    public static IEndpointRouteBuilder MapTrameDeveloperUi(this IEndpointRouteBuilder endpoints, string entryPath = "/Trame")
     {
         endpoints.MapGet(entryPath, context =>
         {

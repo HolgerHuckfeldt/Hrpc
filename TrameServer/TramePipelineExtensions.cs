@@ -49,8 +49,8 @@ public static class TramePipelineExtensions
     /// </summary>
     public static IEndpointRouteBuilder MapTrame(this IEndpointRouteBuilder endpoints,
         string restPrefix = "/api/trame",
-        string developerUiPath = "/developer",
-        string hubPath = "/Trame")
+        string developerUiPath = "/Trame",
+        string hubPath = "/tramehub")
     {
         var options = endpoints.ServiceProvider.GetService<TrameOptions>();
 

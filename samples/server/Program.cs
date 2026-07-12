@@ -12,7 +12,7 @@
 // Endpunkte:
 //   • REST          https://localhost:5001/api/trame/json  (+ /multi, /discovery)
 //   • WebSocket     wss://localhost:5001/tramews
-//   • Developer-UI  https://localhost:5001/developer
+//   • Developer-UI  https://localhost:5001/Trame
 // ==============================================================================
 
 using TrameHub.Extensions;
@@ -56,7 +56,7 @@ app.UseRateLimiter();
 // Trame-Transport-Middleware (WebSocket primär) + Controller-Registrierung.
 app.UseTrameTransports();
 
-// REST (/api/trame) + Developer-UI (/developer) + ggf. SignalR-Hub.
+// REST (/api/trame) + Developer-UI (/Trame) + ggf. SignalR-Hub (/tramehub).
 app.MapTrame();
 
 app.Run();

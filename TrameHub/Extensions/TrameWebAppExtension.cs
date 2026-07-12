@@ -9,7 +9,7 @@ namespace TrameHub.Extensions
             if (endpoints == null)
                 throw new ArgumentNullException(nameof(endpoints));
 
-            return endpoints.MapHub<Hub.TrameHub>("/Trame");
+            return endpoints.MapHub<Hub.TrameHub>("/tramehub");
         }
     }
 }

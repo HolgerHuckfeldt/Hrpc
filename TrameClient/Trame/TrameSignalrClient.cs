@@ -27,7 +27,7 @@ public class TrameSignalrClient : TrameClientBase, ITrameClient, IAsyncDisposabl
     /// </summary>
     public TrameSignalrClient(string server,
         string? bearer = null,
-        string? hubPath = "Trame", bool useMessagePack = true,
+        string? hubPath = "tramehub", bool useMessagePack = true,
         TimeSpan? handshakeTimeout = null, TimeSpan? serverTimeout = null,
         TimeSpan? keepAliveInterval = null)
     {
@@ -38,7 +38,7 @@ public class TrameSignalrClient : TrameClientBase, ITrameClient, IAsyncDisposabl
             baseUrl += "/";
 
         var builder = new HubConnectionBuilder()
-            .WithUrl($"{baseUrl}{hubPath ?? "Trame"}", options =>
+            .WithUrl($"{baseUrl}{hubPath ?? "tramehub"}", options =>
             {
                 // AccessTokenProvider IMMER registrieren (A4): der Provider liest
                 // das Token lazy zur Call-Zeit. _jwtToken ist oben bereits gesetzt.
