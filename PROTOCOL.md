@@ -40,7 +40,7 @@ Single method invocation.
 | `stringData` | string (JSON) | ✅ | JSON array of `TrameParameter` objects |
 | `id` | string | ✅ | Request identifier for correlation |
 | `dependencyMapping` | object\|null | ❌ | Map of alias → JsonPath for dependency chaining |
-| `binaryData` | base64\|null | ❌ | Optional binary payload |
+| `binaryData` | base64\|null | ❌ | Optional binary payload. base64 over REST and WebSocket (JSON text wire); native MessagePack `bin` over SignalR. Injected into the first `byte[]` parameter of the target method (first-match-only; a method with more than one `byte[]` parameter is not supported in v1). |
 
 ### TrameParameter
 
@@ -88,7 +88,7 @@ Result of a method invocation.
 |-------|------|-------------|
 | `code` | int | HTTP-like status code (200, 400, 401, 404, 500, etc.) |
 | `data` | any (JSON value)\|null | The method result serialized **directly as a structured JSON value** — an object, array, string, number, or boolean, exactly as `System.Text.Json` (camelCase) would emit it. Type-preserving: a `string` result arrives as a JSON string (`"Alice"`), an `int` as a JSON number (`42`), an object as `{...}`. It is **not** a JSON-encoded string blob and there is no `$.data` envelope level. `null` on `204` (no content) and on non-2xx (the error message lives in `error.message`, not here). |
-| `content` | base64\|null | Binary response for `byte[]`-returning methods (the bytes live exclusively here — never duplicated as a base64 string in `data`) |
+| `content` | base64\|null | Binary response for `byte[]`-returning methods (the bytes live exclusively here — never duplicated as a base64 string in `data`). base64 over REST and WebSocket; native MessagePack `bin` over SignalR. Buffered into `byte[]` in v1 — a `ContentStream` field exists on the model but is not wired by any transport (see [ROADMAP.md](ROADMAP.md)). |
 | `id` | string\|null | Correlates with request ID |
 | `exposedDependencies` | object\|null | Map of alias → value (each value is a JSON-encoded scalar/structure) for dependency chaining |
 | `error` | object\|null | Structured error (when code != 2xx) |
@@ -308,6 +308,25 @@ design boundaries, not bugs:
      nested inside object properties are not counted (v1).
    - `string` and `byte[]` are exempt (`string` is `IEnumerable<char>`; `byte[]` has its
      own binary-size considerations).
+
+### Binary
+
+`byte[]` parameters (`binaryData`) and `byte[]` results (`content`) travel
+**out of band from `data`** — they never compete with structured arguments and
+are never duplicated into `data`. Their wire encoding depends on the channel:
+
+- **REST and WebSocket** carry JSON text, so binary is **base64-encoded**,
+  bounded by the transport message-size limits (REST 1 MB request body;
+  WebSocket 1 MB per message, hardcoded). The WebSocket transport accepts
+  **text frames only** — native binary frames are not honored.
+- **SignalR (MessagePack)** carries `byte[]` as **native `bin`**, no base64.
+
+`binaryData` is injected into the **first** `byte[]` parameter of the target
+method (first-match-only; a method with more than one `byte[]` parameter is
+not supported in v1). `byte[]` responses are **buffered** into `content`; a
+`ContentStream` field exists on the model but is not wired by any transport in
+v1. For large or frequent binary, run a plain REST or WebSocket endpoint
+alongside Trame; the v1.x+ binary-transfer plan is in [ROADMAP.md](ROADMAP.md).
 
 ---
 

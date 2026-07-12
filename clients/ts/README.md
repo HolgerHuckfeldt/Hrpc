@@ -1,8 +1,8 @@
 # trame-client
 
 Isomorphic JavaScript/TypeScript client for [Trame](../../README.md) — the code-first,
-multi-transport RPC framework for .NET 8. Runs in the **browser** and **Node.js** with
-the same API.
+multi-transport framework for command-oriented web APIs on .NET 8+. Runs in the
+**browser** and **Node.js** with the same API.
 
 - **Transports:** REST (`fetch`) + WebSocket. (SignalR is a roadmap item — see
   [ROADMAP.md](../../ROADMAP.md).)

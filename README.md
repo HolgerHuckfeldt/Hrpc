@@ -209,10 +209,29 @@ var responses = await client.Call(batch);
 - **Authorization**: [TrameAuthorise] attribute with role-based access
 - **Expression-Tree Invocation**: Pre-compiled method delegates for maximum performance
 
+## Binary
+
+A method may take a `byte[]` parameter or return `byte[]`. The bytes travel **out of band from the JSON `data` field** — request bytes in `binaryData`, response bytes in `content` — so they never compete with structured arguments and are never duplicated into `data`. The wire encoding depends on the transport:
+
+| Transport | `binaryData` (request) | `content` (response) |
+|---|---|---|
+| REST (JSON) | base64 in JSON | base64 in JSON |
+| WebSocket (JSON text frames) | base64 in JSON | base64 in JSON |
+| SignalR (MessagePack) | native MessagePack `bin` | native MessagePack `bin` |
+
+Base64 is avoided **only on the SignalR/MessagePack channel**. REST and WebSocket carry JSON text, so binary is base64-encoded there (~33 % overhead), bounded by the message-size limits. The WebSocket transport deliberately accepts only text frames — native binary frames are not honored.
+
+**Limits:** REST 1 MB request body; WebSocket 1 MB per message (hardcoded); SignalR `MaximumReceiveMessageSize` in `TrameOptions` (defaults to SignalR's limit when unset). The cardinality caps `MaxParameterArrayLength` / `MaxResultElementCount` do not apply to `byte[]` — they guard collection sizes, not binary size.
+
+**Practical guidance:** Binary over REST or WebSocket is fine for payloads up to the limits. For large or frequent binary, run a plain REST or WebSocket endpoint alongside Trame — there is nothing about binary that requires the RPC channel. Streamed/chunked binary upload and a streamed `byte[]` response are not in v1; see [ROADMAP.md](ROADMAP.md) for the v1.x+ binary-transfer plan.
+
+**Client support:** TypeScript ships `withBinary(Uint8Array)` and `callBinary()`; SignalR clients (C# + TS) carry `byte[]` natively. The C# REST/WebSocket client offers `CallBinary()` for responses, but the fluent builder has **no `WithBinary` yet** — set `request.BinaryData` directly until it lands. See [PROTOCOL.md](PROTOCOL.md) for exact field semantics.
+
 ## Cross-Platform
 
 Trame's wire protocol is fully specified in [PROTOCOL.md](PROTOCOL.md) — JSON-based, no binary dependency. This enables implementations in any language:
 
+- **C#**: A first-class client ships as the `Trame.Client` NuGet package — REST, WebSocket, and SignalR behind one `ITrameClient` surface, fluent `TrameCall` builder, batches, dependency chaining, binary. See [`TrameClient/README.md`](TrameClient/README.md).
 - **TypeScript/JavaScript**: A ready-to-use isomorphic client ships in [`clients/ts/`](clients/ts/) (`npm i trame-client`) — REST + WebSocket, fluent + functional API, runs in the browser and Node.js. See [`clients/ts/README.md`](clients/ts/README.md).
 - **Python**: Use the REST endpoint with `requests`, or `websockets` library
 - **Go/Rust**: Any HTTP or WebSocket client works
@@ -231,6 +250,10 @@ Trame v1 is intentionally focused. The following are deliberate scope decisions,
 - **Attribute-based registration only.** Controllers and methods are discovered via `[TrameController]` / `[TrameMethod]` attribute scanning. Direct/fluent registration of individual handlers in code (without attributes) is on the roadmap, not in v1.
 - **Dotted namespaces, not URL hierarchies.** The `controller` field accepts a dotted namespace (e.g. `Customer.Address.Contact`) to express arbitrarily deep groupings, but it is a single string key — it is not translated into a nested URL path. Routing stays two-part (`controller` + `method`) at the protocol level.
 - **Error details in development only.** `TrameError.details` (stack trace) is populated only when `EnableDetailedErrors` is set or the host runs in Development. In production, error messages are intentionally generic and do not leak exception internals.
+- **Binary is base64 over REST and WebSocket.** Only the SignalR/MessagePack channel carries `byte[]` without base64; the WebSocket transport honors text frames only. Binary is bounded by the transport message-size limits (REST 1 MB, WebSocket 1 MB). For large or frequent binary, run a plain REST or WebSocket endpoint alongside Trame — see [Binary](#binary) and the v1.x+ plan in [ROADMAP.md](ROADMAP.md).
+- **`byte[]` parameters bind first-match-only.** A method with more than one `byte[]` parameter receives `binaryData` in only the first; the others are not filled.
+- **No streamed binary.** `byte[]` responses are buffered into `content`; a `ContentStream` field exists on the model but is not wired by any transport in v1.
+- **C# fluent builder has no `WithBinary`.** Set `request.BinaryData` directly for binary uploads from C# until the helper lands (see [ROADMAP.md](ROADMAP.md)).
 
 ## Project Structure
 

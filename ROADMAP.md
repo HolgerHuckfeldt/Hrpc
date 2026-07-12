@@ -167,6 +167,72 @@ bewusst *nicht* Teil von `Trame.sln` — er läuft isoliert:
 
 ---
 
+## Binary-Transfer (v1.x+)
+
+### Status quo (v1)
+
+`byte[]`-Parameter (`TrameRequest.binaryData`) und `byte[]`-Rückgaben
+(`TrameResponse.content`) sind Out-of-band zum JSON-`data`-Feld geführt — sie
+konkurrieren nicht mit strukturierten Argumenten und werden nicht doppelt in
+`data` kodiert. Die Wire-Kodierung ist transportabhängig:
+
+- **REST und WebSocket (JSON):** Base64-in-JSON (~33 % Overhead), begrenzt
+  durch die Message-Size-Caps (REST 1 MB Body, WebSocket 1 MB/Message,
+  hardcodiert). WebSocket nimmt bewusst nur Text-Frames an — native
+  Binary-Frames werden nicht akzeptiert.
+- **SignalR (MessagePack):** native `bin`-Kodierung, kein Base64.
+
+Offene Lücken, die in v1 bewusst nicht gelöst sind (siehe README *Known
+Limitations* — Binary):
+
+1. **C#-Fluent-Builder ohne `WithBinary`** — Binary-Upload aus C# nur per
+   `request.BinaryData = …`. Helper fehlt (TS hat `withBinary`).
+2. **First-Match-only für `byte[]`-Parameter** — eine Methode mit mehreren
+   `byte[]`-Parametern bekommt die Payload nur im ersten.
+3. **Kein Streaming** — `byte[]`-Responses puffern in `content`;
+   `TrameResponse.ContentStream` ist am Modell deklariert, aber von keinem
+   Transport angebunden.
+4. **Kein Multipart/Chunking** für große REST-Uploads (nur Base64-in-JSON,
+   1 MB-Cap).
+
+### Ziel (v1.x+)
+
+Binary-Transfer als gleichberechtigten, nicht base64-bepackten Pfad ausbauen —
+ohne das JSON-Text-Wire für REST/WebSocket aufzugeben (Sprachneutralität bleibt
+das Kriterium).
+
+- **WebSocket native Binary-Frames** optional annehmen (Auto-Detection:
+  Text-Frame = JSON-Request wie heute; Binary-Frame = rohe Payload für eine
+  `byte[]`-Methode plus dünner Header für Controller/Methode/Id). Der
+  Base64-Weg bleibt kompatibel.
+- **`ContentStream` anbinden** — große `byte[]`-Responses streamen statt
+  puffern (REST: chunked transfer; WebSocket/SignalR: sequentielle Frames).
+- **`WithBinary` im C#-Builder** nachziehen, symmetrisch zum TS-Client.
+- **Namens-Bindung für `byte[]`-Parameter** statt First-Match-only, sobald ein
+  zweites Binary-Feld pro Request nötig ist — oder mehrere benannte
+  Binary-Slots in `TrameRequest`.
+- **Konfigurierbare Message-Size-Caps** über `TrameOptions` (WebSocket heute
+  hardcodiert 1 MB).
+
+### Bewusst akzeptierter Trade-off
+
+Binary ist in v1 eine **Zweitklass-Bürger-Warnung wert**, kein Verkaufsargument:
+wer große oder frequente Binary-Ströme braucht, lässt sie heute besser über
+einen plain-REST- oder WebSocket-Endpunkt neben Trame laufen. Das RPC-Modell
+trägt Befehls- und Chaining-Last, nicht Bulk-Transfer. Der v1.x+-Plan hebt
+Binary auf dieses Niveau, ohne das JSON-Wire zu brechen.
+
+### Offene Entwurfsfragen (bei Implementierung entscheiden)
+
+- WebSocket Binary-Frame-Header-Format (minimal JSON-Präfix vs. eigener
+  Frame-Sub-Typ) und Korrelation mit `id`.
+- Ob `ContentStream` pro Transport oder generisch über einen Transport-Adapter
+  läuft.
+- Ob mehrere `byte[]`-Parameter über mehrere benannte Slots in `TrameRequest`
+  oder über ein Binary-Multipart-Frame gelöst werden.
+
+---
+
 ## Später (v1.x+, unsortiert)
 
 - **SignalR-Client für JS/TS.** Der `clients/ts/`-Client (v1) deckt REST +
