@@ -8,7 +8,7 @@
 
 Die Benchmarks laufen über **BenchmarkDotNet** (`[MemoryDiagnoser]`, `SimpleJob(warmupCount:3, iterationCount:5)`) gegen einen **echten Kestrel-Server** auf `localhost` mit zwei dedizierten Endpoints:
 
-- **HTTP/1.1-Port** für REST, Trame-REST, Trame-WebSocket (`/tramews`) und Trame-SignalR (`/Trame`).
+- **HTTP/1.1-Port** für REST, Trame-REST, Trame-WebSocket (`/tramews`) und Trame-SignalR (`/tramehub`).
 - **HTTP/2-Port** (h2c, Plaintext prior-knowledge) für natives gRPC. Kestrel bedient gRPC auf Plaintext nur auf einem reinen HTTP/2-Endpoint — ein gemischter `Http1AndHttp2`-Endpoint lehnt gRPC-Prior-Knowledge mit `HTTP_1_1_REQUIRED (0xd)` ab (deshalb zwei Ports, analog zum offiziellen gRPC-Template).
 
 Es werden 100 Customers vorab geseedet (`AddCustomer` enthält bewusst ein `Task.Delay(200 ms)`, um realistische Schreiblatenz zu simulieren — das dominiert die Dependency-Chain-Latenz, siehe Abschnitt 3).

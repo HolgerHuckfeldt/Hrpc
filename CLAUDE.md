@@ -69,7 +69,7 @@ Trame (sample app) · TrameTests (xUnit + FluentAssertions) · TrameBench (Bench
 |-----------|---------|----------|-------------|
 | REST | TrameRest | `POST /api/trame/json`, `/api/trame/json/multi`, `GET /api/trame/discovery` | HTTP/1.1 + JSON |
 | WebSocket | TrameWebSocket | `ws://host/tramews` | RFC 6455 + JSON text frames |
-| SignalR | TrameHub | `/Trame` hub | WebSocket + MessagePack binary |
+| SignalR | TrameHub | `/tramehub` hub | WebSocket + MessagePack binary |
 
 All transports deserialize the incoming `TrameRequest`/`TrameMultiRequest` and delegate to `ITrameCore.InvokeDi()`.
 
@@ -106,7 +106,7 @@ Controllers signal non-success two ways — use the right one:
 
 ### Dependency Chaining
 
-Request A declares `DependencyMapping: { "alias" → "$.Path" }` (a **result-relative** JsonPath — `$` is the whole serialized result, e.g. `$`, `$.Id`, `$[0].Id`; there is no `$.data` envelope level). After execution, values are extracted via `DependencyResolver.ExtractValue(result.Data, jsonPath)` (parsed against the result JSON) and stored in `ExposedDependencies`. Request B uses `@alias` as a parameter placeholder — the server resolves it before execution (`ResolveParameterValues` → `ReplaceDependencyByAlias`). Both the Serial (`ExecuteSequentially`) and the auto-detect topological-batch (`ExecuteInDependencyBatches`) paths resolve aliases against prior responses. This enables multiple dependent calls in a single roundtrip.
+Request A declares `DependencyMapping: { "alias" → "$.Path" }` (a **result-relative** JsonPath — `$` is the whole serialized result, e.g. `$`, `$.Id`, `$[0].Id`; there is no `$.data` envelope level). After execution, values are extracted via `DependencyResolver.ExtractValue(result.Data, jsonPath)` (parsed against the result JSON) and stored in `ExposedDependencies`. `ExtractValue` is **match-count-aware**: a single-match path yields that match (scalar, or an array if the match itself is one); a multi-match path (`$[*].Id`, `$..Id`) collects all matches into a `JsonArray`, injected as one list-typed parameter (`List<T>`/`T[]`/`IEnumerable<T>`) — list fan-out into a *parameter*, never fan-out into N *requests*. Request B uses `@alias` as a parameter placeholder — the server resolves it before execution (`ResolveParameterValues` → `ReplaceDependencyByAlias`). Both the Serial (`ExecuteSequentially`) and the auto-detect topological-batch (`ExecuteInDependencyBatches`) paths resolve aliases against prior responses. This enables multiple dependent calls in a single roundtrip.
 
 ### Registration Flow
 

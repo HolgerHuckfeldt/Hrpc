@@ -236,7 +236,7 @@ Binary auf dieses Niveau, ohne das JSON-Wire zu brechen.
 ## Später (v1.x+, unsortiert)
 
 - **SignalR-Client für JS/TS.** Der `clients/ts/`-Client (v1) deckt REST +
-  WebSocket ab. Ein SignalR-Transport (`/Trame`-Hub, MessagePack) für den
+  WebSocket ab. Ein SignalR-Transport (`/tramehub`-Hub, MessagePack) für den
   Browser/Node folgt als v1.1 — bewusst nicht in v1, um die schwere
   `@microsoft/signalr`-Abhängigkeit + MessagePack aus dem Default-Build
   herauszuhalten. REST + WebSocket decken Browser-RPC bereits ab.

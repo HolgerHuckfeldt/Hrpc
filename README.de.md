@@ -71,7 +71,7 @@ Trame wurde von Grund auf für RPC entwickelt — nicht als REST-Wrapper, sonder
 
 1. **Methodenorientiert, nicht ressourcenorientiert**: `[TrameController("Customer")]` + `[TrameMethod("AddOrder")]` — kein URL-Routing, keine HTTP-Verben, kein DTO-Mapping
 2. **Batch-Calls**: 10 RPC-Aufrufe in einem Roundtrip — der Server führt sie aus und liefert 10 Antworten
-3. **Dependency-Chaining** (von GraphQL inspiriert): Ein Request exponiert Werte via `Exposes("$", "orderId")` (ergebnisrelativer JSON-Path), der nächste nutzt `WithAlias("@orderId")` — der Server löst Abhängigkeiten in einem Roundtrip
+3. **Dependency-Chaining** (von GraphQL inspiriert): Ein Request exponiert Werte via `Exposes("$", "orderId")` (ergebnisrelativer JSON-Path), der nächste nutzt `WithAlias("@orderId")` — der Server löst Abhängigkeiten in einem Roundtrip. Ein Wildcard-Pfad `Exposes("$[*].Id", "ids")` sammelt **alle** Treffer in ein Array und injiziert es als einen list-typisierten Parameter — `Search → GetByIds(@ids)` in einem Roundtrip, wie ein serverseitiges `Select`
 4. **Multi-Transport**: REST für Kompatibilität, WebSocket für niedrige Latenz, SignalR für Browser-Clients — gleiche API, verschiedene Wire-Protokolle
 5. **Expression-Tree-Ausführung**: Methoden werden zur Registrierungszeit zu Delegates kompiliert — keine Reflection pro Aufruf
 
@@ -122,7 +122,7 @@ var app = builder.Build();
 app.UseTrame();              // Trame REST-Endpunkte registrieren
 app.UseWebSockets();
 app.UseTrameWebSocket("/tramews");  // WebSocket-Transport
-app.MapHub<TrameHub.Hub.TrameHub>("/Trame");  // SignalR-Transport
+app.MapHub<TrameHub.Hub.TrameHub>("/tramehub");  // SignalR-Transport
 app.Run();
 ```
 
@@ -187,17 +187,17 @@ var responses = await client.Call(batch);
 |-----------|----------|---------------|
 | **REST** | `POST /api/trame/json` | Zustandslose Aufrufe, Load-Balancing |
 | **WebSocket** | `ws://host/tramews` | Persistente Verbindungen, niedrige Latenz, viele kleine Calls |
-| **SignalR** | `/Trame` Hub | Browser-Clients, Auto-Reconnect, MessagePack |
+| **SignalR** | `/tramehub` Hub | Browser-Clients, Auto-Reconnect, MessagePack |
 
 ## Features
 
 - **Multi-Transport**: Gleiche API über REST, WebSocket und SignalR
 - **Batch-Calls**: Mehrere RPC-Aufrufe in einem Roundtrip (parallel oder seriell)
-- **Dependency-Chaining**: Aufrufe verketten mit `@alias`-Platzhaltern, serverseitig aufgelöst
+- **Dependency-Chaining**: Aufrufe verketten mit `@alias`-Platzhaltern, serverseitig aufgelöst; Wildcard-Pfade (`$[*].Id`) fächern eine Ergebnis-Menge in einen einzelnen list-typisierten Parameter auf
 - **Streaming**: `IAsyncEnumerable<T>`-Support, als JSON-Arrays serialisiert
 - **Interceptor-Pipeline**: `ITrameInterceptor` für Logging, Tracing, Caching, Validierung
 - **Discovery/MEX**: `GET /api/trame/discovery` liefert vollständige API-Metadaten
-- **Developer-UI**: Eingebaute Web-Oberfläche unter `/developer`
+- **Developer-UI**: Eingebaute Web-Oberfläche unter `/Trame`
 - **Rate-Limiting**: Eingebauter Fixed-Window-Rate-Limiter
 - **Autorisierung**: `[TrameAuthorise]`-Attribut mit rollenbasiertem Zugriff
 - **Expression-Tree-Ausführung**: Vorkompilierte Methoden-Delegates für maximale Performance

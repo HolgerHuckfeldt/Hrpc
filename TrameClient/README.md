@@ -69,7 +69,9 @@ int newId = await rest.Call<int>(create);
 
 `Exposes(jsonPath, alias)` — the JSON path is **result-relative**: `$` is the whole
 serialized result (e.g. an `int` or a `Customer`), `$.Id` a property, `$[0].Id` the
-first list element. There is no `$.data` envelope level.
+first list element, and `$[*].Id` **every** element. There is no `$.data` envelope
+level. A multi-match path (wildcard `$[*]`, recursive `$..`) collects all matches into
+a JSON array, injected as a single list-typed parameter — see List fan-out below.
 
 `WithAlias("@alias")` — consumes a previously exposed value. The server resolves
 the `@alias` placeholder before invoking the method. Unresolved aliases fail the
@@ -132,7 +134,7 @@ preferred pattern.
 await using var signalr = new TrameSignalrClient(
     "https://localhost:5001",
     bearer: "eyJ...",            // JWT; AccessTokenProvider lazy pro Call
-    hubPath: "Trame",            // Default
+    hubPath: "tramehub",            // Default
     useMessagePack: true);      // Default; native bin statt Base64
 
 var customer = await signalr.Call<Customer>(req);
@@ -174,6 +176,41 @@ var loaded = responses[1]!.Data?.Deserialize<Customer>();
 - `ExecutionMode.Serial` — sequential, resolves `@alias` against prior responses.
 - If any request carries `dependencyMapping`, the server auto-switches to topological
   batch execution regardless of `Mode`.
+
+## List fan-out (multi-match `@alias`)
+
+A wildcard or recursive JsonPath (`$[*].Id`, `$..Id`) matches multiple nodes. Trame
+collects **all** matches into a JSON array and injects it as one list-typed parameter
+value — so `Search → GetByIds` runs in a single roundtrip, no client-side glue:
+
+```csharp
+// Search gibt List<Customer>; $[*].Id sammelt jede Id → Array.
+// GetByIds(int[] ids) empfängt das Array als @customerIds.
+var batch = new TrameMultiRequest
+{
+    Requests = new()
+    {
+        TrameCall.Init("Customer", "Search")
+            .With("France")
+            .Named("search")
+            .Exposes("$[*].Id", "customerIds")   // alle Ids als Array
+            .ToRequest(),
+        TrameCall.Init("Customer", "GetByIds")
+            .WithAlias("@customerIds")            // Parameter heißt customerIds
+            .Named("load")
+            .ToRequest(),
+    },
+    Mode = ExecutionMode.Serial,
+};
+
+var responses = (await rest.Call(batch))!.ToList();
+var loaded = responses[1]!.Data?.Deserialize<List<Customer>>();
+```
+
+This is one value per alias — an array, not N separate calls. The consuming parameter
+must be list-typed (`List<T>`, `T[]`, `IEnumerable<T>`); a scalar parameter won't
+deserialize from an array. The `WithAlias("@customerIds")` derives the parameter name
+`customerIds`, so the target method must have a parameter of that exact name.
 
 ## Binary
 

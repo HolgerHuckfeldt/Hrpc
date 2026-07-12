@@ -54,13 +54,31 @@ const batch = TrameCall.batch(
 );
 const [first, second] = await rest.callBatch(batch.requests, batch.mode);
 
+// --- List fan-out: Search → GetByIds in one roundtrip ---
+// A wildcard path ($[*].id) matches every node; Trame collects all matches into a
+// JSON array injected as one list-typed parameter (not N separate calls).
+const fanOut = TrameCall.batch(
+  [
+    TrameCall.init("Customer", "Search").with({ country: "France" }).named("search")
+      .exposes("$[*].id", "customerIds").toRequest(),
+    TrameCall.init("Customer", "GetByIds").withAlias("@customerIds").named("load").toRequest(),
+  ],
+  ExecutionMode.Serial,
+);
+const [_, loaded] = await rest.callBatch(fanOut.requests, fanOut.mode);
+
 // --- WebSocket (persistent connection) ---
 await ws.connect();
 const live = await ws.callJson<Customer>(TrameCall.init("Customer", "GetById").with({ id: 42 }).toRequest());
 ws.close();
 ```
 
-## REST client
+`exposes(jsonPath, alias)` is **result-relative** — `$` is the serialized result (an
+`int`, a `Customer`, a list), `$.name` a field, `$[0].id` one element, `$[*].id` **every**
+element (collected into an array). There is no `$.data` envelope level. A multi-match
+path produces an array, injected into a list-typed parameter (`Array<T>`,
+`T[]`); the consuming method's parameter name must equal the alias (`withAlias`
+derives it from `@customerIds` → `customerIds`).
 
 ```ts
 import { TrameRestClient } from "trame-client";

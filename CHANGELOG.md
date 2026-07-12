@@ -26,7 +26,7 @@ Trame takes inspiration from GraphQL (dependency resolution, batch queries) and 
 - Streaming support: `IAsyncEnumerable<T>` and `Task<IAsyncEnumerable<T>>`
 - Interceptor pipeline: `ITrameInterceptor` with built-in `TrameLoggingInterceptor`
 - Discovery/MEX: `GET /api/trame/discovery` returns full API metadata
-- Developer UI: built-in web interface at `/developer`
+- Developer UI: built-in web interface at `/Trame`
 - Rate-limiting: configurable fixed-window rate limiter
 - Authorization: `[TrameAuthorise]` attribute with role-based access
 - Expression-Tree invocation: pre-compiled method delegates for performance

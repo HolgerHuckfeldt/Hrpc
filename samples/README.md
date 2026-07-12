@@ -54,7 +54,7 @@ dotnet run --project samples/server/SampleServer.csproj
 Endpunkte nach dem Start:
 - **REST**: `POST https://localhost:5001/api/trame/json` (+ `/multi`, `GET /discovery`)
 - **WebSocket**: `wss://localhost:5001/tramews`
-- **Developer-UI**: `https://localhost:5001/developer`
+- **Developer-UI**: `https://localhost:5001/Trame`
 
 ### C#-Client-Samples
 
