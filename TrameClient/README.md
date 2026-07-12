@@ -29,8 +29,10 @@ SignalR client transitively for the SignalR transport.
 
 ```csharp
 using TrameClient.Trame;
+using TrameCommon.Exceptions;
 using TrameCommon.Models;
 using TrameCommon.Results;
+using System.Text.Json;
 
 // REST (HttpClient-basiert, IDisposable)
 using var rest = new TrameRestJsonClient("https://localhost:5001");
@@ -104,7 +106,7 @@ when done.
 ## WebSocket client
 
 ```csharp
-using var ws = new TrameWebSocketClient(
+await using var ws = new TrameWebSocketClient(
     "https://localhost:5001",   // Basis-URL; Schema wird gemappt (https→wss, http→ws)
     wsPath: "tramews",          // Default
     callTimeout: TimeSpan.FromSeconds(10),
@@ -112,7 +114,8 @@ using var ws = new TrameWebSocketClient(
 
 await ws.ConnectAsync();        // wird von Call() implizit aufgerufen (concurrent-safe)
 var customer = await ws.Call<Customer>(req);
-ws.DisposeAsync();              // terminal — lehnt alle pending Calls ab, kein Reconnect
+// await using entsorgt am Blockende asynchron (IAsyncDisposable);
+// ein vorzeitiges ws.DisposeAsync() lehnt alle pending Calls ab (terminal, kein Reconnect).
 ```
 
 Correlation: each response is matched by `id` (single) or the first request's `id`

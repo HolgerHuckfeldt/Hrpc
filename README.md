@@ -90,11 +90,13 @@ GraphQL answers: *Which object graph do you want?* Trame answers: *Which command
 ## Code First
 
 ```csharp
+using TrameCore.Attributes;
+
 [TrameController("Customer")]
 public class CustomerHandler
 {
     [TrameMethod("Create")]
-    public Task<int> Create(string name) => /* ... */ 42;
+    public async Task<int> Create(string name) => 42;
 }
 ```
 
@@ -176,31 +178,29 @@ Limits: REST 1 MB body, WebSocket 1 MB/message, SignalR configurable. For large 
 
 ```csharp
 using TrameHub.Extensions;
+using TrameServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Register Trame with all transports
-builder.Services.AddTrame(new TrameOptions
+// Register Trame with all transports (hub + REST + WebSocket + DevUI)
+builder.Services.AddTrame(o =>
 {
-    UseSignalR = true,
-    UseMessagePack = true,
-    MaximumParallelInvocationsPerClient = 100
+    o.UseSignalR = true;
+    o.UseMessagePack = true;
+    o.MaximumParallelInvocationsPerClient = 100;
 });
 
-// Register your controllers (auto-discovered via [TrameController])
-builder.Services.AddSingleton<MyService>();
-
 var app = builder.Build();
-app.UseTrame();                       // Trame REST endpoints
-app.UseWebSockets();
-app.UseTrameWebSocket("/tramews");    // WebSocket transport
-app.MapHub<TrameHub.Hub.TrameHub>("/tramehub");  // SignalR transport
+app.UseTrameTransports();   // WebSocket + controller registration
+app.MapTrame();             // REST (/api/trame) + DevUI (/Trame) + SignalR hub (/tramehub)
 app.Run();
 ```
 
 ### Controller
 
 ```csharp
+using TrameCore.Attributes;
+
 [TrameController("Customer")]
 public class CustomerHandler(CustomerService service)
 {
@@ -219,6 +219,7 @@ public class CustomerHandler(CustomerService service)
 
 ```csharp
 using TrameClient.Trame;
+using TrameCommon.Models;
 
 // Choose your transport
 var client = new TrameRestJsonClient("https://localhost:5001/");

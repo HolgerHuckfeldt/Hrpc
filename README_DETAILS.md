@@ -113,31 +113,29 @@ Benchmarked with BenchmarkDotNet on .NET 8.0, Intel Core i7-12700H:
 
 ```csharp
 using TrameHub.Extensions;
+using TrameServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Register Trame with all transports
-builder.Services.AddTrame(new TrameOptions
+// Register Trame with all transports (hub + REST + WebSocket + DevUI)
+builder.Services.AddTrame(o =>
 {
-    UseSignalR = true,
-    UseMessagePack = true,
-    MaximumParallelInvocationsPerClient = 100
+    o.UseSignalR = true;
+    o.UseMessagePack = true;
+    o.MaximumParallelInvocationsPerClient = 100;
 });
 
-// Register your controllers (auto-discovered via [TrameController])
-builder.Services.AddSingleton<MyService>();
-
 var app = builder.Build();
-app.UseTrame();              // Registers Trame REST endpoints
-app.UseWebSockets();
-app.UseTrameWebSocket("/tramews");  // WebSocket transport
-app.MapHub<TrameHub.Hub.TrameHub>("/tramehub");  // SignalR transport
+app.UseTrameTransports();   // WebSocket + controller registration
+app.MapTrame();             // REST (/api/trame) + DevUI (/Trame) + SignalR hub (/tramehub)
 app.Run();
 ```
 
 ### Controller
 
 ```csharp
+using TrameCore.Attributes;
+
 [TrameController("Customer")]
 public class CustomerHandler(CustomerService service)
 {
@@ -156,6 +154,7 @@ public class CustomerHandler(CustomerService service)
 
 ```csharp
 using TrameClient.Trame;
+using TrameCommon.Models;
 
 // Choose your transport
 var client = new TrameRestJsonClient("https://localhost:5001/");
