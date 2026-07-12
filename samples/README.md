@@ -1,14 +1,15 @@
 # Trame Samples
 
-Sauber kommentierte Code-Beispiele als Entwickler-Referenz. Jede Datei ist in
-sich geschlossen und zeigt genau ein Szenario — Server-seitig (C#) und Client-seitig
-(C# bzw. TypeScript).
+Ausführbare, sauber kommentierte Code-Beispiele als Entwickler-Referenz. Jeder
+der drei Projekte (Server, C#-Client, TS-Client) läuft eigenständig und zieht
+Trame aus dem **lokalen NuGet-/npm-Paket** — kein Build der Solution nötig. Pro
+Sprache gibt es vier Szenarien, die unterschiedliche RPC-Muster zeigen.
 
 ## Szenarien
 
 | # | Szenario | Was es zeigt |
 |---|----------|--------------|
-| 01 | Single Call | Ein einzelner RPC-Aufruf (fluent + raw) |
+| 01 | Single Call | Ein einzelner RPC-Aufruf (fluent + raw; REST **und** WebSocket) |
 | 02 | Batch Parallel | Mehrere unabhängige Aufrufe in einer Roundtrip — `ExecutionMode.Parallel` |
 | 03 | Batch Serial | Mehrere Aufrufe nacheinander — `ExecutionMode.Serial` |
 | 04 | Dependencies | Chaining: ein Aufruf gibt einen Wert weiter (`@alias`), der nächste nutzt ihn |
@@ -17,25 +18,71 @@ sich geschlossen und zeigt genau ein Szenario — Server-seitig (C#) und Client-
 
 ```
 samples/
-  server/                     # Drop-in Beispiel-Server (Controller + In-Memory-Store)
-    SampleServer.cs
-  csharp/                     # C#-Client-Beispiele (TrameClient)
-    01-single-call.cs
-    02-batch-parallel.cs
-    03-batch-serial.cs
-    04-dependency-chain.cs
-  typescript/                 # TypeScript/JS-Client-Beispiele (trame-client)
-    01-single-call.ts
-    02-batch-parallel.ts
-    03-batch-serial.ts
-    04-dependency-chain.ts
+  server/                     # Ausführbarer Beispiel-Server (consumiert Trame.Server als NuGet-Paket)
+    SampleServer.csproj       # Web-SDK, net8.0 — PackageReference auf Trame.Server
+    Program.cs                 # AddTrame → UseTrameTransports → MapTrame (3 Zeilen Wiring)
+    SampleServer.cs            # Controller + DTOs + In-Memory-Store
+    nuget.config               # lokaler Feed → ../../artifacts/packages
+  csharp/                      # Ausführbare C#-Client-Samples (TrameClient aus lokalem Feed)
+    Samples.csproj             # Console, net8.0 — PackageReference auf Trame.Client
+    Program.cs                 # Runner: Szenario-Arg 1–4 / all
+    Dtos.cs                    # client-seitige Customer/Order-POCOs + SampleJson-Options
+    01-single-call.cs  02-batch-parallel.cs  03-batch-serial.cs  04-dependency-chain.cs
+    nuget.config               # lokaler Feed → ../../artifacts/packages
+  typescript/                  # Ausführbare TS-Client-Samples (trame-client aus clients/ts)
+    package.json               # type:module; trame-client via file:../../clients/ts
+    run.ts                     # Runner: Szenario-Arg 1–4 / all (Node Type-Stripping)
+    01-single-call.ts  02-batch-parallel.ts  03-batch-serial.ts  04-dependency-chain.ts
+    tsconfig.json              # für typecheck (npm run typecheck)
 ```
 
-## Voraussetzungen
+## Schnellstart (low-barrier)
+
+Alle drei Projekte laufen gegen denselben Server auf `https://localhost:5001`.
+
+```bash
+# 0) Einmalig pro Maschine: vertrauenswürdiges HTTPS-Dev-Cert (für wss://)
+dotnet dev-certs https --trust
+
+# 1) Trame-Pakete ins lokale Feed legen (aus Repository-Root)
+dotnet pack Trame.sln -c Release -o artifacts/packages
+
+# 2) Server starten (eigenes Terminal — läuft blockierend)
+dotnet run --project samples/server/SampleServer.csproj
+```
+
+Endpunkte nach dem Start:
+- **REST**: `POST https://localhost:5001/api/trame/json` (+ `/multi`, `GET /discovery`)
+- **WebSocket**: `wss://localhost:5001/tramews`
+- **Developer-UI**: `https://localhost:5001/developer`
+
+### C#-Client-Samples
+
+```bash
+dotnet run --project samples/csharp -- all   # alle 4 Szenarien nacheinander
+dotnet run --project samples/csharp -- 1     # nur Szenario 1 (auch 2, 3, 4)
+```
+
+### TypeScript-Client-Samples
+
+```bash
+cd samples/typescript
+npm install                  # einmalig: lokaler trame-client + ws
+npm start                    # alle 4 Szenarien nacheinander
+npm run start:1              # nur Szenario 1 (auch :2 :3 :4)
+# oder direkt:  node --experimental-strip-types run.ts 4
+```
+
+> Hinweis: Node vertraut dem ASP.NET-Dev-Cert nicht (eigener CA-Store). Der
+> TS-Runner setzt daher prozessweit `NODE_TLS_REJECT_UNAUTHORIZED=0` — nur für
+> Dev-Samples, niemals in Produktion.
+
+## Voraussetzungen (für eigene Setups)
 
 - **Server**: `dotnet add package Trame.Server` (bringt alle Transporte transitiv),
   dann `builder.Services.AddTrame(...)` + `app.UseTrameTransports()` + `app.MapTrame()`.
-  Siehe `server/SampleServer.cs` für die gezeigten Controller.
+  Siehe `server/Program.cs` für das Wiring und `server/SampleServer.cs` für die gezeigten
+  Controller. Zum sofortigen Start: obiger Schnellstart-Block.
 - **C#-Client**: `dotnet add package Trame.Client`.
 - **TS-Client**: `npm install trame-client` (lokales Paket: `clients/ts`).
 
@@ -58,5 +105,6 @@ samples/
   (Code + Message erreichen den Client). Unerwartete Exceptions → generisches 500
   (Message-Leak nur mit `EnableDetailedErrors`).
 
-> Alle Beispiele sind Referenz-Snippets. Die Client-Base-URLs und die In-Memory-Daten
-> im Server-Beispiel sind Platzhalter für eigene Setups.
+> Alle Beispiele sind ausführbar und gegen den lokalen Server getestet. Die
+> Client-Base-URLs (`https://localhost:5001`) und die In-Memory-Daten im Server
+> sind Platzhalter für eigene Setups.

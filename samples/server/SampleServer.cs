@@ -10,6 +10,7 @@
 // ==============================================================================
 
 using TrameCommon.Attribute;   // TrameDocumentation, TrameExample (DataContract entfällt — Inference-Default)
+using TrameCommon.Models;     // TrameResponse
 using TrameCommon.Results;     // TrameResults (Ok/NotFound/BadRequest)
 using TrameCore.Attributes;    // TrameController, TrameMethod
 
@@ -40,8 +41,8 @@ public class Order
 // Scoped registrieren und in den Controller injizieren.
 public static class DemoStore
 {
-    private static int _nextCustomerId = 1;
-    private static int _nextOrderId = 1;
+    private static int _nextCustomerId = 0;
+    private static int _nextOrderId = 0;
     private static readonly List<Customer> _customers = new();
     private static readonly List<Order> _orders = new();
 
@@ -87,7 +88,6 @@ public class CustomerController
 {
     [TrameMethod("AddCustomer")]
     [TrameDocumentation("Legt einen Kunden an. Rückgabe: neue Id (skalarer int → JsonPath '$').")]
-    [TrameExample("{\"name\":\"Alice\",\"email\":\"alice@x.com\"}")]
     public Task<int> AddCustomer(string name, string email, CancellationToken ct)
         => DemoStore.AddCustomerAsync(name, email, ct);
 
@@ -113,7 +113,6 @@ public class OrderController
 {
     [TrameMethod("CreateOrder")]
     [TrameDocumentation("Legt eine Bestellung an. Parameter: customerId, total. Rückgabe: neue OrderId.")]
-    [TrameExample("{\"customerId\":1,\"total\":99.90}")]
     public async Task<TrameResponse> CreateOrder(int customerId, decimal total, CancellationToken ct)
     {
         var orderId = await DemoStore.CreateOrderAsync(customerId, total, ct);
@@ -134,24 +133,10 @@ public class OrderController
     }
 }
 
-// --- Server-Setup (Program.cs) — kurze Form -----------------------------------
+// --- Server-Setup -------------------------------------------------------------
+// Das ausführbare Setup liegt in Program.cs (dieses Verzeichnis) — drei Zeilen
+// Trame-Wiring (AddTrame → UseTrameTransports → MapTrame). Die [TrameController]-
+// Typen dieser Datei werden per Attribut-Scan automatisch gefunden und beim
+// Aufruf von UseTrame() im Invoker registriert — keine manuelle Registrierung.
 //
-// using TrameHub.Extensions;
-// using TrameServer;                       // UseTrameTransports, MapTrame
-//
-// var builder = WebApplication.CreateBuilder(args);
-// builder.Services.AddTrame(o =>
-// {
-//     o.EnableDetailedErrors = builder.Environment.IsDevelopment();
-//     o.RateLimitPermitLimit = builder.Environment.IsProduction() ? 50 : 0;
-// });
-//
-// var app = builder.Build();
-// app.UseRouting();
-// app.UseRateLimiter();
-// app.UseTrameTransports();   // WebSocket (primär) + Controller-Registrierung
-// app.MapTrame();             // REST (/api/trame) + DevUI (/developer) + ggf. SignalR
-// app.Run();
-//
-// Die [TrameController]-Typen werden per Attribut-Scan automatisch gefunden und
-// beim Aufruf von UseTrame() im Invoker registriert — keine manuelle Registrierung.
+// Start:  dotnet run --project samples/server/SampleServer.csproj

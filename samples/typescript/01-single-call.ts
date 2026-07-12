@@ -1,45 +1,55 @@
 // ==============================================================================
 // 01 — Single Call (TypeScript/JS-Client)
 // ==============================================================================
-// Ein einzelner RPC-Aufruf. Gezeigt für REST und WebSocket (SignalR gibt es
-// client-seitig nur in C#). WebSocket ist der empfohlene primäre Kanal (persistent,
-// geringe Latenz); REST ist zustandslos und am einfachsten.
+// Ein einzelner RPC-Aufruf. Gezeigt für REST und WebSocket — wähle je nach
+// Anforderung. WebSocket ist der empfohlene primäre Kanal (persistent, geringe
+// Latenz); REST ist zustandslos und am einfachsten.
+//
+// Hinweis: Der TS-WebSocket-Client nimmt die Basis-URL (https://…) + einen
+// separaten wsPath (Default "tramews"); er hebt intern auf wss://…/tramews ab.
 // ==============================================================================
 
-import {
-  TrameRestClient,
-  TrameWebSocketClient,
-  TrameCall,
-  type TrameRequest,
-} from "trame-client";
+import { TrameRestClient, TrameCall, TrameWebSocketClient } from "trame-client";
 
-// minimaler Client-Typ (eigene DTOs oder aus generiertem Client)
 type Customer = { id: number; name: string; email: string };
 
-// --- REST — funktionale Form (callJson wirft TrameError bei Nicht-2xx) --------
-const rest = new TrameRestClient("https://localhost:5001", { bearer: token });
-const c1 = await rest.callJson<Customer>("Customer", "GetCustomerById", { id: 42 });
+export async function run(rest: TrameRestClient): Promise<void> {
+  // --- REST: Kunden anlegen (skalarer int kommt zurück) ------------------------
+  const newId = await rest.callJson<number>("Customer", "AddCustomer", {
+    name: "Alice",
+    email: "alice@x.com",
+  });
+  console.log(`  [REST]    AddCustomer -> neue Id = ${newId}`);
 
-// --- REST — Fluent Builder ---------------------------------------------------
-const req: TrameRequest = TrameCall.init("Customer", "GetCustomerById")
-  .with({ id: 42 }) // Object = named params; Array = positional
-  .toRequest();
-const r = await rest.call(req);
-if (!r.isSuccess) console.warn(r.error); // manuelle Fehlerprüfung bei call()
+  // --- REST: Kunden laden (callJson<T> deserialisiert data direkt nach T) ------
+  const c = await rest.callJson<Customer>("Customer", "GetCustomerById", { id: newId });
+  console.log(`  [REST]    GetCustomerById(${newId}) -> ${c?.name} <${c?.email}>`);
 
-// --- WebSocket (persistent, primärer Kanal) ----------------------------------
-const ws = new TrameWebSocketClient("wss://localhost:5001/tramews", { bearer: token });
-await ws.connect(); // explizit — oder lazy beim ersten call()
-const c2 = await ws.callJson<Customer>(TrameCall.init("Customer", "GetCustomerById").with({ id: 42 }).toRequest());
-await ws.close(); // terminiert die Verbindung (dispose)
+  // --- REST: alle Kunden (Liste) ----------------------------------------------
+  const all = await rest.callJson<Customer[]>("Customer", "GetAllCustomers");
+  console.log(`  [REST]    GetAllCustomers -> ${all?.length ?? 0} Kunde(n)`);
 
-// --- Raw-Form (ohne Fluent Builder) -----------------------------------------
-// stringData = JSON.stringify(TrameParameter[]); data ist der JSON-token des Werts.
-const raw: TrameRequest = {
-  controller: "Customer",
-  method: "GetCustomerById",
-  id: "Customer.GetCustomerById",
-  stringData: JSON.stringify([{ parameterName: "id", num: 0, data: JSON.stringify(42) }]),
-};
-const r2 = await rest.call(raw);
-const c3 = r2.data ? (JSON.parse(r2.data) as Customer) : null; // data ist JSON-String bei call()
+  // --- WebSocket: derselbe Aufruf über den persistenten Kanal -----------------
+  // baseUrl + Default-wsPath "tramews" -> wss://localhost:5001/tramews.
+  const ws = new TrameWebSocketClient("https://localhost:5001");
+  await ws.connect();
+  try {
+    const c2 = await ws.callJson<Customer>(
+      TrameCall.init("Customer", "GetCustomerById").with({ id: newId }).toRequest(),
+    );
+    console.log(`  [WebSocket] GetCustomerById(${newId}) -> ${c2?.name} <${c2?.email}>`);
+  } finally {
+    ws.close();
+  }
+
+  // --- Raw-Form (ohne Fluent Builder) — gelegentlich nützlich -----------------
+  // stringData = JSON.stringify(TrameParameter[]); data ist der JSON-token des
+  // Werts. GetAllCustomers hat keine Parameter -> leeres Array.
+  const rawList = await rest.callJson<Customer[]>({
+    controller: "Customer",
+    method: "GetAllCustomers",
+    id: "Customer.GetAllCustomers",
+    stringData: "[]",
+  });
+  console.log(`  [REST raw] GetAllCustomers -> ${rawList?.length ?? 0} Kunde(n)`);
+}

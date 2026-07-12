@@ -5,38 +5,55 @@
 // per Task.WhenAll concurrently aus (ExecutionMode.Parallel). Ideal, um Latenz
 // zu amortisieren, wenn Calls einander nicht brauchen.
 //
-// Wichtig: Parallel löst KEINE @alias-Abhängigkeiten auf — dafür Serial oder
-// Dependency-Chaining siehe 03/04.
+// Wichtig: Parallel löst KEINE @alias-Abhängigkeiten auf — dafür siehe 03/04.
 // ==============================================================================
 
+using System.Text.Json;
 using TrameClient.Trame;
 using TrameCommon.Models;
 
-using var client = new TrameRestJsonClient("https://localhost:5001");
+namespace Trame.Samples.CSharp;
 
-var multi = new TrameMultiRequest
+public static class BatchParallelScenario
 {
-    Mode = ExecutionMode.Parallel,        // Task.WhenAll über alle Requests
-    Requests = new List<TrameRequest>
+    public static async Task RunAsync(TrameRestJsonClient rest, TextWriter w)
     {
-        // .Named(id) setzt die Korrelations-Id — wichtig, um Responses zuzuordnen
-        // (insbesondere bei WebSocket/SignalR, wo Batch-Responses an requests[0].id
-        // korrelieren — eindeutige Ids verhindern Kollisionen bei konkurrierenden Batches).
-        TrameCall.Init("Customer", "GetAllCustomers").Named("all").ToRequest(),
-        TrameCall.Init("Customer", "GetCustomerById").With(1).Named("c1").ToRequest(),
-        TrameCall.Init("Customer", "GetCustomerById").With(2).Named("c2").ToRequest(),
-    },
-};
+        // Erst einen Kunden garantieren, damit GetCustomerById Treffer hat.
+        await rest.Call<int>(TrameCall.Init("Customer", "AddCustomer")
+            .Param("name", "Bob")
+            .Param("email", "bob@x.com")
+            .ToRequest());
 
-// Call(TrameMultiRequest) liefert die Responses in Request-Reihenfolge.
-var responses = (await client.Call(multi))!.ToList();
+        var multi = new TrameMultiRequest
+        {
+            Mode = ExecutionMode.Parallel,        // Task.WhenAll über alle Requests
+            Requests = new List<TrameRequest>
+            {
+                // .Named(id) setzt die Korrelations-Id — wichtig, um Responses
+                // zuzuordnen (insbesondere bei WebSocket, wo Batch-Responses an
+                // requests[0].id korrelieren — eindeutige Ids verhindern Kollisionen).
+                TrameCall.Init("Customer", "GetAllCustomers").Named("all").ToRequest(),
+                TrameCall.Init("Customer", "GetCustomerById").With(1).Named("c1").ToRequest(),
+                TrameCall.Init("Customer", "GetCustomerById").With(2).Named("c2").ToRequest(),
+            },
+        };
 
-var all = responses[0];   // GetAllCustomers → IReadOnlyList<Customer>
-var c1   = responses[1];  // GetCustomerById(1)
-var c2   = responses[2];  // GetCustomerById(2)
+        // Call(TrameMultiRequest) liefert die Responses in Request-Reihenfolge.
+        var responses = (await rest.Call(multi))!.ToList();
 
-// Hinweis: bei Call(TrameMultiRequest) bleiben die Ergebnisse als TrameResponse
-// (mit .Data als JsonElement). Wer Typsicherheit pro Response will, parst
-// individuell, z. B.:
-//   var list = all.Data?.Deserialize<List<Customer>>();
-// Für einheitlich typisierte Results gibt es (noch) keine generische Batch-Überladung.
+        var all = responses[0];   // GetAllCustomers → IReadOnlyList<Customer>
+        var c1   = responses[1];  // GetCustomerById(1)
+        var c2   = responses[2];  // GetCustomerById(2)
+
+        // Bei Call(TrameMultiRequest) bleiben die Ergebnisse als TrameResponse (mit
+        // .Data als JsonElement). Wer Typsicherheit pro Response will, deserialisiert
+        // individuell (Single-Pass, kein doppeltes JSON.parse):
+        var list = all.Data?.Deserialize<List<Customer>>(SampleJson.Default);
+        var cust1 = c1.Data?.Deserialize<Customer>(SampleJson.Default);
+        var cust2 = c2.Data?.Deserialize<Customer>(SampleJson.Default);
+
+        await w.WriteLineAsync($"  [all]    GetAllCustomers -> {list?.Count ?? 0} Kunde(n)");
+        await w.WriteLineAsync($"  [c1]     GetCustomerById(1) -> {cust1?.Name ?? "<fehl>"} (code {c1.Code})");
+        await w.WriteLineAsync($"  [c2]     GetCustomerById(2) -> {cust2?.Name ?? "<fehl>"} (code {c2.Code})");
+    }
+}

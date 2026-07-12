@@ -1,54 +1,69 @@
 // ==============================================================================
 // 01 — Single Call (C#-Client)
 // ==============================================================================
-// Ein einzelner RPC-Aufruf. Gezeigt für alle drei Transporte (REST, WebSocket,
-// SignalR) — wähle je nach Anforderung. WebSocket ist der empfohlene primäre
-// Kanal (persistent, geringe Latenz); REST ist zustandslos und am einfachsten;
-// SignalR bietet MessagePack-Binary + Auto-Reconnect.
+// Ein einzelner RPC-Aufruf. Gezeigt für REST und WebSocket — wähle je nach
+// Anforderung. WebSocket ist der empfohlene primäre Kanal (persistent, geringe
+// Latenz); REST ist zustandslos und am einfachsten.
 // ==============================================================================
 
+using System.Text.Json;
 using TrameClient.Trame;
 using TrameCommon.Models;
 
-// --- REST (zustandslos, IDisposable) ------------------------------------------
-using var rest = new TrameRestJsonClient("https://localhost:5001");
+namespace Trame.Samples.CSharp;
 
-// Fluent Builder: verkettet Controller/Method/Parameter zu einem TrameRequest.
-var req = TrameCall.Init("Customer", "GetCustomerById")
-    .Param("id", 42)                 // named parameter — server bindet nach Name
-    .ToRequest();
-
-// Call<T> deserialisiert das Ergebnis direkt in T (Single-Pass). Bei Nicht-2xx
-// wirft es TrameException (Code + Message).
-Customer? customer = await rest.Call<Customer>(req);
-
-// --- WebSocket (persistent, primärer Kanal) -----------------------------------
-// IAsyncDisposable. ConnectAsync() explizit — oder lazy beim ersten Call.
-await using var ws = new TrameWebSocketClient("wss://localhost:5001/tramews");
-await ws.ConnectAsync();
-
-// With(params object?[]) = positionsbasiert (Namen param0, param1, …). Server
-// bindet positional, wenn der Name nicht passt — für Ein-Parameter-Methoden ok.
-var req2 = TrameCall.Init("Customer", "GetCustomerById")
-    .With(42)
-    .ToRequest();
-
-Customer? customer2 = await ws.Call<Customer>(req2);
-
-// --- SignalR (Binary via MessagePack, Auto-Reconnect) -------------------------
-// useMessagePack=true = kompakter Wire-Format. Bearer optional.
-await using var signalr = new TrameSignalrClient("https://localhost:5001", useMessagePack: true);
-Customer? customer3 = await signalr.Call<Customer>(req);
-
-// --- Raw-Form (ohne Fluent Builder) ------------------------------------------
-// Gelegentlich nützlich, wenn man Requests dynamisch zusammenbaut.
-var raw = new TrameRequest
+public static class SingleCallScenario
 {
-    Controller = "Customer",
-    Method = "GetCustomerById",
-    Id = "Customer.GetCustomerById",
-    // StringData = JSON-serialisiertes TrameParameter[]; Data ist jeweils der
-    // JSON-token des Werts (Zahl 42 → "42", String "A" → "\"A\"").
-    StringData = "[{\"Num\":0,\"ParameterName\":\"id\",\"Data\":\"42\"}]",
-};
-Customer? customer4 = await rest.Call<Customer>(raw);
+    public static async Task RunAsync(TrameRestJsonClient rest, TextWriter w)
+    {
+        // --- REST: Kunden anlegen (skalarer int kommt zurück) ----------------------
+        var addReq = TrameCall.Init("Customer", "AddCustomer")
+            .Param("name", "Alice")          // named parameter — server bindet nach Name
+            .Param("email", "alice@x.com")
+            .ToRequest();
+
+        int newId = await rest.Call<int>(addReq);
+        await w.WriteLineAsync($"  [REST]    AddCustomer  -> neue Id = {newId}");
+
+        // --- REST: Kunden laden (Call<T> deserialisiert direkt nach Customer) ------
+        var getReq = TrameCall.Init("Customer", "GetCustomerById")
+            .Param("id", newId)
+            .ToRequest();
+
+        Customer? customer = await rest.Call<Customer>(getReq);
+        await w.WriteLineAsync($"  [REST]    GetCustomerById({newId}) -> {customer?.Name} <{customer?.Email}>");
+
+        // --- REST: alle Kunden (Liste) ---------------------------------------------
+        var allReq = TrameCall.Init("Customer", "GetAllCustomers").ToRequest();
+        var all = await rest.Call<List<Customer>>(allReq);
+        await w.WriteLineAsync($"  [REST]    GetAllCustomers -> {all?.Count ?? 0} Kunde(n)");
+
+        // --- WebSocket: derselbe Aufruf über den persistenten Kanal ----------------
+        // IAsyncDisposable. Der C#-WS-Client nimmt die Basis-URL (https://…) + einen
+        // separaten wsPath (Default "tramews") und hebt intern auf wss://…/tramews ab.
+        await using var ws = new TrameWebSocketClient("https://localhost:5001");
+        await ws.ConnectAsync();
+
+        // With(params object?[]) = positionsbasiert (Namen param0, param1, …). Der
+        // Server bindet positional, wenn der Name nicht passt — für Ein-Parameter-
+        // Methoden ok.
+        var wsReq = TrameCall.Init("Customer", "GetCustomerById")
+            .With(newId)
+            .ToRequest();
+
+        Customer? customer2 = await ws.Call<Customer>(wsReq);
+        await w.WriteLineAsync($"  [WebSocket] GetCustomerById({newId}) -> {customer2?.Name} <{customer2?.Email}>");
+
+        // --- Raw-Form (ohne Fluent Builder) — gelegentlich nützlich ----------------
+        // StringData = JSON-serialisiertes TrameParameter[]; Data ist jeweils der
+        // JSON-token des Werts (Zahl 42 → "42", String "A" → "\"A\"").
+        var raw = new TrameRequest
+        {
+            Controller = "Customer",
+            Method = "GetAllCustomers",
+            Id = "Customer.GetAllCustomers",
+        };
+        var rawList = await rest.Call<List<Customer>>(raw);
+        await w.WriteLineAsync($"  [REST raw] GetAllCustomers -> {rawList?.Count ?? 0} Kunde(n)");
+    }
+}

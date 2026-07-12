@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Nicht Teil der Solution/eines Release-Builds — reiner Sample-Drop-in. -->
+    <IsPackable>false</IsPackable>
+    <!-- Einzigartige Assembly/Root-Namespace, damit die Controller dieses
+         Samples nicht mit denen des root Trame-Demo-Apps kollidieren. -->
+    <RootNamespace>Trame.Samples.Server</RootNamespace>
+    <AssemblyName>Trame.SampleServer</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Trame.Server zieht transitiv alle Transporte (REST, WebSocket, SignalR)
+       + Developer-UI + Core/Common. Ein Paket genügt. -->
+  <ItemGroup>
+    <PackageReference Include="Trame.Server" Version="1.0.0" />
+  </ItemGroup>
+
+</Project>
