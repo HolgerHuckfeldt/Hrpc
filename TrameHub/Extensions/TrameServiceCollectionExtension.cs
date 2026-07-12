@@ -4,6 +4,7 @@ using TrameCore.Attributes;
 using TrameCore.Services;
 using MessagePack;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Linq;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading.RateLimiting;
@@ -116,6 +117,9 @@ namespace TrameHub.Extensions
                 // Kardinalitäts-Caps durchreichen (Default 1000/10000, 0 = unbegrenzt).
                 invoker.MaxParameterArrayLength = options.MaxParameterArrayLength;
                 invoker.MaxResultElementCount = options.MaxResultElementCount;
+                // Alias-Binding-Modus durchreichen (Default Weak; Strict = Fragment muss
+                // den Consumer-Typ vollständig decken, sonst 400 — siehe DEPENDENCY_BINDING.md).
+                invoker.AliasBindingMode = options.AliasBindingMode;
                 return invoker;
             });
 
@@ -123,11 +127,15 @@ namespace TrameHub.Extensions
             services.AddSingleton<TrameCore.Services.ITrameInterceptor, TrameCore.Services.TrameLoggingInterceptor>();
 
             // Register Fast-Controller as Scoped.
+            // AutoDiscover=false-Controller bleiben dem Bulk-Scan bewusst fern — sie
+            // werden nur auf explizite Registrierung (Builder/Add<T> oder Register<T>) hin DI-registriert.
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 foreach (Type type in assembly.GetTypes())
                 {
-                    if (type.GetCustomAttributes(typeof(TrameControllerAttribute), true).Length > 0)
+                    var attr = type.GetCustomAttributes(typeof(TrameControllerAttribute), true)
+                        .OfType<TrameControllerAttribute>().FirstOrDefault();
+                    if (attr != null && attr.AutoDiscover)
                     {
                         services.AddScoped(type);
                     }
@@ -156,12 +164,16 @@ namespace TrameHub.Extensions
                 return app;
             }
 
-            // Fallback: register all auto-discovered [TrameController] types
+            // Fallback: register all auto-discovered [TrameController] types.
+            // AutoDiscover=false-Controller (z. B. bewusst invalide Test-Fixtures)
+            // werden hier übersprungen — sie registriert man nur explizit.
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 foreach (Type type in assembly.GetTypes())
                 {
-                    if (type.GetCustomAttributes(typeof(TrameControllerAttribute), true).Length > 0)
+                    var attr = type.GetCustomAttributes(typeof(TrameControllerAttribute), true)
+                        .OfType<TrameControllerAttribute>().FirstOrDefault();
+                    if (attr != null && attr.AutoDiscover)
                     {
                         trameService.Register(type);
                     }

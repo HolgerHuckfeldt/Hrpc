@@ -232,6 +232,117 @@ public class DependencyChainController
 
     [TrameMethod("EchoDict")]
     public Dictionary<string, int> EchoDict(Dictionary<string, int> map) => map;
+
+    // --- Alias-Binding-Matrix (Provider→Consumer per @alias) ---------------------
+    // Diese Methoden treiben die AliasBindingTests: sie stellen die Producer- und
+    // Consumer-Enden für die vier Runtime-Ergebnisse (kompatibel, cross-kind 400,
+    // object→object-Duck-Typing, unresolved) sowie das Subset-Fan-out-Muster.
+
+    /// <summary>Nackter Skalar-Consumer (int) — ganzes Objekt als @alias → cross-kind 400.</summary>
+    [TrameMethod("EchoInt")]
+    public int EchoInt(int value) => value;
+
+    /// <summary>Producer eines schmalen Nur-Id-Objekts (für missing-Property-Fälle).</summary>
+    [TrameMethod("MakeIdOnly")]
+    public IdOnlyDto MakeIdOnly(int id) => new() { Id = id };
+
+    /// <summary>Producer eines Objekts, dessen Id ein String ist (für Kind-Mismatch auf Überlappung).</summary>
+    [TrameMethod("MakeStringIdDto")]
+    public StringIdDto MakeStringIdDto(string id) => new() { Id = id };
+
+    /// <summary>Consumer: Nur-Id-DTO — duck-typet Id aus einem breiteren Provider-Objekt.</summary>
+    [TrameMethod("TakeIdOnly")]
+    public int TakeIdOnly(IdOnlyDto d) => d.Id;
+
+    /// <summary>Consumer: Nur-Name-DTO — duck-typet Name aus einem breiteren Provider-Objekt.</summary>
+    [TrameMethod("TakeNameOnly")]
+    public string TakeNameOnly(NameOnlyDto d) => d.Name;
+
+    /// <summary>Consumer: Id+Active-DTO — beobachtbar für silent-default (Active=false bei Fehlen).</summary>
+    [TrameMethod("TakeIdActive")]
+    public string TakeIdActive(IdActiveDto d) => $"{d.Id}/{d.Active}";
+
+    /// <summary>Consumer: ganzes TestDto als String beschrieben — macht null bei fehlendem Name sichtbar.</summary>
+    [TrameMethod("DescribeDto")]
+    public string DescribeDto(TestDto d) => $"{d.Id}/{d.Name}";
+
+    // --- Paranoid-Binding: verschachtelte Objekte + Array-Elemente -----------------
+    // Diese Methoden treiben die AliasBindingParanoidTests: sie stellen die verschachtelten
+    // Consumer-Enden für die rekursive Tiefe (Strict ist flach) und die Array-Element-Deckung.
+
+    /// <summary>Producer eines vollständigen OrderDto (Id + Address{Street,Zip}).</summary>
+    [TrameMethod("MakeOrder")]
+    public OrderDto MakeOrder(int id, string street, int zip) => new()
+    {
+        Id = id,
+        Address = new() { Street = street, Zip = zip }
+    };
+
+    /// <summary>Producer eines OrderDto ohne verschachteltes Zip (Dictionary → JSON ohne
+    /// zip-Schlüssel). Dient dem Alias-Pfad-Test: Paranoid muß das fehlende verschachtelte
+    /// Zip erkennen, Strict (flach) nicht.</summary>
+    [TrameMethod("MakeOrderNoZip")]
+    public Dictionary<string, object> MakeOrderNoZip(int id, string street) => new()
+    {
+        ["id"] = id,
+        ["address"] = new Dictionary<string, object> { ["street"] = street }
+    };
+
+    /// <summary>Consumer: ganzes OrderDto als String — macht fehlendes verschachteltes Zip
+    /// als 0 sichtbar (Werttyp, heimtückisch). Paranoid lehnt ab; Strict läßt es durch.</summary>
+    [TrameMethod("TakeOrder")]
+    public string TakeOrder(OrderDto o) => $"{o.Id}/{o.Address.Street}/{o.Address.Zip}";
+
+    /// <summary>Consumer: List&lt;OrderDto&gt; — Paranoid steigt in jedes Element ab und
+    /// deckt dessen verschachtelte Eigenschaften; Strict ignoriert Array-Elemente.</summary>
+    [TrameMethod("TakeOrderList")]
+    public int TakeOrderList(List<OrderDto> list) => list.Count;
+}
+
+/// <summary>Schmales Nur-Id-DTO — Own-Assembly (Weg-C-Inferenz expandiert es). Consumer-Shape
+///  für das Subset-Fan-out (Provider TestDto{Id,Name} → IdOnly{Id}, Name fällt weg).</summary>
+public class IdOnlyDto
+{
+    public int Id { get; set; }
+}
+
+/// <summary>Schmales Nur-Name-DTO — Consumer-Shape für Subset-Fan-out (Name übernommen, Id fällt weg).</summary>
+public class NameOnlyDto
+{
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Id+Active-DTO — beobachtet den heimtückischen Fall: fehlendes Active (Werttyp)
+///  wird zur Laufzeit still auf false gesetzt, kein 400.</summary>
+public class IdActiveDto
+{
+    public int Id { get; set; }
+    public bool Active { get; set; }
+}
+
+/// <summary>DTO mit String-Id — Provider-Shape für Kind-Mismatch auf einer überlappenden
+///  Eigenschaft (Provider Id:string → Consumer Id:int → 400).</summary>
+public class StringIdDto
+{
+    public string Id { get; set; } = string.Empty;
+}
+
+/// <summary>Verschachteltes OrderDto für die Paranoid-Tiefenprüfung: Address ist ein
+///  coverable Object mit eigener deckungspflichtigen Eigenschaft Zip (Werttyp). Ein
+///  Fragment, das Address liefert aber ohne Zip, bindet in Weak/Strict still (Zip=0),
+///  wird in Paranoid rekursiv abgelehnt.</summary>
+public class OrderDto
+{
+    public int Id { get; set; }
+    public AddressDto Address { get; set; } = new();
+}
+
+/// <summary>Adresse mit Street (Referenz) und Zip (Werttyp) — Zip ist der heimtückische
+///  verschachtelte Fall: fehlt es, wird es still auf 0 gesetzt.</summary>
+public class AddressDto
+{
+    public string Street { get; set; } = string.Empty;
+    public int Zip { get; set; }
 }
 
 /// <summary>Enum für den Enum-Roundtrip durch eine Chain (default-Serialisierung als Zahl).</summary>

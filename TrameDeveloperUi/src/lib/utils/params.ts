@@ -63,7 +63,7 @@ export function isListReturnType(returnType: string | undefined | null): boolean
   if (!returnType) return false;
   const t = returnType.trim();
   return (
-    /^(List|IList|IReadOnlyList|IReadOnlyCollection|ICollection|IEnumerable|Collection|HashSet|ISet)</.test(t) ||
+    /^(List|IList|IReadOnlyList|IReadOnlyCollection|ICollection|IEnumerable|IAsyncEnumerable|Collection|HashSet|ISet)</.test(t) ||
     t.endsWith('[]')
   );
 }

@@ -35,8 +35,8 @@ Single method invocation.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `controller` | string | ✅ | Target controller name. A dotted namespace is allowed (e.g. `Customer.Address.Contact`) to express arbitrarily deep hierarchies — there is no fixed two-level limit. |
-| `method` | string | ✅ | Target method name |
+| `controller` | string | ✅ | Target controller name. A dotted namespace is allowed (e.g. `Customer.Address.Contact`) to express arbitrarily deep hierarchies — there is no fixed two-level limit. Controller names must be unique app-wide. |
+| `method` | string | ✅ | Target method name. Dispatch is **name-only** — the server resolves `{controller}_{method}` against registered handlers and does **not** consider the parameter set, so there is no signature-based overloading over the wire. Method names must be unique within a controller. Duplicate controller or method names throw `InvalidOperationException` at startup instead of silently shadowing. Model C# overloads with distinct names (`add`, `addAll`). |
 | `stringData` | string (JSON) | ✅ | JSON array of `TrameParameter` objects |
 | `id` | string | ✅ | Request identifier for correlation |
 | `dependencyMapping` | object\|null | ❌ | Map of alias → JsonPath for dependency chaining |
@@ -268,6 +268,130 @@ A subsequent request can **use** exposed values with `@alias` placeholders:
    re-encoded as JSON in `exposedDependencies` (so the type is preserved for the `@alias`
    substitution into the next request's parameters).
 
+### Alias Serialization & Type Binding
+
+> Full, dedicated specification: [`DEPENDENCY_BINDING.md`](DEPENDENCY_BINDING.md).
+> This section is the protocol-level summary; the binding pipeline, the four outcomes,
+> casing, and the subset fan-out pattern are specified precisely there, and codified by
+> [`TrameTests/Unit/Core/AliasBindingTests.cs`](TrameTests/Unit/Core/AliasBindingTests.cs).
+
+`@alias` resolution is a two-step JSON pipeline; the consuming parameter's declared
+CLR type is enforced at the second step by `System.Text.Json`:
+
+1. **Extract.** For each `dependencyMapping` entry, `DependencyResolver.ExtractValue`
+   evaluates the JsonPath against the prior response's structured `data` (see
+   *Casing Contract* below). The match count determines the shape:
+   - **0 matches** → `null` (the alias is left unset).
+   - **1 match** → the matched node as-is — a scalar, or, if the match itself is an
+     array/object, that array/object (exposing `$` over a list returns the whole list).
+   - **>1 matches** (`$[*].x`, `$..x`) → a JSON **array** of all matches.
+   The extracted value is re-encoded as a JSON string in `exposedDependencies`
+   (`alias → extracted.ToJsonString()`), preserving its type for the next step.
+
+2. **Inject.** In the consuming request, `@alias` placeholders inside `stringData`
+   are replaced by that JSON string. The replacement is a **JSON string node whose
+   content is the JSON text**, so the `TrameParameter.data` field carries the JSON
+   encoding of the extracted value (e.g. `42`, `"alice"`, `[1,2,3]`, `{...}`).
+
+3. **Bind.** `BuildParameters` deserializes each `data` field into the method's
+   declared parameter type via `JsonSerializer.Deserialize(data, parameterType,
+   options)` — the same options used for the rest of the protocol
+   (`PropertyNameCaseInsensitive = true`, `PropertyNamingPolicy = CamelCase`, **no**
+   `JsonNumberHandling.AllowReadingFromString`). The outcome falls into one of four
+   cases:
+
+   | Situation | Server result |
+   |---|---|
+   | **Cross-kind mismatch** — a JSON number into a `string` parameter, a JSON string into an `int`, a bool into a number, an object into a scalar, an array into a scalar | `400` — `Parameter 'X' cannot be converted to type 'Y'.` `System.Text.Json` throws; the invoker catches and returns `BadRequest`. Because `AllowReadingFromString` is off, `"42"`→`int` and `42`→`string` are **both** rejected — no string/number coercion. |
+   | **Unresolved alias** — the JsonPath matched 0 nodes, or no prior request exposed that alias | `400` — `Unresolved dependencies: alias.` |
+   | **`null` extraction** | Reference type / `Nullable<T>` → `null` (no error). Non-nullable value type (`int`, `bool`, `DateTime`, …) → `400` (cannot convert null). |
+   | **object → object (duck-typing)** | **No error.** `System.Text.Json` maps properties that match by name (case-insensitively), **ignores extra properties**, and **defaults missing properties silently** — a missing `int` becomes `0`, a missing `bool` becomes `false`, a missing reference becomes `null`. This is the one binding failure the server does *not* raise: a structurally narrower provider object binds without a `400` and yields default-filled fields. The DevUI dependency-builder flags it statically (see below). |
+
+   Accepted silently (no error, genuine conversion): widening within a numeric kind
+   when the value fits (`42`→`long`/`double`/`decimal`), and parseable string
+   conversions (`"…"`→`Guid`/`DateTime`/`Uri`/`TimeSpan` when the format parses).
+   Rejected: narrowing/lossy conversions (`3.5`→`int`, overflow, a mismatched string
+   format).
+
+   These binding failures are **returned `TrameResponse`s** (`TrameResults.BadRequest`),
+   not thrown exceptions — so the message reaches the client verbatim and is **not**
+   gated by `EnableDetailedErrors`.
+
+   **Subset fan-out (intentional).** The object→object silent-drop direction is a
+   feature, not only a hazard: expose one whole object once (`$` → `@customer`) and
+   feed the *same* `@customer` into several consumers whose parameter types are each
+   shaped to receive only the fields they need — `CustomerId { int Id; }`, `CustomerName
+   { string Name; }`, full `Customer`. Each consumer duck-types the overlap; the rest
+   drop. The binding rule that makes this work: each consumer **parameter must be an
+   object type** (a class declaring the wanted property the same way the provider
+   does). A **bare scalar** parameter (`int id`, `string name`) receiving the whole
+   `{…}` object is the cross-kind row above → `400`, not a silent drop; for bare
+   scalars expose per field (`$.id`, `$.name`) as separate aliases.
+
+   **Binding modes (optional).** `TrameOptions.AliasBindingMode` (`Weak` default | `Strict` | `Paranoid`)
+   controls how strictly the object→object silent-default row is enforced. Each mode is a
+   superset of the previous in strictness:
+
+   - **Weak** — duck-typed; a missing property is silently defaulted (value types → `0`/`false`,
+     reference types → `null`) → `2xx`.
+   - **Strict** — each `@alias`-sourced parameter must be **fully covered** at the top level:
+     every public read-write property the consumer type declares must be present in the fragment
+     JSON (matched case-insensitively). A missing property → `400` *Strict alias binding:
+     parameter 'P' (Type) requires property 'X, which is absent from the '@alias' fragment.*
+     Literals are not re-checked; nested objects are not descended into.
+   - **Paranoid** — Strict plus two extensions: it checks **all** parameters (including literals
+     the caller sent) and checks **recursively**, descending into nested object properties and
+     array elements. A missing property at *any* depth, in *any* parameter → `400` *Paranoid
+     binding: parameter 'P' (Type) is not fully covered by its fragment. Missing: 'P.X',
+     'P.Address.Zip', …* This is server-side input validation against the declared contract.
+
+   The safe subset direction (consumer ⊆ fragment, the fan-out above) binds in all three modes;
+   only the dangerous reverse (consumer ⊋ fragment) is rejected. Cross-kind is `400` in all
+   modes; widening (`int`→`long`) is accepted in all modes. Full specification:
+   [`DEPENDENCY_BINDING.md`](DEPENDENCY_BINDING.md#7-binding-modes--weak-strict-paranoid).
+
+> **DevUI static check.** The Developer UI's dependency builder runs the same
+> schema walk client-side and reports inconsistencies *before* you execute:
+> cross-kind mismatches and unresolved/camelCase-wrong paths surface as errors;
+> opaque return types and structurally narrower object bindings (missing value-type
+> properties → silent default) surface as warnings. It is advisory — *Send anyway*
+> stays available, because the runtime shape can differ from the static schema
+> (polymorphism, dynamic types). See [README_DETAILS.md](README_DETAILS.md).
+
+### Casing Contract
+
+.NET and JavaScript disagree on casing, and `System.Text.Json` and `JsonPath.Net`
+disagree on case sensitivity. Trame bridges them with **three distinct regimes** —
+knowing which one applies where is the difference between a working chain and a
+mysterious `400`:
+
+| Where | Sensitivity | Rule |
+|---|---|---|
+| **Parameter *name* binding** (`stringData[].parameterName` → C# parameter) | **Case-sensitive** (`StringComparer.Ordinal`) | The client must send the parameter name exactly as declared in C# (PascalCase by .NET convention). `parameterName: "id"` does **not** bind to a C# parameter `Id`. |
+| **Parameter *value* properties** (the JSON inside `data` → contract type) | **Case-insensitive** (`PropertyNameCaseInsensitive = true`) | The server accepts `{"Id":…}`, `{"id":…}`, `{"ID":…}` alike. It **writes** camelCase (`PropertyNamingPolicy = CamelCase`): a C# `Id` is serialized as `id` on the wire. |
+| **JsonPath extraction** (`dependencyMapping` paths over results) | **Case-sensitive** (JsonPath.Net, RFC 9535) | The path must match the server's **camelCase** output. `$.name` matches; `$.Name` matches nothing → *Unresolved*. |
+
+Consequences for cross-language use:
+
+- **JavaScript reading C# values — effortless.** The server normalizes to camelCase
+  on the wire, so JS sees `id`, `name`, … and JS property access (case-sensitive)
+  matches. The C# PascalCase naming never reaches JS.
+- **C# reading JavaScript values — lenient.** The server deserializes
+  case-insensitively, so a JS client that accidentally sends PascalCase (`{"Id":…}`)
+  still binds; a JS client that sends camelCase (the natural form) also binds.
+- **The one strict spot — the JsonPath expression.** Because the result is on the
+  wire as camelCase and JsonPath.Net is case-sensitive, the *path* itself must be
+  camelCase: `$[0].id`, not `$[0].Id`. This is the asymmetry to remember: every
+  other boundary is either case-insensitive on read or normalized on write, but the
+  path expression is neither. The DevUI suggests camelCase paths and flags
+  PascalCase ones.
+
+"Case-insensitive everywhere" is **not achievable**: JS property access is
+case-sensitive by language semantics, and JsonPath paths are case-sensitive by spec
+— neither is a Trame decision. The server already reads case-insensitively, so the
+only residual strictness is forced by the toolchain, and the DevUI's camelCase
+suggestions + static checks make it visible before execution.
+
 ### Limits
 
 `@alias` chaining injects **one value per alias — scalar or array — but never expands
@@ -293,8 +417,9 @@ into multiple requests**. These are intentional design boundaries, not bugs:
    (`int[]`, `List<T>`). Equivalent to the multi-match array, just sourced from one
    match that is already an array.
 4. **Case sensitivity.** Paths are evaluated case-sensitively against the server's
-   camelCase output. Use `$[0].id`, not `$[0].Id`. (The DevUI exposes datalist suggests
-   the correct camelCase form.)
+   camelCase output. Use `$[0].id`, not `$[0].Id`. This is one of three casing
+   regimes — see [Casing Contract](#casing-contract) for the full picture. (The DevUI
+   exposes datalist suggests the correct camelCase form.)
 5. **Recommended pattern for "load all by id".** Combine the multi-match fan-out with a
    batch-get endpoint: `Search` exposes `$[*].id` as `ids`, `GetByIds(int[] ids)`
    consumes `@ids` — one roundtrip, one response, cardinality assembled server-side from

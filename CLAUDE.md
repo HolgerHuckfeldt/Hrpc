@@ -84,7 +84,7 @@ All transports deserialize the incoming `TrameRequest`/`TrameMultiRequest` and d
 
 ### Key Attributes (defined in `TrameCommon`)
 
-- `[TrameController("name")]` — marks a class as an RPC controller
+- `[TrameController("name")]` — marks a class as an RPC controller. Optional `AutoDiscover = false` (default `true`) excludes it from the bulk auto-discovery scans in `AddTrame`/`UseTrame`/`FromAssemblies`; it must then be registered explicitly via `Register<T>()` or `TrameControllerBuilder.Add<T>()`. Controller names must be unique (see Name Uniqueness below).
 - `[TrameMethod("name")]` — marks a method as remotely callable
 - `[TrameAuthorise]` — requires authentication (optional role parameter)
 - `[TrameDataContract]` — optional discovery override: bare = force-expand a type (e.g. a third-party type you want documented); `Exclude = true` = force-opaque. By default, discovery infers contract types from method signatures via the controller-assembly boundary.
@@ -108,6 +108,10 @@ Controllers signal non-success two ways — use the right one:
 
 Request A declares `DependencyMapping: { "alias" → "$.Path" }` (a **result-relative** JsonPath — `$` is the whole serialized result, e.g. `$`, `$.Id`, `$[0].Id`; there is no `$.data` envelope level). After execution, values are extracted via `DependencyResolver.ExtractValue(result.Data, jsonPath)` (parsed against the result JSON) and stored in `ExposedDependencies`. `ExtractValue` is **match-count-aware**: a single-match path yields that match (scalar, or an array if the match itself is one); a multi-match path (`$[*].Id`, `$..Id`) collects all matches into a `JsonArray`, injected as one list-typed parameter (`List<T>`/`T[]`/`IEnumerable<T>`) — list fan-out into a *parameter*, never fan-out into N *requests*. Request B uses `@alias` as a parameter placeholder — the server resolves it before execution (`ResolveParameterValues` → `ReplaceDependencyByAlias`). Both the Serial (`ExecuteSequentially`) and the auto-detect topological-batch (`ExecuteInDependencyBatches`) paths resolve aliases against prior responses. This enables multiple dependent calls in a single roundtrip.
 
+**Binding & casing** (dedicated spec: `DEPENDENCY_BINDING.md`; executable spec: `TrameTests/Unit/Core/AliasBindingTests.cs`; protocol-level summary in `PROTOCOL.md` → "Alias Serialization & Type Binding" / "Casing Contract"; user-facing in `README_DETAILS.md` → "Dependency Chaining — Binding, Types & Casing"): the extracted fragment is fed straight into the consumer's `System.Text.Json` deserializer — never re-serialized through the consumer type — so the four runtime outcomes are: compatible → 2xx; cross-kind scalar (no `AllowReadingFromString`) → 400; object→object duck-typed (missing value-type prop → silent default, the insidious case; missing reference prop → `null`; kind mismatch on an overlapping prop → 400); unresolved → 400. Casing has three independent regimes: parameter **names** bind case-sensitively (ordinal dict), object **value** properties are read case-insensitively / written camelCase, **JsonPath** is case-sensitive against the camelCase wire document (so `$.Id` PascalCase matches nothing → `Unresolved`; use `$.id`). The DevUI dependency builder (`TrameDeveloperUi/src/lib/utils/dependencyCheck.ts`) is the one place with both schemas (provider return + consumer parameter from discovery) and statically reproduces these rules — expose-path/casing, cross-kind, object→object subset/missing/kind-mismatch, array/scalar cardinality — as non-blocking inline warnings + a summary box ("Send anyway" stays; runtime shape may differ from the static schema).
+
+**Binding modes** (`TrameOptions.AliasBindingMode`, `Weak` default | `Strict` | `Paranoid`, plumbed to `TrameInvoker.AliasBindingMode` like the cardinality caps): each is a superset of the previous in strictness. **Weak** = duck-typed, silent defaults. **Strict** = each `@alias`-sourced parameter must be fully covered at the **top level** — every public read-write property of the consumer type must be present in the fragment JSON (case-insensitive), else `400` "Strict alias binding: parameter 'P' (Type) requires property 'X'…"; literals are not re-checked, nested objects are not descended into. **Paranoid** = Strict plus (a) it checks **all** parameters including literals the caller sent, and (b) it checks **recursively**, descending into nested object properties and array elements (`GetCollectionElementType` for `List<T>`/`T[]`/`IEnumerable<T>`); a missing property at any depth, in any parameter → `400` "Paranoid binding: parameter 'P' (Type) is not fully covered by its fragment. Missing: 'P.X', 'P.Address.Zip', …". Strict is checked in `ResolveParameterValues` (Serial + topological-batch paths) via `StrictBindingCheck` using the consumer `ParameterInfo` from the route cache + the fragment `JsonNode` recorded during `@alias` substitution (`AliasReplacement`); Paranoid is checked in the same sites via `ParanoidBindingCheck` → `CollectMissing` (recursive) on the resolved parameter node (so it sees alias-replaced + literal params); cost-neutral in `Weak`. The safe subset direction (consumer ⊆ fragment, the fan-out) binds in all three modes; cross-kind is 400 in all modes; widening (`int`→`long`) is accepted in all modes. Tests: `TrameTests/Unit/Core/AliasBindingStrictTests.cs` + `TrameTests/Unit/Core/AliasBindingParanoidTests.cs`.
+
 ### Registration Flow
 
 `AddTrame(TrameOptions)` in `TrameHub`:
@@ -115,9 +119,17 @@ Request A declares `DependencyMapping: { "alias" → "$.Path" }` (a **result-rel
 2. Configures rate limiting (fixed-window, configurable)
 3. Registers `ITrameCore` as singleton (`TrameInvoker`)
 4. Registers `TrameLoggingInterceptor`
-5. Auto-discovers all `[TrameController]` types across assemblies and registers them as scoped services
+5. Auto-discovers all `[TrameController]` types across assemblies (skipping any with `AutoDiscover = false`) and registers them as scoped services
 
-`UseTrame()` resolves `ITrameCore` and triggers controller registration. `MapTrameEndpoints()` (in `TrameRest`) adds the REST endpoints.
+`UseTrame()` resolves `ITrameCore` and triggers controller registration (auto-discovery fallback, or `TrameControllerBuilder` if one was registered via the fluent `AddTrame(options, configureControllers)` overload). `MapTrameEndpoints()` (in `TrameRest`) adds the REST endpoints.
+
+### Name Uniqueness (Registration-Time Hard Fail)
+
+Trame dispatches by `"{Controller}_{Method}"` — purely name-based, **no parameter-based overload resolution**. `TrameInvoker.Register` therefore **throws `InvalidOperationException` at registration time** if:
+- two methods on the same controller share a `[TrameMethod]` name, or
+- two different controller types share a `[TrameController]` name.
+
+Re-registering the *same* controller type is idempotent (no throw). To model what C# calls overloads, give each method a distinct `[TrameMethod]` name (`add`, `addAll`, …). A controller can opt out of auto-discovery via `[TrameController("name", AutoDiscover = false)]` — it is then excluded from the bulk scans in `AddTrame`/`UseTrame`/`FromAssemblies` and must be registered explicitly via `Register<T>()` or `TrameControllerBuilder.Add<T>()`.
 
 ### Test Project (`TrameTests`)
 

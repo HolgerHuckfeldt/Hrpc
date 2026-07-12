@@ -45,5 +45,16 @@ namespace TrameHub.Extensions
         /// (Early-Stop beim Konsumieren). Top-Level-Result; string/byte[] ausgenommen.
         /// </summary>
         public int MaxResultElementCount { get; set; } = 10000;
+
+        /// <summary>
+        /// Wie ein extrahiertes @alias-Fragment an den Consumer-Parametertyp gebunden wird
+        /// (Default <see cref="TrameCommon.Models.AliasBindingMode.Weak"/>). Weak = STJ-
+        /// Duck-Typing mit stillen Defaults (mächtig; Subset-Fan-out funktioniert).
+        /// Strict = das Fragment muss den Consumer-Typ vollständig decken (jede public
+        /// read-write Eigenschaft muss im Fragment vorhanden sein), sonst 400 — schaltet
+        /// nur die object→object-silent-default-Zeile um; cross-kind ist in beiden Modi
+        /// 400. Greift nur @alias-sourced Parameter. Siehe DEPENDENCY_BINDING.md.
+        /// </summary>
+        public AliasBindingMode AliasBindingMode { get; set; } = AliasBindingMode.Weak;
     }
 }

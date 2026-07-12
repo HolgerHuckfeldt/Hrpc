@@ -1,5 +1,6 @@
 using FluentAssertions;
 using TrameCommon.Models;
+using TrameCore.Attributes;
 using TrameCore.Services;
 using TrameTests.Fixtures;
 using Microsoft.Extensions.DependencyInjection;
@@ -80,6 +81,74 @@ public class TrameInvokerTests
         // Assert: No controllers registered
         var discovery = invoker.GetDiscoveryInfo();
         discovery.Controllers.Should().BeEmpty();
+    }
+
+    // Gleichnamige Trame-Methoden auf demselben Controller sind verboten — Trame
+    // hat keine parameterbasierte Überladungsauflösung, der Dispatch-Key ist rein
+    // namensbasiert. Früher schluckte TryAdd das still (first-wins, nicht-
+    // deterministisch); jetzt wird zur Registrierungszeit hart geworfen.
+    [Fact]
+    public void Register_DuplicateMethodNameOnSameController_Throws()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var sp = services.BuildServiceProvider();
+        var invoker = new TrameInvoker(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<ILogger<TrameInvoker>>());
+
+        // Act
+        var act = () => invoker.Register<ControllerWithDuplicateMethodNames>();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*method names within a controller must be unique*");
+    }
+
+    // Zwei verschiedene Controllertypen mit demselben Trame-Controller-Namen
+    // kollidieren ebenfalls — sonst würde der zweite den ersten still schattieren.
+    [Fact]
+    public void Register_DuplicateControllerName_DifferentType_Throws()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var sp = services.BuildServiceProvider();
+        var invoker = new TrameInvoker(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<ILogger<TrameInvoker>>());
+        invoker.Register<ControllerNamedClashA>();
+
+        // Act
+        var act = () => invoker.Register<ControllerNamedClashB>();
+
+        // Assert
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Controller names must be unique*");
+    }
+
+    // Erneute Registrierung desselben Controllertyps bleibt idempotent — wichtig
+    // für Auto-Discovery (UseTrame) plus explizite Registrierung im selben Host.
+    [Fact]
+    public void Register_SameControllerTypeTwice_IsIdempotent()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var sp = services.BuildServiceProvider();
+        var invoker = new TrameInvoker(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<ILogger<TrameInvoker>>());
+
+        // Act: zweimal derselbe Typ — darf nicht werfen
+        invoker.Register<TestInvokerController>();
+        var act = () => invoker.Register<TestInvokerController>();
+
+        // Assert
+        act.Should().NotThrow();
+        var discovery = invoker.GetDiscoveryInfo();
+        discovery.Controllers.Should().Contain(c => c.Name == "TestInvoker");
     }
 
     #endregion
@@ -1481,4 +1550,46 @@ public class TrameInvokerTests
     }
 
     #endregion
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Kollisions-Fixtures für die Register-*-Tests unten.
+    //
+    // Diese Controller sind absichtlich invalid (gleichnamige Trame-Methoden bzw.
+    // gleichnamige Controller). Sie tragen AutoDiscover = false, damit der
+    // Auto-Discovery-Skan in UseTrame/AddTrame/FromAssemblies sie überspringt —
+    // sonst würde schon das Hochfahren des Integrationstest-Hosts an ihnen werfen.
+    // Explizit per Register<T>() sind sie trotzdem registrierbar, und genau das
+    // prüfen die Unit-Tests: die Registrierung muss hart fehlschlagen.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Controller mit zwei gleichnamigen Trame-Methoden (unterschiedliche C#-Signaturen).
+    /// Trame resolved keine Überladungen anhand der Parameter — der Doppelname ist
+    /// ein Bug, keine Feature, und muss bei der Registrierung werfen.
+    /// </summary>
+    [TrameController("DuplicateNames", AutoDiscover = false)]
+    private class ControllerWithDuplicateMethodNames
+    {
+        [TrameMethod("DoIt")]
+        public int DoIt(int a, int b) => a + b;
+
+        [TrameMethod("DoIt")]
+        public string DoIt(string s) => s;
+    }
+
+    /// <summary>Erster von zwei Controllern mit gleichem Trame-Namen.</summary>
+    [TrameController("Clash", AutoDiscover = false)]
+    private class ControllerNamedClashA
+    {
+        [TrameMethod("Ping")]
+        public string Ping() => "a";
+    }
+
+    /// <summary>Zweiter Controller, der denselben Trame-Namen wie ClashA belegt.</summary>
+    [TrameController("Clash", AutoDiscover = false)]
+    private class ControllerNamedClashB
+    {
+        [TrameMethod("Ping")]
+        public string Ping() => "b";
+    }
 }

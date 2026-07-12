@@ -6,18 +6,24 @@
 
   import { discoveryState } from '../../state/discovery.svelte.ts';
   import { jsonPathSuggestions } from '../../utils/params';
+  import { checkExpose, checkAliasBinding, type AliasProvider, type CheckIssue } from '../../utils/dependencyCheck';
   import type { DepStep, DepParam, DepExpose } from '../../state/tabs.svelte.ts';
 
   let {
     step,
     index,
     availableAliases = [],
+    aliasProviders = {},
     onremove,
     onchange,
   }: {
     step: DepStep;
     index: number;
     availableAliases?: string[];
+    /** alias → provider-Step (MethodMeta + JsonPath) aus *früheren* Schritten.
+     *  Wird im Parent pro Step-Index gebaut (slice(0, index)) — verbraucht nur
+     *  frühere Provider, konsistent mit availableAliases. */
+    aliasProviders?: Record<string, AliasProvider>;
     onremove?: () => void;
     onchange?: () => void;
   } = $props();
@@ -139,6 +145,22 @@
   function aliasUnavailable(p: DepParam): boolean {
     return p.useAlias && availableAliases.length === 0;
   }
+
+  // --- Typ-Konsistenz-Checks (statisch, gegen die Discovery-Schemas) ---------
+  // Siehe utils/dependencyCheck.ts: prüft Expose-Pfade gegen das Return-Schema und
+  // @alias-Bindungen gegen den provider-Expose. Liefert null, wenn kein Befund.
+
+  function exposeIssue(ex: DepExpose): CheckIssue | null {
+    if (!ex.alias || !ex.jsonPath) return null;
+    return checkExpose(index, step.id, methodMeta, ex.jsonPath, discoveryState.data);
+  }
+
+  function aliasIssue(p: DepParam): CheckIssue | null {
+    if (!p.useAlias || !p.aliasRef) return null;
+    const provider = aliasProviders[p.aliasRef];
+    if (!provider) return null; // strukturell schon gemeldet (alias ohne Provider)
+    return checkAliasBinding(index, step.id, provider.methodMeta, provider.jsonPath, p, discoveryState.data);
+  }
 </script>
 
 <div class="dep-step">
@@ -191,6 +213,7 @@
     <div class="param-block">
       <span class="block-label">Parameter</span>
       {#each step.params as p, pi (p.parameterName + pi)}
+        {@const aiss = aliasIssue(p)}
         <div class="param-row">
           <span class="param-name" title={p.parameterType}>{p.parameterName}</span>
           <span class="param-type">{p.parameterType}</span>
@@ -209,6 +232,8 @@
           {#if p.useAlias}
             <select
               class="alias-select"
+              class:error={aiss?.severity === 'error'}
+              class:warn={aiss?.severity === 'warn'}
               value={p.aliasRef ?? ''}
               onchange={(e) => onAliasRefChange(p, e)}
               disabled={availableAliases.length === 0}
@@ -251,6 +276,9 @@
             />
           {/if}
         </div>
+        {#if aiss}
+          <div class="inline-issue {aiss.severity}" title={aiss.where}>{aiss.message}</div>
+        {/if}
       {/each}
     </div>
   {:else if step.controller && step.method}
@@ -267,6 +295,7 @@
       <div class="empty-block thin">Keine Exposes — Ergebnis wird nicht für Folgeschritte weitergereicht.</div>
     {:else}
       {#each step.exposes as ex, ei (ei)}
+        {@const iss = exposeIssue(ex)}
         <div class="expose-row">
           <span class="at-sign">@</span>
           <input
@@ -279,6 +308,8 @@
           />
           <input
             class="jsonpath-input code"
+            class:error={iss?.severity === 'error'}
+            class:warn={iss?.severity === 'warn'}
             value={ex.jsonPath}
             oninput={(e) => onExposeJsonPathChange(ex, e)}
             spellcheck={false}
@@ -298,6 +329,9 @@
             </svg>
           </button>
         </div>
+        {#if iss}
+          <div class="inline-issue {iss.severity}" title={iss.where}>{iss.message}</div>
+        {/if}
       {/each}
     {/if}
   </div>
@@ -489,5 +523,40 @@
   .empty-block.thin {
     font-size: 0.75rem;
     color: var(--text-dim);
+  }
+
+  /* Typ-Check-Inline-Meldungen (nicht blockierend — „Send anyway" bleibt). */
+  .inline-issue {
+    font-size: 0.74rem;
+    line-height: 1.4;
+    padding: 3px 8px;
+    margin-top: 2px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+  }
+  .inline-issue.error {
+    color: var(--error);
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.35);
+  }
+  .inline-issue.warn {
+    color: var(--warning, #e0a800);
+    background: rgba(224, 168, 0, 0.1);
+    border: 1px solid rgba(224, 168, 0, 0.3);
+  }
+  .inline-issue.info {
+    color: var(--text-muted);
+    background: var(--bg-overlay);
+    border: 1px dashed var(--border);
+  }
+
+  /* Input-Hervorhebung bei Typ-Befund. */
+  .jsonpath-input.error,
+  .alias-select.error {
+    border-color: var(--error);
+  }
+  .jsonpath-input.warn,
+  .alias-select.warn {
+    border-color: var(--warning, #e0a800);
   }
 </style>

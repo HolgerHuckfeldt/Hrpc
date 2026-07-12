@@ -124,7 +124,18 @@ The same contract works over REST, WebSocket, and SignalR. Choose the transport.
 
 ## Safety
 
-Dependency chaining is resolved at runtime. If an exposed JSON fragment cannot be bound to the destination parameter, the request fails with a binding error.
+Dependency chaining is resolved at runtime: the server extracts a JSON fragment via the provider's JsonPath, injects it in place of the `@alias`, and binds it to the consumer's parameter with `System.Text.Json`. What happens on a shape mismatch is well-defined, not a generic crash:
+
+| Fragment → Parameter | Runtime behavior |
+|---|---|
+| Compatible | Binds normally → 2xx |
+| Cross-kind scalar (string→int, number→bool, …) | STJ throws → **400** (no silent coercion — `AllowReadingFromString` is off by design) |
+| Object → object, missing property | Duck-typed: overlapping props bind, extras ignored, **missing** props silently defaulted (value types → `0`/`false`, references → `null`) → 2xx |
+| Unresolved (path matched nothing / alias never exposed) | **400** `Unresolved` |
+
+The one silent case is **object→object, and it is directional**: provider `{Id, Name}` → consumer `{Id}` is safe (subset, nothing missing) — and **useful**: one whole-object alias (`$` → `@customer`) can feed several consumers whose parameter types each pick just the fields they need (`CustomerId { int Id; }`, `CustomerName { string Name; }`, …); the rest silently drop. The reverse — provider `{Id}` → consumer `{Id, Active}` — silently sets `Active` to `false` and succeeds with wrong data. This is inherent to JSON duck-typing; Trame has no runtime schema to enforce structural equality (your C# classes *are* the contract). The developer UI's dependency builder catches the dangerous direction **statically** where both schemas are known. For teams that want it loud at runtime too, three binding modes are available: **Weak** (default, duck-typed), **Strict** (top-level coverage of `@alias` params → 400 on missing), and **Paranoid** (full coverage of *all* parameters — including literals — recursively at every depth → 400 on any missing property anywhere). The safe subset fan-out binds in all three. Set via `TrameOptions.AliasBindingMode`. Full specification: [`DEPENDENCY_BINDING.md`](DEPENDENCY_BINDING.md).
+
+**Casing matters in one place:** JsonPath in `.Exposes(...)` runs against the camelCase wire document, so it must be camelCase (`$.customerId`, `$.items[*].id`); a PascalCase `$.Id` matches nothing → `Unresolved`. Parameter *names* bind case-sensitively; object *value* properties are read case-insensitively. Full contract: [PROTOCOL.md#casing-contract](PROTOCOL.md#casing-contract).
 
 To protect the server, Trame enforces **two configurable cardinality caps**, secure by default:
 
@@ -274,6 +285,7 @@ Trame v1 is intentionally focused. These are deliberate scope decisions, not bug
 - **No built-in API versioning** — encode version in the controller name (`Customer.v1`); source-generator enforcement planned for v1.1.
 - **REST streaming is materialized** — `IAsyncEnumerable<T>` is consumed server-side into a JSON array; use WebSocket/SignalR for streaming semantics.
 - **Attribute-based registration only** — controllers/methods via `[TrameController]`/`[TrameMethod]`; fluent registration is on the roadmap.
+- **No parameter-based overloading** — a call is addressed by `Controller.Method` only; the parameter set is **not** part of the dispatch key, so Trame does not resolve C# overloads by signature. Two `[TrameMethod]`s on the same controller, or two `[TrameController]`s app-wide, must have distinct names — otherwise `Register` throws `InvalidOperationException` at startup (no silent shadowing). Model overloads with distinct names (`add`, `addAll`). Opt a controller out of auto-discovery with `[TrameController("name", AutoDiscover = false)]`.
 - **Binary is base64 over REST and WebSocket** — only SignalR/MessagePack carries `byte[]` natively; WebSocket honors text frames only.
 - **Error details in development only** — `TrameError.details` is populated only with `EnableDetailedErrors` / Development.
 

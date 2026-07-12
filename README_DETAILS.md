@@ -241,6 +241,95 @@ The `/api/trame/discovery` endpoint returns full type metadata, enabling auto-ge
 
 > The wire format and a minimal hand-rolled example are documented in [PROTOCOL.md](PROTOCOL.md); for real use prefer the `clients/ts/` package.
 
+## Dependency Chaining — Binding, Types & Casing
+
+> This is the user-facing overview. The **dedicated, precise specification** of the
+> provider→consumer JSON mapping is [`DEPENDENCY_BINDING.md`](DEPENDENCY_BINDING.md),
+> and the executable spec is
+> [`TrameTests/Unit/Core/AliasBindingTests.cs`](TrameTests/Unit/Core/AliasBindingTests.cs).
+
+Dependency chaining exchanges **typed JSON fragments** between commands in one batch. A provider exposes a fragment via a result-relative JsonPath (`.Exposes("$..id", "orderId")`); a consumer references it as a placeholder (`.WithAlias("@orderId")`). The server resolves placeholders before the consumer runs. This section describes exactly what crosses the wire and what happens when the shapes do not match — the short version for the landing page is in [README.md](README.md#safety); the authoritative spec is in [PROTOCOL.md](PROTOCOL.md#alias-serialization--type-binding).
+
+### The binding pipeline
+
+For each `@alias` parameter the server performs three steps, in order:
+
+1. **Extract** — evaluate the provider's JsonPath against the provider's *serialized result* (a JSON document, camelCase). `DependencyResolver.ExtractValue` follows JsonPath.Net match-count semantics: a path with **one** match yields that match as-is (a scalar, or an entire array/object when the match itself is one — `$.items` over `{"items":[1,2,3]}` yields the array `[1,2,3]`); a path with **more than one** match (`$[*].id`, `$..id`) collects all matches into a single JSON array.
+2. **Inject** — the extracted JSON fragment replaces the `@alias` placeholder in the consumer's parameter payload.
+3. **Bind** — `System.Text.Json` deserializes that JSON fragment into the consumer's actual CLR parameter type, with the same options as every other call.
+
+The fragment is **never** re-serialized through the consumer's type and back. It is the exact bytes the provider produced, fed straight into the consumer's deserializer. That is why object→object works by duck-typing (below) and why a type mismatch surfaces as a deserialization failure, not a silent conversion.
+
+### The four outcomes
+
+What happens at step 3 depends on the fragment's JSON kind versus the destination parameter:
+
+| Fragment → Parameter | Runtime behavior | Response |
+|---|---|---|
+| **Compatible** (same kind, or object→object with overlapping properties) | Binds normally | 2xx |
+| **Cross-kind scalar** (e.g. JSON-string into `int`, JSON-number into `bool`) | `System.Text.Json` throws | **400** `cannot be converted` |
+| **Object → object, missing property** | STJ duck-types: overlapping properties bind case-insensitively, extra provider properties are ignored, **missing** properties are silently defaulted — value types to `0`/`false`/`DateTime.MinValue`, reference types to `null` | 2xx (silent default) |
+| **Unresolved** (JsonPath matched nothing, or alias never exposed) | No value to bind | **400** `Unresolved` |
+
+Two things to internalize:
+
+- **There is no silent cross-kind conversion.** Trame deliberately does **not** enable `AllowReadingFromString`, so a JSON string is not coerced into a number and vice versa. That would be convenient but error-prone; a cross-kind mismatch is a hard 400 instead. Number→number widening (`int`→`long`, `int`→`double`) is fine — it stays within the JSON-number kind.
+- **Object→object is the one silent case, and it is directional.** Passing a provider `{Id, Name}` into a consumer that takes `{Id}` is **safe** — the consumer is a subset, the extra `Name` is ignored, nothing is missing, no default happens. Passing a provider `{Id}` into a consumer that takes `{Id, Active}` is **dangerous**: `Active` (a value type) is silently set to `false` and the call succeeds with wrong business data. Missing *reference-type* properties default to `null`, which is usually visible quickly; missing *value-type* properties are the insidious case. This is inherent to JSON duck-typing — Trame has no schema to enforce structural equality at runtime, by design (the C# classes are the contract, discovered at runtime). The DevUI checker (below) catches it statically where both schemas are known.
+
+**Subset fan-out is a feature, not just a hazard.** The silent-drop direction is genuinely useful: load a `Customer` once, expose the whole object as one alias (`$` → `@customer`), and feed the *same* `@customer` into several subsequent commands whose parameter types are each shaped to receive only the fields they need — a `CustomerId { public int Id; }` parameter here, a `CustomerName { public string Name; }` parameter there, a full `Customer` parameter elsewhere. Each consumer duck-types the overlapping properties; the rest silently drop. One provider fragment, many typed consumers, no per-field exposes. The one rule to know: this works because each consumer **parameter is an object type** (a class declaring the wanted property the same way the provider does). If a consumer parameter were a **bare scalar** (`int id`, `string name`), injecting the whole `{…}` object would be a cross-kind **400**, not a silent drop — for bare scalars, expose per field (`$.id` → `@cid`, `$.name` → `@cname`) instead. You just need to know which of the two you are doing.
+
+**Don't want silent defaults? Pick a stricter mode.** The silent-default direction is the one
+case weak binding swallows. Three modes are available via `TrameOptions.AliasBindingMode`:
+
+- **Weak** (default) — duck-typed, silent defaults. The subset fan-out above relies on it.
+- **Strict** — each `@alias`-sourced parameter requires **full coverage** at the top level: every public read-write property the consumer type declares must be present in the fragment, else `400`. Literals are *not* re-checked; nested objects are *not* descended into.
+- **Paranoid** — Strict's two remaining gaps closed: it checks **all** parameters (including literals the caller sent) **recursively** at every depth. A missing value-type property inside a present nested object, or inside any element of a `List<T>` parameter, is a `400` rather than a silent `0`/`false`. This is the closest Trame gets to schema validation without a schema language — use it when a silent default at *any* depth is a correctness KO-criterion. It runs on every call and recurses the fragment, so it is the most expensive mode.
+
+The safe subset direction (consumer ⊆ fragment — the fan-out above) still binds in all three
+modes; only the dangerous reverse (consumer ⊋ fragment) becomes a `400`. Cross-kind is `400`
+in all modes. Widening (`int`→`long`) is accepted in all modes. See
+[DEPENDENCY_BINDING.md §7](DEPENDENCY_BINDING.md#7-binding-modes--weak-strict-paranoid).
+
+Returned `TrameResponse` objects from controllers are **not** gated by `EnableDetailedErrors` — their `Code`/`Data`/`Error` pass through verbatim. Only the generic 500 path (an unexpected throw) hides details in production.
+
+### Casing contract
+
+.NET and JavaScript handle casing differently, and Trame sits between them. There are **three independent casing regimes**, each applying to a different part of the call:
+
+| Regime | Applies to | Casing | Consequence |
+|---|---|---|---|
+| **Parameter NAME binding** | matching `stringData` entries to method parameters | **case-sensitive, ordinal** | `{"parameterName":"CustomerId"}` binds to `int CustomerId`, **not** to `int customerId`. Send the exact C# parameter name. |
+| **Parameter VALUE properties** | JSON properties inside an object argument or result | **read case-insensitive, written camelCase** | STJ reads `{"Id":1}` and `{"id":1}` into `int Id` equally. The server *writes* results camelCase (`id`, `customerId`). |
+| **JsonPath extraction** | the `.Exposes("$.…", …)` path against a result | **case-sensitive** | The path runs against the camelCase wire document, so it must use camelCase: `$.customerId`, `$.items[*].id`. A PascalCase `$.Id` matches **nothing** → `Unresolved`. |
+
+Practical consequences for cross-language callers:
+
+- **JS reading C# results:** works without effort. The server emits camelCase, which is what JS expects. `result.id`, `result.customerId`.
+- **JS sending object arguments to C#:** works either way. STJ reads property names case-insensitively, so `{id: 1}` and `{Id: 1}` both bind to `int Id`. Send camelCase for consistency with the wire.
+- **C# reading JS-sent arguments:** works either way, same reason.
+- **JsonPath in `.Exposes(...)`:** must be camelCase. This is the one place case-sensitivity bites, because the path is evaluated against the already-serialized camelCase document, not against the C# property names. The DevUI suggests camelCase paths for exactly this reason.
+
+"Why not drop case-sensitivity entirely?" is tempting but not achievable in one place: parameter *names* are matched by a case-sensitive dictionary key for dispatch determinism (Trame dispatches by name only — overloading is by distinct `[TrameMethod]` names, see [Known Limitations](#known-limitations-v1)), while *values* go through STJ's case-insensitive property matching. Making names case-insensitive would introduce ambiguity with no schema to resolve it. The two regimes are kept separate and each is internally consistent.
+
+### DevUI static checker
+
+The dependency builder in the developer UI (`/Trame`) is the one place that has **both** schemas — the provider's return type and the consumer's parameter type — from discovery. It runs a static type/casing/structural check (`dependencyCheck.ts`) that reproduces the runtime rules above:
+
+- **Expose paths** are validated against the provider's return schema — a PascalCase path like `$.Id` is flagged because it will not match the camelCase wire output.
+- **`@alias` bindings** are checked against the provider's exposed shape:
+  - cross-kind scalar mismatch → **error** (will 400);
+  - object→object with a missing *value-type* property → **warn** (silent default, the insidious case);
+  - object→object with a missing *reference* property → **warn** (will be `null`);
+  - object→object with a kind mismatch on an *overlapping* property → **error** (will 400);
+  - object→object where the consumer is a subset of the provider → **no finding** (safe, extra provider properties are ignored);
+  - array/scalar cardinality mismatch (e.g. a multi-match path into a scalar parameter) → **error**, with a fix hint (`$[0]` vs `$[*]`).
+
+The check is **non-blocking** — "Send anyway" stays available, because the runtime shape can differ from the static schema (polymorphism, dynamic results, opaque third-party return types). It surfaces inline under the affected expose/parameter and in a summary box. For opaque return types (BCL/third-party without a `[TrameDataContract]` override) it warns that the path cannot be statically verified, rather than claiming a false green.
+
+### Binary does not flow through aliases
+
+`byte[]` travels out-of-band (`binaryData` / `content`), never in the JSON `data` field, so a `byte[]` parameter cannot be the target of an `@alias`. Aliases carry JSON fragments only. See [Binary](#binary).
+
 ## Known Limitations (v1)
 
 Trame v1 is intentionally focused. The following are deliberate scope decisions, not bugs — documented here so adopters can plan around them:
@@ -249,6 +338,7 @@ Trame v1 is intentionally focused. The following are deliberate scope decisions,
 - **No Native AOT.** Method discovery uses runtime reflection, and invocation uses `Expression.Compile`-produced delegates. This is incompatible with Native AOT trimming. Standard (JIT) publishing is the supported deployment model.
 - **REST streaming is materialized.** An `IAsyncEnumerable<T>` result is fully consumed server-side and serialized as a JSON array before the REST response is sent. True streamed delivery over REST is not supported — use the WebSocket or SignalR transport for streaming semantics.
 - **Attribute-based registration only.** Controllers and methods are discovered via `[TrameController]` / `[TrameMethod]` attribute scanning. Direct/fluent registration of individual handlers in code (without attributes) is on the roadmap, not in v1.
+- **No parameter-based overloading.** A call is addressed by `Controller.Method` only — the parameter set is **not** part of the dispatch key, so Trame does not resolve C# overloads by signature over the wire. Two `[TrameMethod]`s on the same controller, or two `[TrameController]`s app-wide, must therefore carry distinct names; otherwise `TrameInvoker.Register` throws `InvalidOperationException` at startup rather than silently shadowing one with the other (the dispatch key is `{Controller}_{Method}`, purely name-based). Model what would be C# overloads with distinct Trame names (`add`, `addAll`, `addRange`). To exclude a controller from the auto-discovery bulk scan (e.g. a test fixture you register only by hand), set `[TrameController("name", AutoDiscover = false)]` and register it explicitly via `Register<T>()` or `TrameControllerBuilder.Add<T>()`.
 - **Dotted namespaces, not URL hierarchies.** The `controller` field accepts a dotted namespace (e.g. `Customer.Address.Contact`) to express arbitrarily deep groupings, but it is a single string key — it is not translated into a nested URL path. Routing stays two-part (`controller` + `method`) at the protocol level.
 - **Error details in development only.** `TrameError.details` (stack trace) is populated only when `EnableDetailedErrors` is set or the host runs in Development. In production, error messages are intentionally generic and do not leak exception internals.
 - **Binary is base64 over REST and WebSocket.** Only the SignalR/MessagePack channel carries `byte[]` without base64; the WebSocket transport honors text frames only. Binary is bounded by the transport message-size limits (REST 1 MB, WebSocket 1 MB). For large or frequent binary, run a plain REST or WebSocket endpoint alongside Trame — see [Binary](#binary) and the v1.x+ plan in [ROADMAP.md](ROADMAP.md).

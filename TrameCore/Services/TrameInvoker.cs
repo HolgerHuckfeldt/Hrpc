@@ -53,6 +53,18 @@ namespace TrameCore.Services
         /// </summary>
         public int MaxResultElementCount { get; set; } = 10000;
 
+        /// <summary>
+        /// Wie ein extrahiertes @alias-Fragment an den Consumer-Parametertyp gebunden wird
+        /// (Default Weak). Weak = STJ-Duck-Typing mit stillen Defaults (mächtig; das
+        /// Subset-Fan-out funktioniert). Strict = das Fragment muss den Consumer-Typ
+        /// vollständig decken (jede public read-write Eigenschaft muss im Fragment
+        /// vorhanden sein), sonst 400 — schaltet nur die object→object-silent-default-
+        /// Zeile um; cross-kind ist in beiden Modi 400. Greift nur @alias-sourced
+        /// Parameter. Siehe DEPENDENCY_BINDING.md. Wird über AddTrame aus TrameOptions
+        /// gesetzt; der Invoker-Default (Weak) gilt auch für einen nackten new TrameInvoker().
+        /// </summary>
+        public AliasBindingMode AliasBindingMode { get; set; } = AliasBindingMode.Weak;
+
         // camelCase + relaxed Encoder: Der Payload wird jetzt strukturiert (JsonElement)
         // in Data abgelegt und von den Transporten in einem Pass roh serialisiert —
         // kein Double-Wrapping mehr. UnsafeRelaxed verhindert dennoch `"`-Escaping im
@@ -81,28 +93,65 @@ namespace TrameCore.Services
             Register(typeof(T));
         }
 
+        // Registrierung läuft typischerweise einmal beim Start. Da wir bei
+        // Namens-Kollisionen jetzt hart fehlschlagen (statt still TryAdd), sichern
+        // wir die Prüf-und-Einfüge-Sequenz ab — sonst könnte eine konkurrente
+        // Registrierung die Kollision schlucken, bevor wir sie bemerken.
+        private readonly object _registrationLock = new();
+
         public void Register(Type controllerType)
         {
             var controllerAttr = GetAttribute<TrameControllerAttribute>(controllerType);
             if (controllerAttr == null) return;
 
-            _routeHandlers.TryAdd(controllerAttr.Name, controllerType);
-
-            foreach (var methodInfo in controllerType.GetMethods())
+            lock (_registrationLock)
             {
-                var methodAttr = GetAttribute<TrameMethodAttribute>(methodInfo);
-                if (methodAttr == null) continue;
-
-                string key = $"{controllerAttr.Name}_{methodAttr.Name}";
-                var invokeInfo = new InvokeInfo()
+                // Controller-Name darf nicht von einem anderen Typ belegt sein.
+                // Erneute Registrierung desselben Typs bleibt idempotent (z. B. bei
+                // mehrfachem Register<T>() oder wiederholtem UseTrame()).
+                if (_routeHandlers.TryGetValue(controllerAttr.Name, out var existingController)
+                    && existingController != controllerType)
                 {
-                    MethodInfo = methodInfo,
-                    AuthoriseAttribute = GetAttribute<TrameAuthoriseAttribute>(methodInfo),
-                    CompiledInvocation = CompileInvocation(controllerType, methodInfo),
-                    IsAsync = typeof(Task).IsAssignableFrom(methodInfo.ReturnType),
-                    HasResult = GetHasResult(methodInfo)
-                };
-                _invokeCache.TryAdd(key, invokeInfo);
+                    throw new InvalidOperationException(
+                        $"A Trame controller named '{controllerAttr.Name}' is already registered " +
+                        $"on type '{existingController.FullName}'. Controller names must be unique. " +
+                        $"Either rename one [TrameController] or remove the duplicate.");
+                }
+
+                _routeHandlers.TryAdd(controllerAttr.Name, controllerType);
+
+                foreach (var methodInfo in controllerType.GetMethods())
+                {
+                    var methodAttr = GetAttribute<TrameMethodAttribute>(methodInfo);
+                    if (methodAttr == null) continue;
+
+                    string key = $"{controllerAttr.Name}_{methodAttr.Name}";
+
+                    // Gleichnamige Trame-Methoden sind nicht erlaubt — Trame hat keine
+                    // parameterbasierte Überladungsauflösung, der Dispatch-Key ist rein
+                    // namensbasiert. Eine stille TryAdd-First-wins-Doppelung wäre ein
+                    // nicht-deterministischer Bug, also werfen wir laut zur Registrierungszeit.
+                    // Erneute Registrierung derselben MethodInfo bleibt idempotent.
+                    if (_invokeCache.TryGetValue(key, out var existing)
+                        && existing.MethodInfo != methodInfo)
+                    {
+                        throw new InvalidOperationException(
+                            $"Trame method '{controllerAttr.Name}.{methodAttr.Name}' is already registered " +
+                            $"on '{existing.MethodInfo.DeclaringType?.FullName}.{existing.MethodInfo.Name}'. " +
+                            $"Method names within a controller must be unique. Trame does not resolve " +
+                            $"overloads by parameters — give each method a distinct [TrameMethod] name.");
+                    }
+
+                    var invokeInfo = new InvokeInfo()
+                    {
+                        MethodInfo = methodInfo,
+                        AuthoriseAttribute = GetAttribute<TrameAuthoriseAttribute>(methodInfo),
+                        CompiledInvocation = CompileInvocation(controllerType, methodInfo),
+                        IsAsync = typeof(Task).IsAssignableFrom(methodInfo.ReturnType),
+                        HasResult = GetHasResult(methodInfo)
+                    };
+                    _invokeCache.TryAdd(key, invokeInfo);
+                }
             }
         }
 
@@ -432,7 +481,17 @@ namespace TrameCore.Services
                 return (parameterJson, null);
 
             if (!ContainsAlias(parameterNode))
+            {
+                // Kein Alias → Strict hat nichts zu prüfen (nur @alias-sourced). Paranoid
+                // prüft auch Literale: hier sind es ausschließlich Literale.
+                if (AliasBindingMode == AliasBindingMode.Paranoid)
+                {
+                    var paranoidError = ParanoidBindingCheck(current, parameterNode);
+                    if (paranoidError != null)
+                        return (null, paranoidError);
+                }
                 return (parameterJson, null);
+            }
 
             // Alle ExposedDependencies aus den bisherigen Responses zusammenführen
             var mergedDependencies = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -450,11 +509,31 @@ namespace TrameCore.Services
                 }
             }
 
-            // Führe den Ersetzungsvorgang durch:
-            var unresolved = ReplaceDependencyByAlias(parameterNode, mergedDependencies);
+            // Führe den Ersetzungsvorgang durch (und protokolliere die Ersetzungen für
+            // den optionalen Strict-Binding-Check):
+            var replacements = new List<AliasReplacement>();
+            var unresolved = ReplaceDependencyByAlias(parameterNode, mergedDependencies, replacements);
             if (unresolved.Count > 0)
             {
                 return (null, BadRequest($"Unresolved dependencies: {string.Join(", ", unresolved)}"));
+            }
+
+            // Strict-Modus: das Fragment muss den Consumer-Typ vollständig decken. Nur
+            // @alias-sourced Parameter (replacements); Literale sind bewusst gesendet.
+            if (AliasBindingMode == AliasBindingMode.Strict && replacements.Count > 0)
+            {
+                var strictError = StrictBindingCheck(current, replacements);
+                if (strictError != null)
+                    return (null, strictError);
+            }
+            else if (AliasBindingMode == AliasBindingMode.Paranoid)
+            {
+                // Paranoid: wie Strict, aber für ALLE Parameter (incl. Literale) und
+                // rekursiv in verschachtelte Objekte/Array-Elemente. Liest direkt aus dem
+                // aufgelösten parameterNode (Alias-Daten sind inzwischen injiziert).
+                var paranoidError = ParanoidBindingCheck(current, parameterNode);
+                if (paranoidError != null)
+                    return (null, paranoidError);
             }
 
             var options = new JsonSerializerOptions
@@ -463,6 +542,283 @@ namespace TrameCore.Services
                 PropertyNamingPolicy = null // Beibehaltung der Originalschreibweise
             };
             return (parameterNode.ToJsonString(options), null);
+        }
+
+        /// <summary>
+        /// Strict-Binding-Check: für jede @alias-Ersetzung prüfen, ob das injizierte
+        /// Fragment den deklarierten Consumer-Parametertyp vollständig deckt. Jede public
+        /// read-write Eigenschaft des Consumer-Typs muss im Fragment-JSON (case-insensitiv,
+        /// wie STJ liest) vorhanden sein — fehlt eine, würde STJ sie im Weak-Modus still
+        /// defaulten; im Strict-Modus wird das zu einem harten 400. Skalare/Collection-/
+        /// Dictionary-/object-Consumer haben keine prüfbaren Eigenschaften → übersprungen.
+        /// Cross-kind wird hier nicht geprüft (STJ wirft ohnehin in beiden Modi).
+        /// </summary>
+        private TrameResponse? StrictBindingCheck(TrameRequest current, List<AliasReplacement> replacements)
+        {
+            // Consumer-Methoden-Signatur aus dem Route-Cache holen (gleicher Key wie beim Dispatch).
+            if (!_invokeCache.TryGetValue($"{current.Controller}_{current.Method}", out var invokeInfo)
+                || invokeInfo.MethodInfo == null)
+                return null; // unbekannte Methode → der normale Ausführungspfad liefert die 404
+
+            var byName = new Dictionary<string, ParameterInfo>(StringComparer.Ordinal);
+            foreach (var p in invokeInfo.MethodInfo.GetParameters())
+            {
+                if (!string.IsNullOrEmpty(p.Name))
+                    byName[p.Name] = p;
+            }
+
+            foreach (var rep in replacements)
+            {
+                if (!byName.TryGetValue(rep.ParamName, out var param))
+                    continue; // Parameter unbekannt → BuildParameters liefert den Default/Fehler
+
+                var required = RequiredPropertyNames(param.ParameterType);
+                if (required.Count == 0)
+                    continue; // Skalar/Collection/Dictionary/object — nichts zu decken.
+
+                // Fragment als JsonObject parsen. Kein Object → STJ wird ohnehin 400 liefern
+                // (cross-kind object→scalar bzw. scalar→object); Strict muss nicht vorwegnehmen.
+                JsonObject? fragment;
+                try { fragment = JsonNode.Parse(rep.FragmentJson) as JsonObject; }
+                catch { continue; } // unparsebar → überlasse es STJ.
+                if (fragment == null) continue;
+
+                var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var kvp in fragment) present.Add(kvp.Key);
+
+                var missing = required.Where(r => !present.Contains(r)).ToList();
+                if (missing.Count > 0)
+                {
+                    var list = string.Join(", ", missing.Select(m => $"'{m}'"));
+                    return BadRequest(
+                        $"Strict alias binding: parameter '{rep.ParamName}' ({param.ParameterType.Name}) " +
+                        $"requires property {list}, which is absent from the '@{rep.Alias}' fragment. " +
+                        $"In weak mode this would be silently defaulted; in strict mode it is rejected.");
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Die public read-write Eigenschaftsnamen eines Typs, die STJ beim
+        ///  Deserialisieren bindet (und die im Strict-Modus im Fragment vorhanden sein
+        ///  müssen). Indexer, get-only und nicht-public Setter ausgenommen. Liefert leer
+        ///  für Skalare/Strings/Arrays/Dictionarys/object — diese haben keine deckbaren
+        ///  Eigenschaften und werden vom Strict-Check übersprungen.</summary>
+        private static List<string> RequiredPropertyNames(Type type)
+        {
+            var names = new List<string>();
+            // Nullable<T> und Enums haben keine bindbaren Eigenschaften; string ebenso.
+            if (Nullable.GetUnderlyingType(type) != null || type.IsEnum || type == typeof(string))
+                return names;
+            foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (p.GetIndexParameters().Length > 0) continue;       // Indexer
+                if (!p.CanWrite) continue;                              // get-only (computed)
+                if (p.GetSetMethod(nonPublic: false) == null) continue; // kein public Setter
+                names.Add(p.Name);
+            }
+            return names;
+        }
+
+        /// <summary>
+        /// Paranoid-Binding-Check — die fail-lauteste Variante. Wie <see cref="StrictBindingCheck"/>,
+        /// aber mit zwei Erweiterungen: (a) er prüft <b>alle</b> Parameter — <c>@alias</c>-sourced
+        /// <i>und</i> Literale, die der Aufrufer bewusst gesendet hat — und (b) er prüft
+        /// <b>rekursiv</b>: steigt in verschachtelte Objekte und Array-Elemente ab. Jede public
+        /// read-write Eigenschaft des Consumer-Typs, in jeder Tiefe, muss im Fragment vorhanden
+        /// sein, sonst 400. Cross-kind wird nicht geprüft (STJ wirft ohnehin in allen Modi);
+        /// Widening (int→long) bleibt erlaubt; Subset-Fan-out (consumer ⊆ fragment) bindet auch
+        /// hier, da nichts fehlt. Läuft in <see cref="ResolveParameterValues"/> für jeden Request.
+        /// </summary>
+        private TrameResponse? ParanoidBindingCheck(TrameRequest current, JsonNode parameterNode)
+        {
+            // Consumer-Methoden-Signatur aus dem Route-Cache (gleicher Key wie beim Dispatch).
+            if (!_invokeCache.TryGetValue($"{current.Controller}_{current.Method}", out var invokeInfo)
+                || invokeInfo.MethodInfo == null)
+                return null; // unbekannte Methode → der normale Ausführungspfad liefert die 404
+
+            var byName = new Dictionary<string, ParameterInfo>(StringComparer.Ordinal);
+            foreach (var p in invokeInfo.MethodInfo.GetParameters())
+            {
+                if (!string.IsNullOrEmpty(p.Name))
+                    byName[p.Name] = p;
+            }
+
+            // parameterNode ist ein JsonArray von {"parameterName","data"}-Einträgen. data ist
+            // ein JSON-String, dessen Inhalt das Fragment (Alias nach Auflösung oder Literal) ist.
+            if (parameterNode is not JsonArray paramArray)
+                return null;
+
+            foreach (var entry in paramArray)
+            {
+                if (entry is not JsonObject entryObj)
+                    continue;
+
+                var paramName = entryObj["parameterName"]?.GetValue<string>()
+                                ?? entryObj["ParameterName"]?.GetValue<string>();
+                if (string.IsNullOrEmpty(paramName))
+                    continue;
+                if (!byName.TryGetValue(paramName, out var param))
+                    continue; // Parameter unbekannt → BuildParameters liefert den Fehler
+
+                // Das Fragment/der Literal-Wert aus dem data-Feld (Object oder Array; Skalar/null
+                // hat keine deckbaren Eigenschaften und wird übersprungen).
+                var fragment = ExtractFragment(entryObj);
+                if (fragment == null)
+                    continue;
+
+                var paramType = param.ParameterType;
+                var missing = new List<string>();
+
+                if (fragment is JsonObject fragObj)
+                {
+                    if (RequiredPropertyNames(paramType).Count > 0)
+                        CollectMissing(paramType, fragObj, paramName, missing);
+                }
+                else if (fragment is JsonArray fragArr)
+                {
+                    // Top-Level-Array-Parameter (List<T>/T[]): in jedes Element absteigen,
+                    // dessen Typ coverable Eigenschaften hat. CollectMissing selbst steigt
+                    // in verschachtelte Arrays innerhalb von Elementen ab.
+                    var elemType = GetCollectionElementType(paramType);
+                    if (elemType != null && RequiredPropertyNames(elemType).Count > 0)
+                    {
+                        var i = 0;
+                        foreach (var elem in fragArr)
+                        {
+                            if (elem is JsonObject elemObj)
+                                CollectMissing(elemType, elemObj, $"{paramName}[{i}]", missing);
+                            i++;
+                        }
+                    }
+                }
+
+                if (missing.Count > 0)
+                {
+                    var list = string.Join(", ", missing.Select(m => $"'{m}'"));
+                    return BadRequest(
+                        $"Paranoid binding: parameter '{paramName}' ({paramType.Name}) " +
+                        $"is not fully covered by its fragment. Missing: {list}. In weak mode these " +
+                        $"would be silently defaulted; in strict mode the top-level check would pass " +
+                        $"(it checks only @alias parameters and does not recurse); paranoid mode " +
+                        $"enforces full coverage of every parameter — including literals — at every depth.");
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Liest das <c>data</c>-Feld eines TrameParameter-Eintrags und liefert seinen Inhalt
+        /// als <see cref="JsonNode"/> — ein <see cref="JsonObject"/> oder <see cref="JsonArray"/>,
+        /// je nachdem, was der Literal/das Fragment ist; für Skalare/null <c>null</c> (nichts
+        /// zu decken). <c>data</c> ist ein JSON-String, dessen Inhalt das Fragment/der Literal
+        /// ist (für Alias-Parameter nach der Auflösung, für Literale wie gesendet). Ein direkt
+        /// eingebettetes JsonObject/JsonArray (theoretisch möglich) wird ebenfalls akzeptiert.
+        /// </summary>
+        private static JsonNode? ExtractFragment(JsonObject entryObj)
+        {
+            var dataNode = entryObj["data"] ?? entryObj["Data"];
+            if (dataNode == null)
+                return null;
+            if (dataNode is JsonObject directObj)
+                return directObj;
+            if (dataNode is JsonArray directArr)
+                return directArr;
+            if (dataNode is JsonValue v && v.TryGetValue<string>(out var s) && !string.IsNullOrWhiteSpace(s))
+            {
+                try { return JsonNode.Parse(s); }
+                catch { return null; } // unparsebar → überlasse es STJ.
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Sammelt fehlende deckungspflichtige Eigenschaften rekursiv. Für jede public read-write
+        /// Eigenschaft des Consumer-Typs, die im Fragment fehlt (case-insensitiv, wie STJ liest),
+        /// wird der dotted Pfad in <paramref name="missing"/> notiert. Für vorhandene Eigenschaften,
+        /// deren deklarierter Typ ein coverable Object ist und deren Fragment-Wert ein nicht-null
+        /// JsonObject ist, steigt der Check ab (Tiefe). Für Collection-Typen (List&lt;T&gt;/T[]/
+        /// IEnumerable&lt;T&gt;) steigt er in jedes JsonArray-Element ab. Die Rekursion folgt der
+        /// Fragment-Struktur (ein Baum) → endet von selbst, kein Zyklus-Risiko.
+        /// </summary>
+        private static void CollectMissing(
+            Type consumerType, JsonObject fragment, string path, List<string> missing)
+        {
+            var required = RequiredPropertyNames(consumerType);
+            if (required.Count == 0)
+                return;
+
+            // Vorhandene Fragment-Schlüssel (case-insensitiv, wie STJ liest).
+            var present = new Dictionary<string, JsonNode?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kvp in fragment)
+                present[kvp.Key] = kvp.Value;
+
+            foreach (var propName in required)
+            {
+                var childPath = string.IsNullOrEmpty(path) ? propName : $"{path}.{propName}";
+
+                if (!present.ContainsKey(propName))
+                {
+                    missing.Add(childPath);
+                    continue;
+                }
+
+                // Vorhanden → ggf. in den deklarierten Typ absteigen, wenn das Fragment dort
+                // ein Objekt ist (Objekt-Eigenschaft) oder ein Array (Collection-Eigenschaft).
+                var propType = consumerType.GetProperty(propName)?.PropertyType;
+                if (propType == null)
+                    continue;
+
+                switch (present[propName])
+                {
+                    case JsonObject nestedFrag:
+                        if (RequiredPropertyNames(propType).Count > 0)
+                            CollectMissing(propType, nestedFrag, childPath, missing);
+                        break;
+                    case JsonArray arrFrag:
+                        var elemType = GetCollectionElementType(propType);
+                        if (elemType != null && RequiredPropertyNames(elemType).Count > 0)
+                        {
+                            var i = 0;
+                            foreach (var elem in arrFrag)
+                            {
+                                if (elem is JsonObject elemObj)
+                                    CollectMissing(elemType, elemObj, $"{childPath}[{i}]", missing);
+                                i++;
+                            }
+                        }
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Für einen Collection-Typ (Array oder generische Sequenz wie List&lt;T&gt;/
+        /// IEnumerable&lt;T&gt;/ICollection&lt;T&gt;) der Element-Typ; sonst <c>null</c>.
+        /// Dictionarys sind bewusst ausgenommen (offene Schlüsselmenge, keine
+        /// "fehlende Eigenschaft"-Semantik auf der Werteseite).
+        /// </summary>
+        private static Type? GetCollectionElementType(Type type)
+        {
+            if (type.IsArray)
+                return type.GetElementType();
+            if (type.IsGenericType)
+            {
+                var def = type.GetGenericTypeDefinition();
+                if (def == typeof(List<>) || def == typeof(IList<>) || def == typeof(IEnumerable<>)
+                    || def == typeof(ICollection<>) || def == typeof(IReadOnlyList<>)
+                    || def == typeof(IReadOnlyCollection<>) || def == typeof(HashSet<>)
+                    || def == typeof(ISet<>))
+                    return type.GetGenericArguments()[0];
+            }
+            // IEnumerable<T>-Schnittstellen am konkreten Typ (z. B. custom Collections).
+            foreach (var iface in type.GetInterfaces())
+            {
+                if (iface.IsGenericType && iface.GetGenericTypeDefinition() == typeof(IEnumerable<>)
+                    && iface.GetGenericArguments()[0] != typeof(object))
+                    return iface.GetGenericArguments()[0];
+            }
+            return null;
         }
 
         /// <summary>
@@ -502,17 +858,21 @@ namespace TrameCore.Services
 
         #region Hilfsmethoden für die Ausführung
 
-        private HashSet<string> ReplaceDependencyByAlias(JsonNode? node, Dictionary<string, string> exposedDependencies)
+        private HashSet<string> ReplaceDependencyByAlias(
+            JsonNode? node,
+            Dictionary<string, string> exposedDependencies,
+            List<AliasReplacement>? replacements = null)
         {
             var unresolved = new HashSet<string>(StringComparer.Ordinal);
-            ReplaceDependencyByAliasCore(node, exposedDependencies, unresolved);
+            ReplaceDependencyByAliasCore(node, exposedDependencies, unresolved, replacements);
             return unresolved;
         }
 
         private void ReplaceDependencyByAliasCore(
             JsonNode? node,
             Dictionary<string, string> exposedDependencies,
-            HashSet<string> unresolved)
+            HashSet<string> unresolved,
+            List<AliasReplacement>? replacements)
         {
             if (node == null) return;
             if (node is JsonValue jsonValue)
@@ -533,6 +893,18 @@ namespace TrameCore.Services
                         // rekonstruiert. JsonNode.Parse würde stattdessen einen Number-/
                         // Object-Knoten erzeugen — dann ist `data` kein string mehr und die
                         // TrameParameter-Deserialisierung schlägt fehl.
+                        // Strict-Check-Buchhaltung: protokolliere die Ersetzung, wenn der
+                        // Alias direkt der Wert eines TrameParameter-Objekts ist (Eltern-
+                        // JsonObject hat einen parameterName-/ParameterName-Eintrag). Für
+                        // in Literalen verschachtelte Aliase wird nicht gebucht — der Strict-
+                        // Check gilt dem Top-Level-Transfer (siehe ResolveParameterValues).
+                        if (replacements != null && node.Parent is JsonObject repParent)
+                        {
+                            var paramName = repParent["parameterName"]?.GetValue<string>()
+                                            ?? repParent["ParameterName"]?.GetValue<string>();
+                            if (!string.IsNullOrEmpty(paramName))
+                                replacements.Add(new AliasReplacement(paramName, alias, actualValue));
+                        }
                         var newNode = JsonValue.Create(actualValue);
                         ReplaceInParent(node, newNode);
                     }
@@ -548,7 +920,7 @@ namespace TrameCore.Services
                 {
                     if (property.Value != null)
                     {
-                        ReplaceDependencyByAliasCore(property.Value, exposedDependencies, unresolved);
+                        ReplaceDependencyByAliasCore(property.Value, exposedDependencies, unresolved, replacements);
                     }
                 }
             }
@@ -556,10 +928,14 @@ namespace TrameCore.Services
             {
                 foreach (var t in jsonArr)
                 {
-                    ReplaceDependencyByAliasCore(t, exposedDependencies, unresolved);
+                    ReplaceDependencyByAliasCore(t, exposedDependencies, unresolved, replacements);
                 }
             }
         }
+
+        /// <summary>Protokoll einer @alias-Ersetzung für den Strict-Binding-Check:
+        ///  welcher Consumer-Parameter hat welchen Alias durch welches Fragment erhalten?</summary>
+        private readonly record struct AliasReplacement(string ParamName, string Alias, string FragmentJson);
 
         private static void ReplaceInParent(JsonNode oldNode, JsonNode newNode)
         {

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Duplicate Trame names now fail fast at startup.** `TrameInvoker.Register` throws `InvalidOperationException` when two `[TrameMethod]`s on the same controller share a name, or two `[TrameController]`s app-wide share a name. Previously the collision was silently resolved first-registered-wins (non-deterministic, since `GetMethods()` order is not guaranteed). Dispatch remains name-only (`{Controller}_{Method}`); Trame does **not** resolve overloads by parameter signature — model C# overloads with distinct names (`add`, `addAll`). This is a breaking change only for apps that unintentionally relied on the silent shadowing. See *Known Limitations* in the README.
+
+### Added
+- `[TrameController("name", AutoDiscover = false)]` — opt-out from the auto-discovery bulk scans in `AddTrame` / `UseTrame` / `TrameControllerBuilder.FromAssemblies`. Such controllers must be registered explicitly via `Register<T>()` or `TrameControllerBuilder.Add<T>()`. Useful for test fixtures and manual-only registration.
+- **Binding modes** (`TrameOptions.AliasBindingMode`): `Weak` (default, duck-typed), `Strict` (`@alias` params must be fully covered at the top level → 400 on missing), and `Paranoid` (Strict plus: checks *all* parameters including literals, and recurses into nested objects and array elements → 400 on any missing property at any depth). The safe subset fan-out binds in all three; cross-kind is 400 in all three; widening stays accepted. Closes the object→object silent-default hazard opt-in, at increasing strictness. Spec: `DEPENDENCY_BINDING.md` §7; tests: `AliasBindingStrictTests.cs`, `AliasBindingParanoidTests.cs`.
+
 ## [1.0.0] - 2026-07-11
 
 First public release. The wire format, error semantics, and parameter binding are

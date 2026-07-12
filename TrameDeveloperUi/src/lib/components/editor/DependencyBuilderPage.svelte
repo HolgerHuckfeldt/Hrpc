@@ -5,8 +5,10 @@
 
   import { onDestroy } from 'svelte';
   import { tabState, type Tab, type DepStep, type DepParam } from '../../state/tabs.svelte.ts';
+  import { discoveryState } from '../../state/discovery.svelte.ts';
   import { executeBatch } from '../../api/client';
   import { formatJson } from '../../utils/json';
+  import { checkSteps, methodMetaFor, type AliasProvider } from '../../utils/dependencyCheck';
   import { ExecutionMode, type TrameRequest } from 'trame-client';
   import DependencyStep from './DependencyStep.svelte';
   import DependencyGraph from './DependencyGraph.svelte';
@@ -141,6 +143,26 @@
       ),
     ];
   }
+
+  /** alias → provider-Step (MethodMeta + JsonPath) aus Schritten *vor* `index`.
+   *  Konsistent mit availableAliasesFor: ein Consumer darf nur auf früher Exponiertes
+   *  verweisen. Letzter Provider gewinnt (Spiegelt Laufzeit: exposedDependencies-
+   *  Map, später Schreib überschreibt). */
+  function aliasProvidersFor(index: number): Record<string, AliasProvider> {
+    const map: Record<string, AliasProvider> = {};
+    for (const s of steps.slice(0, index)) {
+      const mm = methodMetaFor(s, discoveryState.data);
+      if (!mm) continue;
+      for (const e of s.exposes) {
+        if (e.alias) map[e.alias] = { methodMeta: mm, jsonPath: e.jsonPath };
+      }
+    }
+    return map;
+  }
+
+  // Statische Typ-Konsistenz über alle Schritte (nicht blockierend — „Send anyway"
+  // bleibt, da der Runtime-Shape vom statischen Schema abweichen kann).
+  let typeIssues = $derived.by(() => checkSteps(steps, discoveryState.data));
 
   // --- Code-Generierung -------------------------------------------------------
 
@@ -343,6 +365,7 @@ var responses = await client.Call(multi);`;
             {step}
             index={i}
             availableAliases={availableAliasesFor(i)}
+            aliasProviders={aliasProvidersFor(i)}
             onremove={() => removeStep(i)}
             onchange={persist}
           />
@@ -354,13 +377,29 @@ var responses = await client.Call(multi);`;
         {/if}
       </div>
 
-      <!-- Validierung -->
+      <!-- Validierung (blockierend — strukturelle Fehler) -->
       {#if validation.length > 0}
         <div class="validation-box">
           <span class="block-label error-label">Validierung</span>
           <ul>
             {#each validation as msg (msg)}
               <li>{msg}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
+      <!-- Typ-Check (nicht blockierend — statische Konsistenz gegen Discovery-Schemas,
+           siehe utils/dependencyCheck.ts. „Ausführen" bleibt erlaubt, da der Runtime-Shape
+           vom statischen Schema abweichen kann.) -->
+      {#if typeIssues.length > 0}
+        <div class="typecheck-box">
+          <span class="block-label typecheck-label">Typ-Check (nicht blockierend)</span>
+          <ul>
+            {#each typeIssues as iss (iss.where + iss.message)}
+              <li class:err={iss.severity === 'error'} class:warn={iss.severity === 'warn'}>
+                <span class="iss-where">{iss.where}</span> — {iss.message}
+              </li>
             {/each}
           </ul>
         </div>
@@ -462,6 +501,41 @@ var responses = await client.Call(multi);`;
   }
   .validation-box li {
     margin: 2px 0;
+  }
+
+  /* Typ-Check-Box: nicht blockierend, daher amber statt rot — error-Items innerhalb
+     bekommen roten Punkt, warn-Items amber. */
+  .typecheck-box {
+    border: 1px solid var(--warning, #e0a800);
+    border-radius: var(--radius-sm);
+    background: rgba(224, 168, 0, 0.06);
+    padding: 8px 12px;
+    flex-shrink: 0;
+  }
+  .typecheck-label {
+    color: var(--warning, #e0a800);
+    margin-bottom: 4px;
+  }
+  .typecheck-box ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.8rem;
+    color: var(--text);
+  }
+  .typecheck-box li {
+    margin: 2px 0;
+    list-style: disc;
+  }
+  .typecheck-box li.err::marker {
+    color: var(--error);
+  }
+  .typecheck-box li.warn::marker {
+    color: var(--warning, #e0a800);
+  }
+  .typecheck-box .iss-where {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-dim);
   }
 
   .result-box {

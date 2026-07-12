@@ -2,6 +2,7 @@ using TrameCore.Attributes;
 using TrameCore.Services;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
+using System.Linq;
 using System.Reflection;
 using System.Threading.RateLimiting;
 
@@ -31,7 +32,11 @@ public class TrameControllerBuilder
         {
             foreach (var type in assembly.GetTypes())
             {
-                if (type.GetCustomAttributes(typeof(TrameControllerAttribute), true).Length > 0)
+                var attr = type.GetCustomAttributes(typeof(TrameControllerAttribute), true)
+                    .OfType<TrameControllerAttribute>().FirstOrDefault();
+                // AutoDiscover=false-Controller werden auch vom Bulk-FromAssemblies-Skan ausgeschlossen;
+                // sie sind nur über Add<T>() / Register<T>() explizit zu registrieren.
+                if (attr != null && attr.AutoDiscover)
                 {
                     _serviceRegistrations.Add((type, ServiceLifetime.Scoped));
                     _registrations.Add(core => core.Register(type));
@@ -172,6 +177,7 @@ public static class TrameRegistrationExtensions
             invoker.EnableDetailedErrors = options.EnableDetailedErrors || (env?.IsDevelopment() ?? false);
             invoker.MaxParameterArrayLength = options.MaxParameterArrayLength;
             invoker.MaxResultElementCount = options.MaxResultElementCount;
+            invoker.AliasBindingMode = options.AliasBindingMode;
             return invoker;
         });
         services.AddSingleton<TrameCore.Services.ITrameInterceptor, TrameCore.Services.TrameLoggingInterceptor>();
