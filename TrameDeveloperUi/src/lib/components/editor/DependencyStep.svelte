@@ -31,7 +31,9 @@
   // ($[0].prop bei Listen, sonst $.prop) — JsonPath ist case-sensitiv gegen den
   // camelCase-Server-Output, daher camelCase-Vorschläge (utils/params.ts).
   let jsonPathOptions = $derived.by(() =>
-    jsonPathSuggestions(methodMeta?.returnType, methodMeta?.returnTypeDefinition?.properties),
+    // Dedup: gleiche JsonPath-Vorschläge würden im {#each ... (opt)} each_key_duplicate
+    // auslösen.
+    [...new Set(jsonPathSuggestions(methodMeta?.returnType, methodMeta?.returnTypeDefinition?.properties))],
   );
 
   // --- Handler ---------------------------------------------------------------

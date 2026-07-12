@@ -128,11 +128,18 @@
 
   let isValid = $derived(validation.length === 0 && steps.length > 0);
 
-  /** Verfügbare Aliase aus allen Schritten VOR dem gegebenen Index. */
+  /** Verfügbare Aliase aus allen Schritten VOR dem gegebenen Index.
+   *  Dedupliziert: zwei Schritte dürfen denselben Alias exponieren (Nutzerfehler,
+   *  aber kein UI-Absturz); das {#each ... (a)} in DependencyStep verträgt keine
+   *  doppelten Keys (each_key_duplicate). */
   function availableAliasesFor(index: number): string[] {
-    return steps
-      .slice(0, index)
-      .flatMap((s) => s.exposes.map((e) => e.alias).filter(Boolean));
+    return [
+      ...new Set(
+        steps
+          .slice(0, index)
+          .flatMap((s) => s.exposes.map((e) => e.alias).filter(Boolean)),
+      ),
+    ];
   }
 
   // --- Code-Generierung -------------------------------------------------------

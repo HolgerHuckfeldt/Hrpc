@@ -72,11 +72,18 @@
     return controllerMeta(row.controllerName)?.methods.find((m) => m.methodName === row.methodName);
   }
 
-  /** Verfügbare Aliase = Exposes aller VORHERIGEN Zeilen mit gesetztem Alias. */
+  /** Verfügbare Aliase = Exposes aller VORHERIGEN Zeilen mit gesetztem Alias.
+   *  Dedupliziert: zwei Zeilen dürfen densben Alias exponieren (Nutzerfehler, aber
+   *  kein UI-Absturz); das {#each ... (a)} der Alias-Datalist verträgt keine
+   *  doppelten Keys (each_key_duplicate). */
   function availableAliases(rowIndex: number): string[] {
-    return rows
-      .slice(0, rowIndex)
-      .flatMap((r) => r.exposes.map((e) => e.alias).filter(Boolean));
+    return [
+      ...new Set(
+        rows
+          .slice(0, rowIndex)
+          .flatMap((r) => r.exposes.map((e) => e.alias).filter(Boolean)),
+      ),
+    ];
   }
 
   /** JsonPath-Vorschläge aus dem Return-Typ. camelCase + passender Präfix
@@ -84,7 +91,9 @@
    *  (JsonPath ist case-sensitiv gegen den camelCase-Server-Output). */
   function jsonPathOptions(row: BatchRow): string[] {
     const mm = methodMeta(row);
-    return jsonPathSuggestions(mm?.returnType, mm?.returnTypeDefinition?.properties);
+    // Dedup: gleiche JsonPath-Vorschläge würden im {#each ... (opt)} each_key_duplicate
+    // auslösen.
+    return [...new Set(jsonPathSuggestions(mm?.returnType, mm?.returnTypeDefinition?.properties))];
   }
 
   // --- Editor-Modell (Source of truth) -----------------------------------------
@@ -309,9 +318,16 @@
 
   function methodNames(row: BatchRow): string[] {
     const c = controllerMeta(row.controllerName);
-    if (c) return c.methods.map((m) => m.methodName);
-    // Controller unbekannt → alle Methoden aller Controller anbieten.
-    return (discoveryState.data?.controllers ?? []).flatMap((cc) => cc.methods.map((m) => m.methodName));
+    const names = c
+      ? c.methods.map((m) => m.methodName)
+      : // Controller unbekannt (Leerzeile nach "+ Add") → alle Methoden aller
+        // Controller anbieten. Dedup: zwei Controller mit gleichem Methodennamen
+        // (z. B. "GetById") würden sonst im {#each ... (name)} der Datalist
+        // each_key_duplicate auslösen — der Absturz beim Batch-Add.
+        (discoveryState.data?.controllers ?? []).flatMap((cc) =>
+          cc.methods.map((m) => m.methodName),
+        );
+    return [...new Set(names)];
   }
 
   // Platzhalter enthält `{}` — als JS-String gebunden, damit Svelte die braces
