@@ -1,29 +1,37 @@
 # Trame
 
-**Trame** is a high-performance, multi-transport RPC framework for .NET 8 that combines the simplicity of REST with the performance of persistent connections.
+**Trame** is a code-first, multi-transport framework for **command-oriented web APIs** on .NET 8+. Your C# classes *are* the contract; discovery metadata is generated at runtime — no `.proto`, no IDL. The same call runs over REST, WebSocket, or SignalR, and is consumable from any language, not .NET only.
+
+What sets Trame apart is **dependency chaining**: send several calls in a single roundtrip and let later calls reuse results from earlier ones. One request exposes a value via `Exposes("$", "newId")` (a result-relative JSON path), the next consumes it as `WithAlias("@newId")`, and the server resolves the `@alias` placeholders against prior responses — no client-side glue code, no extra roundtrips. A workflow that needs a customer's new ID to create their order completes in one roundtrip instead of three.
+
+> **The name.** *Trame* (French, /tʁam/) is the weft — the cross-threads in weaving that hold a fabric together. Trame weaves multiple transports (REST, WebSocket, SignalR) and chained calls into one coherent framework.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
 
-## The Problem with REST for RPC
+## Resources, Commands, and Trame's direction
 
-REST is excellent for resource-oriented APIs — CRUD operations on nouns like `/customers/42` or `/orders`. But when you need to call *actions* (RPC-style), REST forces you into awkward patterns:
+REST is so much *the* standard that "wrong" is the wrong word for it — it simply isn't shaped for command calls. For resource-oriented APIs, CRUD on nouns like `/customers/42` or `/orders` is exactly right. **Are REST, gRPC, or GraphQL wrong, then? No — each was built for a shape of API it handles well.** Trame simply takes a different direction: a *command-oriented* web API where the following come up naturally:
 
-- **Verb-noun mismatch**: `POST /api/customer/42/add-address` is not RESTful, but it's what you actually need
-- **N+1 query problem**: Need a customer, then their orders, then each order's items? That's 3 sequential HTTP roundtrips — the client waits for each response before sending the next request
-- **No batching**: Want to call 10 methods in one go? REST gives you no way to do this — 10 separate HTTP requests, 10 separate connections, 10× the overhead
-- **No dependency resolution**: Call A returns an ID that Call B needs? The client must manually parse A's response, extract the ID, and pass it to B — every time
+- **Verb-noun mismatch**: `POST /api/customer/42/add-address` isn't RESTful, but it's what a command-oriented API actually needs
+- **N+1 roundtrips for dependent data**: a customer, then their orders, then each order's items is 3 sequential HTTP roundtrips — the client waits on each before sending the next
+- **No batching**: 10 method calls means 10 separate HTTP requests and connections
+- **No dependency resolution**: when call A returns an ID that call B needs, the client manually parses A, extracts the ID, and passes it to B — every time
 
-GraphQL solves some of this with query composition, but brings its own complexity: schema-first design, resolvers, a separate type system, and it's still HTTP/1.1 under the hood.
+GraphQL addresses composition with a schema, resolvers, and a separate type system — and does it well, at the cost of that schema-first layer.
 
-## Why Not gRPC?
+None of this is a knock on REST. Its ubiquity forced everyone — for a generation — to think in terms of a *web API*: resources, verbs, status codes, content negotiation, stateless scaling. That discipline was extremely helpful and is now second nature. The friction above is what shows up when that same resource-oriented shape is pressed into *command-oriented* work.
 
-gRPC is the obvious choice for RPC on .NET — so why build something else?
+Trame doesn't strip the web API away — it keeps it. Calls travel over HTTP with JSON, through standard ASP.NET Core middleware, and the contract is consumable from any language, not just .NET. To honor that web-API layer rather than treat it as plumbing, Trame ships **runtime discovery** (`GET /api/trame/discovery` returns the full contract: controllers, methods, parameter schemas, documentation, examples) and a **developer UI** that lets you browse and try calls in the browser. That makes Trame a discoverable, language-neutral, command-oriented web API — not a closed channel between two .NET ends. What it drops is only the resource orientation: commands stop having to masquerade as nouns.
 
-1. **gRPC was not well-supported** when Trame was created. gRPC-Web (for browsers) required a proxy, native browser support was missing, and the .NET tooling was still immature.
-2. **Schema-first is the wrong default for .NET developers.** gRPC requires `.proto` files, a code generator, and a separate build step. You write your schema in a DSL, generate C# stubs, then implement them. In .NET, your C# classes *already are* the schema — why maintain a second definition in a different language?
-3. **gRPC locks you to one transport.** HTTP/2 + Protobuf is great for server-to-server, but browsers need gRPC-Web, and you can't use it over plain WebSocket or REST without a separate implementation.
+## Trame vs gRPC — a different direction
+
+gRPC is a strong, sensible choice for RPC on .NET. Trame isn't a rejection of it — it takes a different direction on three axes:
+
+1. **History.** When Trame started, gRPC-Web (for browsers) required a proxy, native browser support was missing, and the .NET tooling was still immature. That's no longer true today; it's the historical reason Trame exists.
+2. **Code-first, not schema-first.** gRPC requires `.proto` files, a code generator, and a separate build step — you write the schema in a DSL, generate C# stubs, then implement them. That's a deliberate, well-justified choice in gRPC. Trame goes the other way: in .NET your C# classes *already are* the schema, so it keeps a single definition and generates discovery metadata at runtime.
+3. **Transport choice.** gRPC standardizes on one wire — HTTP/2 + Protobuf, great for server-to-server — and reaches browsers via gRPC-Web. Trame lets the *same* call run over REST, WebSocket, or SignalR, so you pick the transport per deployment, not per call.
 
 Trame is **code-first**: you write C# classes and methods, decorate them with attributes, and the framework handles the rest. No `.proto` files, no code generation, no separate schema. Discovery metadata is generated at runtime from your code.
 
@@ -42,11 +50,11 @@ Trame is **code-first**: you write C# classes and methods, decorate them with at
 | Streaming | ❌ | ✅ `IAsyncEnumerable<T>` |
 | Authorization | ❌ (transport-level) | ✅ `[TrameAuthorise]` |
 | Error model | ✅ basic (`code` + `message`) | ✅ `TrameError` with details + requestId |
-| .NET integration | ❌ (libraries exist, but no framework) | ✅ native ASP.NET Core middleware |
+| .NET integration | partial (StreamJsonRpc & libs) | ✅ native ASP.NET Core middleware |
 | Transport definitions | ❌ (spec is format-only) | ✅ REST + WebSocket + SignalR defined |
 | Pre-compiled invocation | ❌ (reflection) | ✅ Expression Trees |
 
-**In short**: JSON-RPC defines a *wire format*, Trame is a *framework*. JSON-RPC tells you how to format the JSON, but doesn't help you discover methods, resolve dependencies, stream results, authorize calls, or integrate with .NET DI. Trame was built without knowing JSON-RPC existed, but ended up solving the same core problem (REST is wrong for RPC) with significantly more functionality.
+**In short**: JSON-RPC defines a *wire format*, Trame is a *framework*. JSON-RPC tells you how to format the JSON, but doesn't help you discover methods, resolve dependencies, stream results, authorize calls, or integrate with .NET DI. Trame was built without knowing JSON-RPC existed, but ended up solving a similar core problem — a command-oriented web API on .NET — with a different emphasis: discovery, dependency chaining, streaming, authorization, and DI integration built into the framework rather than left to the caller.
 
 ## Why Trame?
 
@@ -55,33 +63,35 @@ Trame is **code-first**: you write C# classes and methods, decorate them with at
 | Designed for RPC | ❌ | ✅ | partial | ✅ | ✅ |
 | Code-first (no IDL) | ✅ | ❌ (`.proto`) | ❌ (schema) | ✅ | ✅ |
 | Browser-native (no proxy) | ✅ | ❌ (gRPC-Web) | ✅ | ✅ | ✅ |
-| Multi-transport | ❌ | ❌ | ❌ | format-only | ✅ REST + WebSocket + SignalR |
+| Multi-transport | ❌ | partial (gRPC-Web via proxy) | ✅ HTTP + WS subscriptions | format-only | ✅ same call over REST + WebSocket + SignalR |
 | Batch-calls | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Dependency-chaining | ❌ | ❌ | ✅ | ❌ | ✅ |
 | Type contracts | ❌ | ✅ | ✅ | ❌ | ✅ |
 | Streaming | ❌ | ✅ | ✅ | ❌ | ✅ `IAsyncEnumerable<T>` |
-| Interceptor-pipeline | ❌ | ✅ | ❌ | ❌ | ✅ |
-| API-Discovery | OpenAPI | ❌ | Introspection | ❌ | ✅ built-in |
-| Developer-UI | Swagger | ❌ | GraphiQL | ❌ | ✅ |
-| Rate-limiting | manual | ❌ | ❌ | ❌ | ✅ built-in |
+| Interceptor-pipeline | ❌ | ✅ | ✅ (HTTP/socket + field middleware) | ❌ | ✅ |
+| API-Discovery | OpenAPI | ✅ (reflection) | Introspection | ❌ | ✅ built-in |
+| Developer-UI | Swagger | grpcui | GraphiQL | ❌ | ✅ |
+| Rate-limiting | manual | ❌ | partial (concurrency + cost) | ❌ | ✅ built-in |
 
-Trame was designed from the ground up for RPC — not as a REST wrapper, but as a proper RPC framework that happens to support REST as one of several transports:
+> **On transport, honestly:** GraphQL is not HTTP-only — the spec (and Hot Chocolate on .NET) supports subscriptions over WebSocket, and gRPC reaches browsers via gRPC-Web. The distinction is *what the transports carry*. In GraphQL, HTTP serves queries/mutations and WebSocket serves subscriptions — different operation types on different channels. In Trame the **same** call runs over REST, WebSocket, or SignalR with identical wire semantics; you pick the transport per deployment, not per operation. Trame's actual differentiator is **dependency chaining** (above), not multi-transport.
+
+Trame was designed from the ground up as a **command-oriented web API** — not a REST wrapper, but a proper framework for command-oriented APIs that happens to support REST as one of several transports:
 
 1. **Method-oriented, not resource-oriented**: `[TrameController("Customer")]` + `[TrameMethod("AddOrder")]` — no URL routing, no HTTP verbs to choose, no DTO mapping
-2. **Batch calls**: Send 10 RPC calls in one roundtrip — the server executes them and returns 10 responses
+2. **Batch calls**: Send 10 calls in one roundtrip — the server executes them and returns 10 responses
 3. **Dependency chaining** (GraphQL-inspired): One request exposes values via `Exposes("$", "orderId")` (result-relative JSON path), the next uses `WithAlias("@orderId")` — the server resolves dependencies in a single roundtrip
 4. **Multi-transport**: REST for compatibility, WebSocket for low-latency persistent connections, SignalR for browser clients — same API, different wire protocols
 5. **Expression-Tree invocation**: Methods are pre-compiled to delegates at registration time — no reflection per call
 
 | | REST | gRPC | SignalR | **Trame** |
 |---|---|---|---|---|
-| Multi-Transport | no | no | no | **yes** (REST + WebSocket + SignalR) |
+| Multi-Transport | no | partial (gRPC-Web) | no | **yes** (REST + WebSocket + SignalR) |
 | Batch-Calls | no | no | no | **yes** |
 | Dependency-Chaining | no | no | no | **yes** |
 | Streaming | no | yes | yes | **yes** (IAsyncEnumerable<T>) |
-| Interceptor-Pipeline | no | yes | no | **yes** |
-| API-Discovery | OpenAPI | no | no | **yes** (built-in) |
-| Developer-UI | Swagger | no | no | **yes** |
+| Interceptor-Pipeline | no | yes | yes (hub filters) | **yes** |
+| API-Discovery | OpenAPI | yes (reflection) | no | **yes** (built-in) |
+| Developer-UI | Swagger | grpcui | no | **yes** |
 | Rate-Limiting | manual | no | no | **yes** (built-in) |
 
 ## Performance
@@ -189,7 +199,7 @@ var responses = await client.Call(batch);
 ## Features
 
 - **Multi-Transport**: Same API over REST, WebSocket, and SignalR
-- **Batch-Calls**: Execute multiple RPC calls in a single roundtrip (parallel or serial)
+- **Batch-Calls**: Execute multiple calls in a single roundtrip (parallel or serial)
 - **Dependency-Chaining**: Chain calls with @alias placeholders resolved server-side
 - **Streaming**: IAsyncEnumerable<T> support, serialized as JSON arrays
 - **Interceptor-Pipeline**: ITrameInterceptor for logging, tracing, caching, validation
