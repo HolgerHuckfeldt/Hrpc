@@ -384,7 +384,7 @@ graph LR
   - `Trame.WebSocket` – WebSocket-Transport
   - `Trame.Client` – Client-Bibliothek
   - `Trame.DeveloperUi` – Developer-UI
-  - `Trame.All` – Meta-Paket (referenziert alle)
+  - `Trame.Server` – Meta-Paket (referenziert alle Transporte + DevUI)
 - [ ] `dotnet pack` in CI-Pipeline
 - [ ] NuGet-Source-Set (öffentliche Registry oder Private Feed)
 - [ ] Symbol-Packages (`snupkg`) für Debugging

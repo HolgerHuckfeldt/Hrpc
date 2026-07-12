@@ -282,8 +282,8 @@ Trame v1 is intentionally focused. These are deliberate scope decisions, not bug
 ## Installation
 
 ```xml
-<!-- Server: all transports -->
-<PackageReference Include="Trame.All" Version="1.0.0" />
+<!-- Server: all transports (hub + REST + WebSocket + DevUI) -->
+<PackageReference Include="Trame.Server" Version="1.0.0" />
 
 <!-- Or individual transports -->
 <PackageReference Include="Trame.Core" Version="1.0.0" />

@@ -220,8 +220,8 @@ var responses = await client.Call(batch);
 ## Installation (NuGet)
 
 ```xml
-<!-- Server: alle Transports -->
-<PackageReference Include="Trame.All" Version="1.0.0" />
+<!-- Server: alle Transports (Hub + REST + WebSocket + DevUI) -->
+<PackageReference Include="Trame.Server" Version="1.0.0" />
 
 <!-- Oder einzelne Transports -->
 <PackageReference Include="Trame.Core" Version="1.0.0" />

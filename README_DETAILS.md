@@ -275,8 +275,8 @@ Trame v1 is intentionally focused. The following are deliberate scope decisions,
 ## Installation (NuGet)
 
 ```xml
-<!-- Server: all transports -->
-<PackageReference Include="Trame.All" Version="1.0.0" />
+<!-- Server: all transports (hub + REST + WebSocket + DevUI) -->
+<PackageReference Include="Trame.Server" Version="1.0.0" />
 
 <!-- Or individual transports -->
 <PackageReference Include="Trame.Core" Version="1.0.0" />
