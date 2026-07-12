@@ -267,6 +267,7 @@ Trame v1 is intentionally focused. The following are deliberate scope decisions,
 | TrameWebSocket | WebSocket transport (RFC 6455, JSON text frames) |
 | TrameClient | Client library (REST, WebSocket, SignalR clients) |
 | TrameDeveloperUi | Built-in developer web UI |
+| TrameTelemetry | Optional OpenTelemetry SDK bootstrap (subscribes the `Trame` source, wires OTLP/Console exporters + AspNetCore/HttpClient instrumentation) |
 | Trame | Sample application |
 | TrameTests | Unit + integration tests |
 | TrameBench | Performance benchmarks |
@@ -277,6 +278,9 @@ Trame v1 is intentionally focused. The following are deliberate scope decisions,
 <!-- Server: all transports (hub + REST + WebSocket + DevUI) -->
 <PackageReference Include="Trame.Server" Version="1.0.0" />
 
+<!-- Optional: OpenTelemetry SDK bootstrap -->
+<PackageReference Include="Trame.Telemetry" Version="1.0.0" />
+
 <!-- Or individual transports -->
 <PackageReference Include="Trame.Core" Version="1.0.0" />
 <PackageReference Include="Trame.Hub" Version="1.0.0" />
@@ -286,6 +290,17 @@ Trame v1 is intentionally focused. The following are deliberate scope decisions,
 <!-- Client -->
 <PackageReference Include="Trame.Client" Version="1.0.0" />
 ```
+
+### Distributed Tracing
+
+Trame instruments the engine directly in `TrameCore` via a public `ActivitySource` named **`Trame`** (`TrameCore.Tracing.TrameTracing.ActivitySourceName`). The instrumentation is always on but cost-neutral — `ActivitySource.StartActivity` returns `null` when nothing subscribes, so there is no allocation or bookkeeping unless a listener (the OTel SDK or a custom `ActivityListener`) is attached. No NuGet dependency is added to `TrameCore`/`TrameServer` for this; `System.Diagnostics` is in-box for .NET 8.
+
+Spans emitted (OTel RPC semantic conventions):
+
+- **`TrameCall`** — one per request, started in both the single-call path (`InvokeDi(TrameRequest)`) and the per-request batch path (`ExecuteSingleInvocation`). Tags: `rpc.system=trame`, `rpc.service`, `rpc.method`, `trame.request_id` (only when `Id` is non-empty), `trame.binary.length` (only when `BinaryData` is non-empty). Status set from the response (`Ok` when `IsSuccess`, else `Error` with `Error.Message`). On an escaping exception the catch adds `exception.type`/`exception.message`/`exception.stacktrace` (via `TrameTracing.RecordException`, which replaces `Activity.RecordException` — the extension is not resolvable in a net8.0 class library).
+- **`TrameBatch`** — one per batch, started in `InvokeDi(IEnumerable<TrameRequest>)`. Tags: `rpc.system=trame`, `trame.batch.mode` (`Parallel`/`Serial`, or `DependencyBatches` when auto-detect routes to topological execution), `trame.batch.count`. The per-request `TrameCall` spans are children via `Activity.Current` parenting — a single batch yields one parent + N children.
+
+`Trame.Telemetry` is the optional package that boots the OTel SDK: `AddTrameTelemetry` calls `AddOpenTelemetry().WithTracing(b => b.AddSource("Trame") …)` with configurable service name, OTLP/Console exporter, and AspNetCore/HttpClient instrumentation gates. `TrameServer` does **not** reference it, keeping the OTel SDK dependencies out of the all-in-one bundle. Consumers who need custom samplers/resources/exporters skip `AddTrameTelemetry` and call `AddOpenTelemetry().WithTracing(b => b.AddSource("Trame"))` directly — the source name is the only integration point.
 
 ## Requirements
 

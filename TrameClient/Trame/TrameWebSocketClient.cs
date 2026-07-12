@@ -499,7 +499,7 @@ public class TrameWebSocketClient : TrameClientBase, ITrameClient, IAsyncDisposa
                         _webSocket = socket;
                         StartReader();
                         SetState(TrameConnectionState.Connected);
-                        _logger?.LogInformation("WebSocket reconnect nach {Attempt} Versuch(en) wiederhergestellt.", i + 1);
+                        _logger?.LogInformation("WebSocket reconnected after {Attempt} attempt(s).", i + 1);
                         return; // Erfolg
                     }
                     catch (OperationCanceledException)
@@ -509,7 +509,7 @@ public class TrameWebSocketClient : TrameClientBase, ITrameClient, IAsyncDisposa
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogWarning("WebSocket reconnect Versuch {Attempt} fehlgeschlagen: {Message}", i + 1, ex.Message);
+                        _logger?.LogWarning("WebSocket reconnect attempt {Attempt} failed: {Message}", i + 1, ex.Message);
                         try { socket.Dispose(); } catch { /* ignore */ }
                         // weiter zum nächsten Backoff-Intervall
                     }
@@ -522,7 +522,7 @@ public class TrameWebSocketClient : TrameClientBase, ITrameClient, IAsyncDisposa
 
             // Backoff erschöpft → aufgeben.
             SetState(TrameConnectionState.Disconnected);
-            _logger?.LogWarning("WebSocket reconnect erschöpft — Verbindung bleib offline.");
+            _logger?.LogWarning("WebSocket reconnect exhausted — connection stays offline.");
         }
         catch (OperationCanceledException)
         {

@@ -305,7 +305,7 @@ graph LR
   ```
 - [ ] Vor/nach Methodenaufruf: Logging, Tracing, Caching, Validation, Metrics
 - [ ] Registrierung via DI: `builder.Services.AddTrameInterceptor<LoggingInterceptor>()`
-- [ ] OpenTelemetry-Kompatibilität (Tracing-Spans pro RPC-Call)
+- [x] OpenTelemetry-Kompatibilität (Tracing-Spans pro RPC-Call)
 
 ### 4.5 Akzeptanzkriterien Phase 4
 - [ ] Dependency-System unterstützt parallele Batches mit topologischer Sortierung
@@ -385,6 +385,7 @@ graph LR
   - `Trame.Client` – Client-Bibliothek
   - `Trame.DeveloperUi` – Developer-UI
   - `Trame.Server` – Meta-Paket (referenziert alle Transporte + DevUI)
+  - `Trame.Telemetry` – Optionaler OpenTelemetry-SDK-Bootstrap (abonniert den `Trame`-ActivitySource, OTLP/Console-Exporter + AspNetCore/HttpClient-Instrumentierung)
 - [ ] `dotnet pack` in CI-Pipeline
 - [ ] NuGet-Source-Set (öffentliche Registry oder Private Feed)
 - [ ] Symbol-Packages (`snupkg`) für Debugging

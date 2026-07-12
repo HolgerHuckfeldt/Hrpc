@@ -52,8 +52,8 @@ public static class BatchParallelScenario
         var cust1 = c1.Data?.Deserialize<Customer>(SampleJson.Default);
         var cust2 = c2.Data?.Deserialize<Customer>(SampleJson.Default);
 
-        await w.WriteLineAsync($"  [all]    GetAllCustomers -> {list?.Count ?? 0} Kunde(n)");
-        await w.WriteLineAsync($"  [c1]     GetCustomerById(1) -> {cust1?.Name ?? "<fehl>"} (code {c1.Code})");
-        await w.WriteLineAsync($"  [c2]     GetCustomerById(2) -> {cust2?.Name ?? "<fehl>"} (code {c2.Code})");
+        await w.WriteLineAsync($"  [all]    GetAllCustomers -> {list?.Count ?? 0} customer(s)");
+        await w.WriteLineAsync($"  [c1]     GetCustomerById(1) -> {cust1?.Name ?? "<none>"} (code {c1.Code})");
+        await w.WriteLineAsync($"  [c2]     GetCustomerById(2) -> {cust2?.Name ?? "<none>"} (code {c2.Code})");
     }
 }

@@ -25,6 +25,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrameBench", "TrameBench\Tr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrameServer", "TrameServer\TrameServer.csproj", "{AE58E6C9-7992-42C5-BA5D-1AA3CC03690A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrameTelemetry", "TrameTelemetry\TrameTelemetry.csproj", "{6F961C91-8CF9-42F6-AD0E-3799B60394A3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -167,6 +169,18 @@ Global
 		{AE58E6C9-7992-42C5-BA5D-1AA3CC03690A}.Release|x64.Build.0 = Release|Any CPU
 		{AE58E6C9-7992-42C5-BA5D-1AA3CC03690A}.Release|x86.ActiveCfg = Release|Any CPU
 		{AE58E6C9-7992-42C5-BA5D-1AA3CC03690A}.Release|x86.Build.0 = Release|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Debug|x64.Build.0 = Debug|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Debug|x86.Build.0 = Debug|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Release|x64.ActiveCfg = Release|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Release|x64.Build.0 = Release|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Release|x86.ActiveCfg = Release|Any CPU
+		{6F961C91-8CF9-42F6-AD0E-3799B60394A3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -39,7 +39,7 @@ foreach (var key in toRun)
 {
     if (!scenarios.TryGetValue(key, out var s))
     {
-        Console.WriteLine($"Unbekanntes Szenario '{key}'. Erlaubt: 1, 2, 3, 4, all.");
+        Console.WriteLine($"Unknown scenario '{key}'. Allowed: 1, 2, 3, 4, all.");
         return;
     }
 
@@ -52,10 +52,10 @@ foreach (var key in toRun)
     try
     {
         await s.Run(client, Console.Out);
-        Console.WriteLine($"  -> Szenario '{key}' OK");
+        Console.WriteLine($"  -> Scenario '{key}' OK");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"  -> Szenario '{key}' FEHLER: {ex.Message}");
+        Console.WriteLine($"  -> Scenario '{key}' ERROR: {ex.Message}");
     }
 }

@@ -122,14 +122,19 @@ Request A declares `DependencyMapping: { "alias" → "$.Path" }` (a **result-rel
 ### Test Project (`TrameTests`)
 
 Uses **xUnit** + **FluentAssertions** + **Moq**. Tests are organized as:
-- `Unit/Core/` — `TrameInvokerTests`, `DependencyGraphBuilderTests`, `DependencyResolverTests`, `TrameDiscoveryServiceTests`
+- `Unit/Core/` — `TrameInvokerTests`, `DependencyGraphBuilderTests`, `DependencyResolverTests`, `TrameDiscoveryServiceTests`, `TrameTracingTests`
+- `Unit/Telemetry/` — `TrameTelemetryExtensionsTests`
 - `Unit/Client/` — `TrameClientTests`
 - `Integration/` — `RestTransportTests` (uses `WebApplicationFactory`)
 - `Fixtures/` — test controller definitions
 
 ### Code Conventions
 
-- The codebase uses **German** for comments, log messages, and error strings. New code should follow this convention.
+- The codebase uses **German** for comments and domain error strings (e.g. `TrameResults.*` messages, `[TrameDocumentation]` text). **Log messages and console output are in English.** New code should follow this split.
 - Controllers are registered via attribute scanning (`[TrameController]`), not manual registration.
 - The `TrameInvoker` is a singleton — controllers are resolved per-call via `IServiceScopeFactory.CreateScope()`.
 - Expression Tree compilation happens once at registration time, not per invocation.
+
+### Distributed Tracing
+
+`TrameCore.Tracing.TrameTracing` instruments the engine with an always-on `ActivitySource` named `"Trame"` (public class so `ActivitySourceName` is reachable from the optional `Trame.Telemetry` package; all other members are `internal`). Instrumentation lives **directly in `TrameInvoker`** at three sites (single-call `InvokeDi(TrameRequest)`, batch dispatcher `InvokeDi(IEnumerable<TrameRequest>)`, and per-request `ExecuteSingleInvocation`) — not as an `ITrameInterceptor`, because the batch path bypasses the interceptor pipeline. It is cost-neutral: `StartActivity` returns `null` without a listener, and it is not DI-registered, so the two parallel registration factories (`AddTrame` + `AddTrameCore`) need no synchronization. `Activity.RecordException` is unavailable in a net8.0 class library — `TrameTracing.RecordException` sets `exception.type`/`exception.message`/`exception.stacktrace` tags directly. `TrameServer` does **not** reference `Trame.Telemetry`; consumers opt in via `AddTrameTelemetry` (or their own `AddOpenTelemetry().WithTracing(b => b.AddSource("Trame"))`). Tracing/telemetry tests rely on the process-global `ActivityListener`, so they share the `trame-tracing` xUnit collection and use a test-harness activity to isolate their spans from parallel invoker-based tests.

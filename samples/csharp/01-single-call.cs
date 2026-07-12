@@ -23,7 +23,7 @@ public static class SingleCallScenario
             .ToRequest();
 
         int newId = await rest.Call<int>(addReq);
-        await w.WriteLineAsync($"  [REST]    AddCustomer  -> neue Id = {newId}");
+        await w.WriteLineAsync($"  [REST]    AddCustomer  -> new id = {newId}");
 
         // --- REST: Kunden laden (Call<T> deserialisiert direkt nach Customer) ------
         var getReq = TrameCall.Init("Customer", "GetCustomerById")
@@ -36,7 +36,7 @@ public static class SingleCallScenario
         // --- REST: alle Kunden (Liste) ---------------------------------------------
         var allReq = TrameCall.Init("Customer", "GetAllCustomers").ToRequest();
         var all = await rest.Call<List<Customer>>(allReq);
-        await w.WriteLineAsync($"  [REST]    GetAllCustomers -> {all?.Count ?? 0} Kunde(n)");
+        await w.WriteLineAsync($"  [REST]    GetAllCustomers -> {all?.Count ?? 0} customer(s)");
 
         // --- WebSocket: derselbe Aufruf über den persistenten Kanal ----------------
         // IAsyncDisposable. Der C#-WS-Client nimmt die Basis-URL (https://…) + einen
@@ -64,6 +64,6 @@ public static class SingleCallScenario
             Id = "Customer.GetAllCustomers",
         };
         var rawList = await rest.Call<List<Customer>>(raw);
-        await w.WriteLineAsync($"  [REST raw] GetAllCustomers -> {rawList?.Count ?? 0} Kunde(n)");
+        await w.WriteLineAsync($"  [REST raw] GetAllCustomers -> {rawList?.Count ?? 0} customer(s)");
     }
 }

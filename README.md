@@ -169,6 +169,7 @@ Limits: REST 1 MB body, WebSocket 1 MB/message, SignalR configurable. For large 
 - Binary support
 - Interceptor pipeline, authorization, rate-limiting
 - Expression-tree invocation (no reflection per call)
+- Distributed tracing via OpenTelemetry
 
 ---
 
@@ -280,11 +281,41 @@ Trame v1 is intentionally focused. These are deliberate scope decisions, not bug
 
 ---
 
+## Distributed Tracing
+
+Trame emits OpenTelemetry spans for every call and every batch — always on, but cost-neutral: the `ActivitySource` named **`Trame`** returns `null` when no listener is subscribed, so there is zero overhead unless you opt in. Spans follow the OTel RPC semantic conventions:
+
+- `TrameCall` — per request: `rpc.system=trame`, `rpc.service=<Controller>`, `rpc.method=<Method>`, `trame.request_id` (when set), `trame.binary.length` (for binary payloads), status `Ok`/`Error`, plus `exception.*` tags on escaping failures.
+- `TrameBatch` — per batch: `trame.batch.mode` (`Parallel`/`Serial`/`DependencyBatches`), `trame.batch.count`. Per-request `TrameCall` spans are children of the batch span.
+
+To export the spans, reference the optional **`Trame.Telemetry`** package and call `AddTrameTelemetry` next to `AddTrame`:
+
+```csharp
+using TrameHub.Extensions;
+using TrameServer;
+using TrameTelemetry;
+
+builder.Services.AddTrame(o => o.UseSignalR = true);
+builder.Services.AddTrameTelemetry(o =>
+{
+    o.ServiceName = "MyService";            // OTel resource service.name
+    o.Exporter = TrameExporter.Otlp;        // or TrameExporter.Console for local diagnosis
+    o.OtlpEndpoint = "http://localhost:4317"; // null → OTEL_EXPORTER_OTLP_ENDPOINT env var
+    o.IncludeAspNetCore = true;             // inbound HTTP spans (default)
+    o.IncludeHttpClient = true;              // outbound HTTP spans (default)
+});
+```
+
+`AddTrameTelemetry` subscribes to the `Trame` source and wires the exporters. Prefer your own `AddOpenTelemetry()` setup with `AddSource("Trame")` if you need custom samplers, resources, or exporters — the source name is the only integration point.
+
 ## Installation
 
 ```xml
 <!-- Server: all transports (hub + REST + WebSocket + DevUI) -->
 <PackageReference Include="Trame.Server" Version="1.0.0" />
+
+<!-- Optional: OpenTelemetry SDK bootstrap (OTLP/Console exporters + AspNetCore/HttpClient instrumentation) -->
+<PackageReference Include="Trame.Telemetry" Version="1.0.0" />
 
 <!-- Or individual transports -->
 <PackageReference Include="Trame.Core" Version="1.0.0" />

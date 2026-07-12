@@ -21,24 +21,24 @@ Console.WriteLine($"Data.GetRawText()={back.Data.Value.GetRawText()}");
 
 var orig = JsonNode.Parse(payload.GetRawText());
 var round = JsonNode.Parse(back.Data.Value.GetRawText());
-Console.WriteLine($"Semantisch gleich (Hülle): {JsonNode.DeepEquals(orig, round)}");
+Console.WriteLine($"Semantically equal (envelope): {JsonNode.DeepEquals(orig, round)}");
 
 // Null-Fall: JsonElement? = null → MessagePack nil.
 var respNull = new ProbeResponse { Code = 204, Data = null, Id = "req-2" };
 byte[] bytesN = MessagePackSerializer.Serialize(respNull, opts);
 var backN = MessagePackSerializer.Deserialize<ProbeResponse>(bytesN, opts);
-Console.WriteLine($"Null-Fall: Data.HasValue={backN.Data.HasValue} (erwartet False)");
+Console.WriteLine($"Null case: Data.HasValue={backN.Data.HasValue} (expected False)");
 
 // Direkter JsonElement?-Wert (keine Hülle).
 byte[] directBytes = MessagePackSerializer.Serialize<JsonElement?>(payload, opts);
 var directBack = MessagePackSerializer.Deserialize<JsonElement?>(directBytes, opts);
-Console.WriteLine($"Direkt round-trip gleich: {JsonNode.DeepEquals(JsonNode.Parse(payload.GetRawText()), JsonNode.Parse(directBack.Value.GetRawText()))}");
+Console.WriteLine($"Direct round-trip equal: {JsonNode.DeepEquals(JsonNode.Parse(payload.GetRawText()), JsonNode.Parse(directBack.Value.GetRawText()))}");
 
 // Skalar-JsonElement (Zahl).
 var scalar = JsonDocument.Parse("42").RootElement.Clone();
 byte[] scalarBytes = MessagePackSerializer.Serialize<JsonElement?>(scalar, opts);
 var scalarBack = MessagePackSerializer.Deserialize<JsonElement?>(scalarBytes, opts);
-Console.WriteLine($"Skalar 42 → {scalarBack.Value.GetRawText()}");
+Console.WriteLine($"Scalar 42 -> {scalarBack.Value.GetRawText()}");
 
 Console.WriteLine("SPIKE OK");
 

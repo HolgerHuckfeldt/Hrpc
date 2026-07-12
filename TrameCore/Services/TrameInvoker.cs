@@ -12,6 +12,7 @@ using System.Text.Json.Nodes;
 using TrameCore.Model.Messages.Mex;
 using TrameCore.Services.Helper;
 using System.Diagnostics;
+using TrameCore.Tracing;
 using Microsoft.Extensions.Logging; // Für JsonPath.Net
 
 namespace TrameCore.Services
@@ -123,10 +124,14 @@ namespace TrameCore.Services
         {
             var requestList = requests.ToList();
 
+            // Batch-Parent-Activity (rpc.system + trame.batch.mode/count). Null ohne Listener.
+            using var batchActivity = TrameTracing.StartBatch(requestList, mode);
+
             // Auto-detect: if requests have DependencyMappings, use batch-based
             // topological execution regardless of the specified mode.
             if (requestList.Any(r => r.DependencyMapping != null && r.DependencyMapping.Count > 0))
             {
+                batchActivity?.SetTag("trame.batch.mode", "DependencyBatches");
                 return await ExecuteInDependencyBatches(requestList, context, ct);
             }
 
@@ -157,18 +162,24 @@ namespace TrameCore.Services
             }
 
             var stopwatch = Stopwatch.StartNew();
+            // Call-Activity umschließt die ganze Interceptor-Pipeline — ein künftiger
+            // Tracing-Interceptor würde zum Kind-Span, kein Double-Count. Null ohne Listener.
+            using var activity = TrameTracing.StartCall(request);
             _logger.LogTrace("Starting RPC call {Controller}.{Method} with request ID {RequestId}", request.Controller, request.Method, request.Id);
 
             TrameResponse? response;
             try
             {
                 response = await pipeline(request, ct);
+                TrameTracing.SetCallStatus(activity, response);
                 _logger.LogDebug("RPC call {Controller}.{Method} completed. Status Code: {Code}", request.Controller, request.Method, response?.Code);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "RPC call {Controller}.{Method} failed.", request.Controller, request.Method);
                 response = InternalServerError("An internal error occurred while processing the request.", ex);
+                TrameTracing.RecordException(activity, ex);
+                TrameTracing.SetCallStatus(activity, response);
             }
             finally
             {
@@ -592,15 +603,17 @@ namespace TrameCore.Services
             HttpContext? context,
             CancellationToken ct)
         {
+            // Per-Request-Activity (Kind des Batch-Parents via Activity.Current). Null ohne Listener.
+            using var activity = TrameTracing.StartCall(request);
             try
             {
                 var controllerType = GetControllerType(request.Controller);
                 if (controllerType == null)
-                    return BadRequest($"Controller '{request.Controller}' not found.", HttpStatusCode.NotFound);
+                    return Status(BadRequest($"Controller '{request.Controller}' not found.", HttpStatusCode.NotFound));
 
                 string key = $"{request.Controller}_{request.Method}";
                 if (!_invokeCache.TryGetValue(key, out var invokeInfo))
-                    return BadRequest($"Method '{request.Method}' not found on controller '{request.Controller}'.");
+                    return Status(BadRequest($"Method '{request.Method}' not found on controller '{request.Controller}'."));
 
                 try
                 {
@@ -608,7 +621,7 @@ namespace TrameCore.Services
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    return Unauthorized();
+                    return Status(Unauthorized());
                 }
 
                 var parameters = BuildParameters(request.StringData, invokeInfo.MethodInfo!.GetParameters(), ct);
@@ -618,7 +631,7 @@ namespace TrameCore.Services
                 // dann fiel der Fehler durch zu ExecuteMethod(null-Args) → NRE → 500, und
                 // die saubere 400 (z. B. „überschreitet MaxParameterArrayLength") ging
                 // verloren. Auf Items==null prüfen (wie der Single-Call-Pfad bei Zeile 218).
-                if (parameters.Items == null) return parameters.Response;
+                if (parameters.Items == null) return Status(parameters.Response);
 
                 var result = await ExecuteMethod(invokeInfo, controllerType, parameters.Items!, ct);
                 if (result != null)
@@ -647,18 +660,26 @@ namespace TrameCore.Services
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex,
-                                "Dependency-Extraktion für Alias {Alias} (Pfad {Path}) fehlgeschlagen — Data lässt sich nicht auflösen.",
+                                "Failed to extract dependency for alias {Alias} (path {Path}) — result data could not be resolved.",
                                 alias, jsonPath);
                         }
                     }
                     result.ExposedDependencies = exposed;
                 }
 
-                return result;
+                return Status(result);
             }
             catch (Exception ex)
             {
-                return InternalServerError("An internal error occurred while processing the request.", ex);
+                TrameTracing.RecordException(activity, ex);
+                return Status(InternalServerError("An internal error occurred while processing the request.", ex));
+            }
+
+            // Setzt den OTel-Status aus der Response und reicht sie durch (ein Aufruf pro Return-Pfad).
+            TrameResponse? Status(TrameResponse? response)
+            {
+                TrameTracing.SetCallStatus(activity, response);
+                return response;
             }
         }
 

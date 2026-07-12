@@ -53,4 +53,4 @@ else
 }
 
 Console.WriteLine();
-Console.WriteLine("Done! Detaillierte Reports: BenchmarkDotNet.Artifacts/results/");
+Console.WriteLine("Done! Detailed reports: BenchmarkDotNet.Artifacts/results/");

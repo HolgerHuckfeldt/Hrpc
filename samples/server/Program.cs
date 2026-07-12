@@ -17,6 +17,7 @@
 
 using TrameHub.Extensions;
 using TrameServer;                       // UseTrameTransports, MapTrame
+using TrameTelemetry;                    // AddTrameTelemetry (optionales OTel-SDK)
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,6 +42,15 @@ builder.Services.AddTrame(o =>
     o.EnableDetailedErrors = builder.Environment.IsDevelopment();
     // Rate-Limit nur in Produktion; in der Demo keine Drosselung.
     o.RateLimitPermitLimit = builder.Environment.IsProduction() ? 50 : 0;
+});
+
+// Optional: OpenTelemetry-SDK booten und den „Trame"-ActivitySource abonnieren.
+// Console-Exporter schreibt jeden TrameCall-/TrameBatch-Span auf die Konsole —
+// für die Demo am einfachsten zu beobachten (Production: OTLP an einen Collector).
+builder.Services.AddTrameTelemetry(o =>
+{
+    o.ServiceName = "Trame.SampleServer";
+    o.Exporter = TrameExporter.Console;
 });
 
 // Fixe URL, damit die Client-Snippets (https://localhost:5001 / wss://…/tramews)

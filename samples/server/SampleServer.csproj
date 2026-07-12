@@ -13,9 +13,12 @@
   </PropertyGroup>
 
   <!-- Trame.Server zieht transitiv alle Transporte (REST, WebSocket, SignalR)
-       + Developer-UI + Core/Common. Ein Paket genügt. -->
+       + Developer-UI + Core/Common. Ein Paket genügt. Trame.Telemetry ist optional
+       (OTel-SDK-Bootstrap) und wird hier demonstrativ dazugenommen — die Spans
+       landen auf der Konsole, sodass ein Call/Batch sichtbar wird. -->
   <ItemGroup>
     <PackageReference Include="Trame.Server" Version="1.0.0" />
+    <PackageReference Include="Trame.Telemetry" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

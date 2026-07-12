@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TrameCore\TrameCore.csproj" />
+    <ProjectReference Include="..\TrameTelemetry\TrameTelemetry.csproj" />
     <ProjectReference Include="..\TrameClient\TrameClient.csproj" />
     <ProjectReference Include="..\TrameCommon\TrameCommon.csproj" />
     <ProjectReference Include="..\TrameHub\TrameHub.csproj" />
