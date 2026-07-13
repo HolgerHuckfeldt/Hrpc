@@ -105,9 +105,12 @@ public static class DependencyGraphBuilder
     }
 
     /// <summary>
-    /// Extracts all @alias placeholders from a JSON parameter string.
+    /// Extrahiert alle @alias-Platzhalter aus einem JSON-Parameter-String. Rein statischer
+    /// Token-Scan (kein JSON-Parse) — wird für die statische Verfügbarkeits-Propagierung im
+    /// Invoker genutzt, wo die Abhängigkeiten noch nicht aufgelöst sind. Die präzise Match-Logik
+    /// liegt im Invoker (ReplaceDependencyByAlias); hier reicht die grobe Erkennung.
     /// </summary>
-    private static HashSet<string> ExtractAliases(string json)
+    internal static HashSet<string> ExtractAliases(string json)
     {
         var aliases = new HashSet<string>(StringComparer.Ordinal);
         if (string.IsNullOrEmpty(json))

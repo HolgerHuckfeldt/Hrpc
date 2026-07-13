@@ -148,8 +148,6 @@ namespace TrameHub.Extensions
         public static IApplicationBuilder UseTrame(
             this IApplicationBuilder app)
         {
-            app.ApplicationServices.CreateScope();
-
             var trameService = app.ApplicationServices.GetService<TrameCore.Services.ITrameCore>();
             if (trameService == null)
             {

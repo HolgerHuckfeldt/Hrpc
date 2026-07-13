@@ -76,6 +76,18 @@ namespace TrameCore.Services
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         };
 
+        // Statische Options für die Serialisierung der aufgelösten Parameter-JsonNode
+        // in ResolveParameterValues (WriteIndented + keine Naming-Policy → Original-
+        // schreibweise der Parameter-Keys bleibt erhalten). JsonSerializerOptions sind
+        // teuer zu bauen (interner TypeInfo-Cache); eine static-Instanz vermeidet die
+        // Pro-Call-Allokation im Chaining-Heißpfad. Nach dem ersten Gebrauch eingefroren
+        // → threadsicher für serialisierende Lesezugriffe.
+        private static readonly JsonSerializerOptions _aliasResolveJsonOptions = new()
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = null,
+        };
+
 
         public TrameInvoker(IServiceScopeFactory serviceScopeFactory, ILogger<TrameInvoker> logger, IEnumerable<ITrameInterceptor>? interceptors = null)
         {
@@ -298,8 +310,24 @@ namespace TrameCore.Services
             CancellationToken ct)
         {
             var requestList = requests.ToList();
+
+            // Serialer Auth-Pre-Pass: Lookup + Autorisierung pro Request. Das ist die einzige
+            // Stelle, die den HttpContext berührt — bewusst serial, bevor der Fan-out per
+            // Task.WhenAll die Ausführung parallelisiert. HttpContext ist nicht threadsicher;
+            // durch den Pre-Pass erreicht die parallele Region den Context nie (OnAuthorization-
+            // Overrides dürfen ebenfalls nicht concurrent darauf schreiben — s. CLAUDE.md).
+            var decisions = new AuthDecision[requestList.Count];
+            for (int i = 0; i < requestList.Count; i++)
+                decisions[i] = await ResolveAndAuthorizeAsync(requestList[i], context, ct);
+
+            // Fan-out (OHNE Context): nur ExecuteAuthorized läuft parallel. Es berührt weder den
+            // Context noch teilt es veränderbares State — ExecuteMethod erzeugt eigenen DI-Scope.
             var results = await Task.WhenAll(
-                requestList.Select(request => ExecuteSingleInvocation(request, context, ct)));
+                requestList.Select((request, i) =>
+                    decisions[i].IsError
+                        ? Task.FromResult(decisions[i].Error)
+                        : ExecuteAuthorized(request, decisions[i].Info!, decisions[i].ControllerType!, ct)));
+
             // RequestId durchreichen (Erfolgspfade setzen die Id bereits, Fehlerpfade nicht).
             for (int i = 0; i < results.Length; i++)
             {
@@ -333,7 +361,7 @@ namespace TrameCore.Services
                 {
                     // Error-Response muss die Request-Id tragen, damit Clients den
                     // fehlerhaften Schritt korrelieren können — analog zum topologischen
-                    // Pfad (ExecuteSingleInvocationWithDependencies setzt err.Id ebenfalls).
+                    // Pfad (ExecuteDependentRequestAsync setzt err.Id ebenfalls).
                     if (string.IsNullOrEmpty(resolution.Error.Id))
                         resolution.Error.Id = current?.Id ?? string.Empty;
                     responses.TryAdd(current?.Id ?? String.Empty, resolution.Error);
@@ -350,7 +378,14 @@ namespace TrameCore.Services
                     DependencyMapping = current.DependencyMapping
                 };
 
-                var result = await ExecuteSingleInvocation(effectiveRequest, context, ct);
+                // Serial-Pfad: Lookup + Auth (ResolveAndAuthorizeAsync) und Ausführung
+                // (ExecuteAuthorized) nacheinander — serial, daher kein Context-Race. Die
+                // Aufteilung dient der Code-Teilung mit den Parallel-/Topologie-Pfaden.
+                var decision = await ResolveAndAuthorizeAsync(effectiveRequest, context, ct);
+                TrameResponse? result = decision.IsError
+                    ? decision.Error
+                    : await ExecuteAuthorized(effectiveRequest, decision.Info!, decision.ControllerType!, ct);
+
                 if (result != null && string.IsNullOrEmpty(result.Id))
                     result.Id = current?.Id ?? string.Empty;
                 responses.TryAdd(current?.Id ?? String.Empty, result);
@@ -362,8 +397,16 @@ namespace TrameCore.Services
 
 
         /// <summary>
-        /// Executes requests in topological batches: independent requests run in parallel,
-        /// dependent requests wait for their dependencies to complete.
+        /// Führt Requests in topologischen Batches aus: unabhängige Requests laufen parallel
+        /// (Task.WhenAll pro Batch), abhängige Requests warten auf ihre Provider aus früheren
+        /// Batches. Der HttpContext wird <b>serial im Auth-Pre-Pass pro Batch</b> berührt —
+        /// die parallele Ausführung greift nie concurrent darauf zu. Fehlgeschlagene Provider
+        /// (401/Fehler/nicht-exportiert) werden propagiert: ihre Dependents laufen nicht, sondern
+        /// bekommen eine erklärende 400 (siehe <see cref="ExplainUnavailability"/>), statt erst
+        /// zur Laufzeit am fehlenden Alias mit nichtssagendem „Unresolved dependencies" zu
+        /// scheitern. Die Transitivität fällt natürlich heraus: ein übersprungener Provider
+        /// hat keine ExposedDependencies → seine Dependents werden im nächsten Batch ebenfalls
+        /// als unavailable erkannt usw.
         /// </summary>
         private async Task<IEnumerable<TrameResponse?>> ExecuteInDependencyBatches(
             List<TrameRequest> requests,
@@ -387,25 +430,49 @@ namespace TrameCore.Services
                 });
             }
 
+            // alias → Graph-Key des Providers (statisch aus den DependencyMapping-Keys). Muss
+            // die gleiche Key-Auflösung wie DependencyGraphBuilder nutzen, damit die Propagierung
+            // den Provider in priorResponses findet (siehe GraphKey).
+            var aliasToProvider = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var r in requests)
+            {
+                if (r.DependencyMapping != null)
+                {
+                    foreach (var kvp in r.DependencyMapping)
+                        aliasToProvider[kvp.Key] = GraphKey(r);
+                }
+            }
+
             var allResponses = new List<TrameResponse?>();
 
-            // Aufgetürmte Responses VORHERIGER Batches — abhängige Requests lesen
-            // hieraus ihre @alias-Platzhalter (analog zu ExecuteSequentially). Innerhalb
-            // eines Batches sind die Requests per Kahn unabhängig, daher darf ein Batch
-            // nur die Responses früherer Batches sehen (die Writes erfolgen erst nach
-            // Task.WhenAll, also ohne Race innerhalb des Batches).
+            // Aufgetürmte Responses VORHERIGER Batches — abhängige Requests lesen hieraus ihre
+            // @alias-Platzhalter (analog zu ExecuteSequentially) UND die Verfügbarkeits-
+            // Propagierung schlägt hier nach, ob ein Provider fehlgeschlagen ist. Innerhalb
+            // eines Batches sind die Requests per Kahn unabhängig, daher darf ein Batch nur
+            // die Responses früherer Batches sehen (die Writes erfolgen erst nach Task.WhenAll,
+            // also ohne Race innerhalb des Batches). Gekeyt nach GraphKey (nicht nach response.Id,
+            // damit auch Request-Ids konsistent mit dem GraphBuilder aufgelöst werden).
             var priorResponses = new ConcurrentDictionary<string, TrameResponse?>();
 
             foreach (var batch in batches)
             {
-                var batchResponses = await Task.WhenAll(
-                    batch.Select(request => ExecuteSingleInvocationWithDependencies(
-                        request, priorResponses, context, ct)));
-                foreach (var response in batchResponses)
+                // Serialer Auth-Pre-Pass pro Batch (Context nur hier, serial): Lookup +
+                // Autorisierung je Request, bevor der Fan-out die Ausführung parallelisiert.
+                var decisions = new AuthDecision[batch.Count];
+                for (int i = 0; i < batch.Count; i++)
+                    decisions[i] = await ResolveAndAuthorizeAsync(batch[i], context, ct);
+
+                // Fan-out (OHNE Context): Auth-Fehler → gemerkte Response; sonst Verfügbarkeits-
+                // Check gegen priorResponses, dann @alias-Auflösung + ExecuteAuthorized.
+                var batchResponses = await Task.WhenAll(batch.Select((request, i) =>
+                    ExecuteDependentRequestAsync(request, decisions[i], priorResponses, aliasToProvider, ct)));
+
+                for (int i = 0; i < batchResponses.Length; i++)
                 {
+                    var response = batchResponses[i];
                     allResponses.Add(response);
-                    if (!string.IsNullOrEmpty(response?.Id))
-                        priorResponses.TryAdd(response.Id, response);
+                    if (response != null)
+                        priorResponses[GraphKey(batch[i])] = response;
                 }
             }
 
@@ -413,27 +480,57 @@ namespace TrameCore.Services
         }
 
         /// <summary>
-        /// Executes a single invocation with dependency resolution from prior responses.
-        /// Löst @alias-Platzhalter anhand von priorResponses auf (sofern vorhanden)
-        /// und baut einen effektiven Request mit ersetzten Parametern — identisch zum
-        /// Mechanismus in ExecuteSequentially. Ohne priorResponses (Wurzel-Batch) wird
-        /// der Request direkt ausgeführt.
+        /// Graph-Key eines Requests — identisch zur Auflösung in
+        /// <see cref="DependencyGraphBuilder.SortByDependencyBatches"/>: Request-Id, oder
+        /// Fallback <c>Controller.Method</c> bei leerer Id. Gehäkelt mit dem GraphBuilder, damit
+        /// die Verfügbarkeits-Propagierung den Provider in priorResponses findet.
         /// </summary>
-        private async Task<TrameResponse?> ExecuteSingleInvocationWithDependencies(
+        private static string GraphKey(TrameRequest r)
+        {
+            var id = r.Id ?? string.Empty;
+            return !string.IsNullOrEmpty(id) ? id : $"{r.Controller}.{r.Method}";
+        }
+
+        /// <summary>
+        /// Führt einen einzelnen abhängigen Request im topologischen Pfad aus (parallel im Fan-out,
+        /// KEIN HttpContext). Reihenfolge: Auth-Fehler aus dem Pre-Pass → Verfügbarkeits-
+        /// Propagierung gegen priorResponses → @alias-Auflösung → ExecuteAuthorized.
+        /// </summary>
+        private async Task<TrameResponse?> ExecuteDependentRequestAsync(
             TrameRequest request,
-            ConcurrentDictionary<string, TrameResponse?>? priorResponses,
-            HttpContext? context,
+            AuthDecision decision,
+            ConcurrentDictionary<string, TrameResponse?> priorResponses,
+            Dictionary<string, string> aliasToProvider,
             CancellationToken ct)
         {
-            TrameRequest effective = request;
-            if (priorResponses != null && !string.IsNullOrEmpty(request?.StringData))
+            // Auth-Fehler aus dem Pre-Pass → bereits getracete Response.
+            if (decision.IsError)
+            {
+                var err = decision.Error!;
+                if (string.IsNullOrEmpty(err.Id)) err.Id = request?.Id ?? string.Empty;
+                return err;
+            }
+
+            // Verfügbarkeits-Propagierung: ist einer der konsumierten Aliase von einem
+            // fehlgeschlagenen Provider nicht bedient? Dann läuft dieser Request nicht, sondern
+            // bekommt eine erklärende 400 — spart die verschwendete Ausführung und benennt die
+            // Ursache (statt nichtssagendem „Unresolved dependencies" weiter unten).
+            var unavailable = ExplainUnavailability(request!, aliasToProvider, priorResponses);
+            if (unavailable != null)
+            {
+                if (string.IsNullOrEmpty(unavailable.Id)) unavailable.Id = request?.Id ?? string.Empty;
+                return unavailable;
+            }
+
+            // @alias-Auflösung gegen priorResponses (bestehend).
+            TrameRequest effective = request!;
+            if (!string.IsNullOrEmpty(request?.StringData))
             {
                 var resolution = ResolveParameterValues(request, priorResponses);
                 if (resolution.Error != null)
                 {
                     var err = resolution.Error;
-                    if (string.IsNullOrEmpty(err.Id))
-                        err.Id = request?.Id ?? string.Empty;
+                    if (string.IsNullOrEmpty(err.Id)) err.Id = request?.Id ?? string.Empty;
                     return err;
                 }
                 effective = new TrameRequest()
@@ -446,10 +543,57 @@ namespace TrameCore.Services
                 };
             }
 
-            var response = await ExecuteSingleInvocation(effective, context, ct);
+            var response = await ExecuteAuthorized(effective, decision.Info!, decision.ControllerType!, ct);
             if (response != null && string.IsNullOrEmpty(response.Id))
                 response.Id = effective?.Id ?? string.Empty;
             return response;
+        }
+
+        /// <summary>
+        /// Prüft, ob alle konsumierten @alias-Platzhalter eines Requests durch erfolgreiche
+        /// Provider aus <paramref name="priorResponses"/> bedient sind. Liefert eine getracete
+        /// 400-Response mit erklärender Meldung, sobald ein Alias nicht verfügbar ist — andernfalls
+        /// null (verfügbar). Ursachen: kein Provider; ProviderResponse ist Fehler (401/4xx/5xx);
+        /// Provider hat den Alias deklariert aber nicht exportiert (Pfad matchte nichts / void).
+        /// </summary>
+        private TrameResponse? ExplainUnavailability(
+            TrameRequest request,
+            Dictionary<string, string> aliasToProvider,
+            ConcurrentDictionary<string, TrameResponse?> priorResponses)
+        {
+            if (string.IsNullOrEmpty(request.StringData))
+                return null;
+
+            var consumed = DependencyGraphBuilder.ExtractAliases(request.StringData);
+            if (consumed.Count == 0)
+                return null;
+
+            foreach (var alias in consumed)
+            {
+                if (!aliasToProvider.TryGetValue(alias, out var providerKey))
+                    return TraceCallError(request,
+                        BadRequest($"Dependency '@{alias}' unavailable: no provider exposes '@{alias}'."));
+
+                if (!priorResponses.TryGetValue(providerKey, out var providerResponse) || providerResponse == null)
+                    return TraceCallError(request,
+                        BadRequest($"Dependency '@{alias}' unavailable: provider '{providerKey}' produced no result."));
+
+                if (providerResponse.Code < 200 || providerResponse.Code >= 300)
+                {
+                    var reason = providerResponse.Code == (int)HttpStatusCode.Unauthorized
+                        ? "was unauthorized (401)"
+                        : $"returned HTTP {providerResponse.Code}";
+                    return TraceCallError(request,
+                        BadRequest($"Dependency '@{alias}' unavailable: provider '{providerKey}' {reason}."));
+                }
+
+                if (providerResponse.ExposedDependencies == null ||
+                    !providerResponse.ExposedDependencies.ContainsKey(alias))
+                    return TraceCallError(request,
+                        BadRequest($"Dependency '@{alias}' unavailable: provider '{providerKey}' did not expose '@{alias}'."));
+            }
+
+            return null;
         }
 
 
@@ -536,12 +680,7 @@ namespace TrameCore.Services
                     return (null, paranoidError);
             }
 
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNamingPolicy = null // Beibehaltung der Originalschreibweise
-            };
-            return (parameterNode.ToJsonString(options), null);
+            return (parameterNode.ToJsonString(_aliasResolveJsonOptions), null);
         }
 
         /// <summary>
@@ -974,39 +1113,83 @@ namespace TrameCore.Services
         }
 
 
-        private async Task<TrameResponse?> ExecuteSingleInvocation(
-            TrameRequest request,
-            HttpContext? context,
-            CancellationToken ct)
+        /// <summary>
+        /// Ergebnis des seriellen Auth-Pre-Pass: entweder auflösbare Route + autorisiert
+        /// (<see cref="IsError"/> = false) oder eine getracete Fehler-Response.
+        /// </summary>
+        private readonly struct AuthDecision
         {
-            // Per-Request-Activity (Kind des Batch-Parents via Activity.Current). Null ohne Listener.
-            using var activity = TrameTracing.StartCall(request);
+            public readonly InvokeInfo? Info;
+            public readonly Type? ControllerType;
+            public readonly TrameResponse? Error;
+            public AuthDecision(InvokeInfo? info, Type? type, TrameResponse? error)
+            { Info = info; ControllerType = type; Error = error; }
+            public bool IsError => Error != null;
+        }
+
+        /// <summary>
+        /// Phase 1 (serial-sicher): löst Controller &amp; Methode auf und führt die Autorisierung
+        /// durch — das ist die <b>einzige</b> Stelle, die im Batch-Pfad den <see cref="HttpContext"/>
+        /// berührt (über <see cref="CheckAuthorisation"/> → <c>OnAuthorization(context)</c>).
+        /// Wird bewusst <b>serial im Pre-Pass</b> aufgerufen, bevor die parallele Ausführung
+        /// (Phase 2 = <see cref="ExecuteAuthorized"/>) per <c>Task.WhenAll</c> fächert, sodass
+        /// der Context nie concurrent erreicht wird. Pre-Execution-Fehler (Controller/Method
+        /// nicht gefunden, unauthorized) werden mit einem eigenen <c>TrameCall</c>-Span getraced,
+        /// damit auch 4xx/401 im Telemetry sichtbar bleiben.
+        /// </summary>
+        private async Task<AuthDecision> ResolveAndAuthorizeAsync(
+            TrameRequest request, HttpContext? context, CancellationToken ct)
+        {
+            var controllerType = GetControllerType(request.Controller);
+            if (controllerType == null)
+                return new AuthDecision(null, null, TraceCallError(request,
+                    BadRequest($"Controller '{request.Controller}' not found.", HttpStatusCode.NotFound)));
+
+            string key = $"{request.Controller}_{request.Method}";
+            if (!_invokeCache.TryGetValue(key, out var invokeInfo))
+                return new AuthDecision(null, null, TraceCallError(request,
+                    BadRequest($"Method '{request.Method}' not found on controller '{request.Controller}'.")));
+
             try
             {
-                var controllerType = GetControllerType(request.Controller);
-                if (controllerType == null)
-                    return Status(BadRequest($"Controller '{request.Controller}' not found.", HttpStatusCode.NotFound));
+                await CheckAuthorisation(invokeInfo.AuthoriseAttribute, context);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return new AuthDecision(null, null, TraceCallError(request, Unauthorized()));
+            }
 
-                string key = $"{request.Controller}_{request.Method}";
-                if (!_invokeCache.TryGetValue(key, out var invokeInfo))
-                    return Status(BadRequest($"Method '{request.Method}' not found on controller '{request.Controller}'."));
+            return new AuthDecision(invokeInfo, controllerType, null);
+        }
 
-                try
-                {
-                    await CheckAuthorisation(invokeInfo.AuthoriseAttribute, context);
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    return Status(Unauthorized());
-                }
-
+        /// <summary>
+        /// Phase 2 (parallel-sicher, KEIN <see cref="HttpContext"/>): übernimmt Parameter-Bau,
+        /// Methoden-Ausführung und Exposes-Extraktion aus dem ehemaligen ExecuteSingleInvocation.
+        /// <see cref="ExecuteMethod"/> erzeugt seinen eigenen DI-Scope pro Call und ist von sich
+        /// aus parallel-safe. Der per-Request <c>TrameCall</c>-Span wird hier geöffnet und
+        /// <c>Activity.Current</c> darauf gesetzt, damit User-Code-Spans während ExecuteMethod
+        /// korrekt unter dem Call-Span schachteln (wie beim ehemaligen ExecuteSingleInvocation).
+        /// Kein <see cref="InjectBinaryParameters"/> — die Binary-Asymmetrie zum Single-Call-Pfad
+        /// bleibt unverändert.
+        /// </summary>
+        private async Task<TrameResponse?> ExecuteAuthorized(
+            TrameRequest request,
+            InvokeInfo invokeInfo,
+            Type controllerType,
+            CancellationToken ct)
+        {
+            using var activity = TrameTracing.StartCall(request);
+            var previous = Activity.Current;
+            Activity.Current = activity;
+            try
+            {
                 var parameters = BuildParameters(request.StringData, invokeInfo.MethodInfo!.GetParameters(), ct);
                 // BuildParameters liefert bei Fehler (Cap überschritten, Duplikat-Name,
                 // falscher Typ, ungültiges JSON) (Items: null, Response: BadRequest). Der
                 // Vergleich `== default` ((null,null)) fängt (null, BadRequest) NICHT ab —
                 // dann fiel der Fehler durch zu ExecuteMethod(null-Args) → NRE → 500, und
                 // die saubere 400 (z. B. „überschreitet MaxParameterArrayLength") ging
-                // verloren. Auf Items==null prüfen (wie der Single-Call-Pfad bei Zeile 218).
+                // verloren. Auf Items==null prüfen (wie der Single-Call-Pfad).
                 if (parameters.Items == null) return Status(parameters.Response);
 
                 var result = await ExecuteMethod(invokeInfo, controllerType, parameters.Items!, ct);
@@ -1050,6 +1233,10 @@ namespace TrameCore.Services
                 TrameTracing.RecordException(activity, ex);
                 return Status(InternalServerError("An internal error occurred while processing the request.", ex));
             }
+            finally
+            {
+                Activity.Current = previous;
+            }
 
             // Setzt den OTel-Status aus der Response und reicht sie durch (ein Aufruf pro Return-Pfad).
             TrameResponse? Status(TrameResponse? response)
@@ -1057,6 +1244,20 @@ namespace TrameCore.Services
                 TrameTracing.SetCallStatus(activity, response);
                 return response;
             }
+        }
+
+        /// <summary>
+        /// Öffnet einen kurzen <c>TrameCall</c>-Span für einen Pre-Execution-Fehler (Auth/Lookup
+        /// aus <see cref="ResolveAndAuthorizeAsync"/> sowie Verfügbarkeits-/Auflösungs-Fehler aus
+        /// dem topologischen Pfad), setzt den OTel-Status aus der Response und disposed. Sicherstellt,
+        /// dass jeder Request genau einen Span erhält — Fehlerpfade hier, Ausführung in
+        /// <see cref="ExecuteAuthorized"/>.
+        /// </summary>
+        private TrameResponse? TraceCallError(TrameRequest request, TrameResponse? response)
+        {
+            using var activity = TrameTracing.StartCall(request);
+            TrameTracing.SetCallStatus(activity, response);
+            return response;
         }
 
         #endregion
