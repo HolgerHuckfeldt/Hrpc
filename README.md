@@ -110,6 +110,24 @@ Runtime discovery generates the contract directly from your code.
 
 ---
 
+## Developer UI
+
+A built-in web UI at **`/Trame`** (served by `MapTrame()`) turns runtime discovery into a working console — not a Swagger page that forgets your call the moment you close it:
+
+- **Browse** controllers (collapsible) and the full type tree straight from discovery.
+- **Open many calls at once** — each method keeps its own tab with parameters, request JSON, the response, and the call log; tabs persist across reloads.
+- **Batch & Dependency Builder** — assemble serial batches and `@alias` chains visually, with a static checker that flags cross-kind, missing-property, and casing problems *before* you send.
+- **Codegen** — generate TypeScript and C# client code from the current call or batch.
+- **History** — the last 100 calls with request, response, and duration.
+- **Save the whole workset** — export a workspace snapshot (connection + open tabs + theme + split layout + history) to any folder (native save dialog on Chromium) and restore it later, live.
+- **Standalone build** — `npm run build:standalone` produces a static DevUI that runs from any host (e.g. GitHub Pages) and points at a remote Trame server via the Connection setting.
+
+The Bearer token is never written into an exported workspace.
+
+> Full feature detail: [README_DETAILS.md#developer-ui](README_DETAILS.md#developer-ui)
+
+---
+
 ## Multi Transport
 
 The same contract works over REST, WebSocket, and SignalR. Choose the transport. Not the programming model.
@@ -132,6 +150,8 @@ Dependency chaining is resolved at runtime: the server extracts a JSON fragment 
 | Cross-kind scalar (string→int, number→bool, …) | STJ throws → **400** (no silent coercion — `AllowReadingFromString` is off by design) |
 | Object → object, missing property | Duck-typed: overlapping props bind, extras ignored, **missing** props silently defaulted (value types → `0`/`false`, references → `null`) → 2xx |
 | Unresolved (path matched nothing / alias never exposed) | **400** `Unresolved` |
+
+**Provider failure propagates.** When a provider is unauthorized, errors, or doesn't expose the fragment it declared, its dependents **don't run** — each gets a `400` naming the provider, alias, and cause (`Dependency '@a' unavailable: provider '<id>' was unauthorized (401).` / `… returned HTTP <code>.` / `… did not expose '@a'.`) instead of hitting the missing alias at runtime with an uninformative `Unresolved`. Propagation is transitive: one failed provider cancels its whole branch. Authorization is checked **per request** in a batch (a `401` doesn't abort the others — JSON-RPC-conformant), and runs in a **serial pre-pass** before the parallel fan-out so the parallel execution never touches the shared, non-thread-safe `HttpContext`. Full spec: [`DEPENDENCY_BINDING.md §9`](DEPENDENCY_BINDING.md#9-provider-failure--dependent-propagation).
 
 The one silent case is **object→object, and it is directional**: provider `{Id, Name}` → consumer `{Id}` is safe (subset, nothing missing) — and **useful**: one whole-object alias (`$` → `@customer`) can feed several consumers whose parameter types each pick just the fields they need (`CustomerId { int Id; }`, `CustomerName { string Name; }`, …); the rest silently drop. The reverse — provider `{Id}` → consumer `{Id, Active}` — silently sets `Active` to `false` and succeeds with wrong data. This is inherent to JSON duck-typing; Trame has no runtime schema to enforce structural equality (your C# classes *are* the contract). The developer UI's dependency builder catches the dangerous direction **statically** where both schemas are known. For teams that want it loud at runtime too, three binding modes are available: **Weak** (default, duck-typed), **Strict** (top-level coverage of `@alias` params → 400 on missing), and **Paranoid** (full coverage of *all* parameters — including literals — recursively at every depth → 400 on any missing property anywhere). The safe subset fan-out binds in all three. Set via `TrameOptions.AliasBindingMode`. Full specification: [`DEPENDENCY_BINDING.md`](DEPENDENCY_BINDING.md).
 
@@ -173,7 +193,7 @@ Limits: REST 1 MB body, WebSocket 1 MB/message, SignalR configurable. For large 
 - Command-oriented Web APIs
 - Code-first (no `.proto`, no IDL, no code generation)
 - Dependency chaining (scalar, array, object, nested graph)
-- Runtime discovery + developer UI
+- Runtime discovery + developer UI (browse, multi-tab calls, batch/dependency builder, codegen, history, workspace snapshots)
 - REST, WebSocket, SignalR — same call
 - Batch execution (parallel, serial, topological)
 - Streaming (`IAsyncEnumerable<T>`)

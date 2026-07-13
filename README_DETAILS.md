@@ -197,6 +197,30 @@ var responses = await client.Call(batch);
 | **WebSocket** | ws://host/tramews | Persistent connections, low latency, many small calls |
 | **SignalR** | /tramehub hub | Browser clients, auto-reconnect, MessagePack binary |
 
+## Developer UI
+
+`MapTrame()` serves a built-in single-page web UI at **`/Trame`** (configurable via the `developerUiPath` argument). It is the working console over the runtime discovery — the thing Swagger gives you only fleetingly, here kept across sessions. No backend of its own: it talks to the same `/api/trame` endpoints as any other client, so everything you can do in the UI you can do from code.
+
+**Layout.** Three resizable panes (persisted in `localStorage`): a left *Explorer* (Discovery tree of controllers + methods, collapsible, and the full type tree below a horizontal splitter), a center *Editor*, and a right *Result*. Plus a top bar (connection, auth, codegen, dependency builder, history, refresh, theme) and a collapsible history panel along the bottom.
+
+**Explorer.** Browses the live discovery: controllers are collapsible with method counts, a filter narrows controllers/methods by name, and the Types tree expands each discovered contract into its properties. Clicking a method opens a tab.
+
+**Tabs.** Every open call is a tab that keeps its parameters, the request JSON (kept in sync with the parameter form), the last response, the call log, status, and duration. Tabs are plain JSON and persist across reloads (`trame-tabs`). Three tab kinds:
+
+- **Request** — a single method call with a parameter form + raw JSON editor.
+- **Dependency Builder** — a visual composer for serial `@alias` batches: each step is a `TrameRequest`, exposes become `dependencyMapping`, alias-params become `@alias` placeholders. The one place that has both the provider return schema and the consumer parameter schema (from discovery), so it runs a **static checker** — see [DevUI static checker](#devui-static-checker).
+- **Codegen** — emits TypeScript and C# client code for the current call or batch, copy-to-clipboard.
+
+**History.** The last 100 calls (request, response, duration, error) live in `trame-history` and show in a collapsible bottom panel. Replay is one click.
+
+**Connection & Auth.** Base URL + API path (defaults to same-origin `/` / `api/trame` when embedded; empty in the standalone build so you point at a remote server). Bearer token set via the Auth panel — applied to every call (Discovery, single, batch) through the client facade, stored in `trame-bearer`, never exported.
+
+**Workspace snapshots.** The full workset is serializable: ⚙ → Export writes a JSON snapshot with **connection + open tabs + active tab + theme + split layout + history** to a file named `trame-workspace-YYYY-MM-DD-HHMM.json`. On Chromium (Edge/Chrome) the native save dialog lets you pick folder and filename; Firefox/Safari fall back to a plain download. ⚙ → Import restores it **live** — theme, split sizes, tabs, and history come back without a reload (the connection change re-fetches discovery). Version 2 format; version 1 snapshots (connection + tabs only) still import. The Bearer token is deliberately **not** part of the snapshot — after import, the currently set token stays active.
+
+**Standalone build.** `npm run build:standalone` (in `TrameDeveloperUi/`) emits `dist-standalone/` with relative asset paths — deploy it to any static host (GitHub Pages, a CDN, a local `serve`) and point the Connection setting at a remote Trame server. CORS must be open on the target server for the DevUI's origin. Useful for trying a server without standing up the .NET host, or for hosting a shared console against a known endpoint.
+
+> The DevUI ships as the `TrameDeveloperUi` project (see [Project Structure](#project-structure)) and is part of the `Trame.Server` package — no extra install.
+
 ## Features
 
 - **Multi-Transport**: Same API over REST, WebSocket, and SignalR
@@ -205,7 +229,7 @@ var responses = await client.Call(batch);
 - **Streaming**: IAsyncEnumerable<T> support, serialized as JSON arrays
 - **Interceptor-Pipeline**: ITrameInterceptor for logging, tracing, caching, validation
 - **Discovery/MEX**: GET /api/trame/discovery returns full API metadata
-- **Developer-UI**: Built-in web UI at /Trame for browsing and testing APIs
+- **Developer-UI**: Built-in web UI at `/Trame` for browsing, testing, batch-building, codegen, and saving whole worksets — see [Developer UI](#developer-ui)
 - **Rate-Limiting**: Built-in fixed-window rate limiter
 - **Authorization**: [TrameAuthorise] attribute with role-based access
 - **Expression-Tree Invocation**: Pre-compiled method delegates for maximum performance
@@ -329,6 +353,28 @@ The check is **non-blocking** — "Send anyway" stays available, because the run
 ### Binary does not flow through aliases
 
 `byte[]` travels out-of-band (`binaryData` / `content`), never in the JSON `data` field, so a `byte[]` parameter cannot be the target of an `@alias`. Aliases carry JSON fragments only. See [Binary](#binary).
+
+### Provider failure & dependent propagation
+
+The sections above describe the happy path: a provider ran and exposed its fragments. The other half of the contract — what happens when the **provider itself fails** — is well-defined and **propagated**, not a crash:
+
+| Provider outcome | Dependent's result |
+|---|---|
+| Succeeded and exposed the consumed alias | binds normally → `2xx` |
+| Unauthorized (`401`) | `400` — `Dependency '@a' unavailable: provider '<id>' was unauthorized (401).` |
+| Any other non-2xx (`400`/`404`/`500`/…) | `400` — `Dependency '@a' unavailable: provider '<id>' returned HTTP <code>.` |
+| Succeeded but did not expose the alias (JsonPath matched nothing, `null`/void return) | `400` — `Dependency '@a' unavailable: provider '<id>' did not expose '@a'.` |
+| No provider in the batch exposes that alias (dangling) | `400` — `Dependency '@a' unavailable: no provider exposes '@a'.` |
+
+- **The dependent does not run.** When a provider is known to have failed or not exposed, the consumer's method is not invoked — the server short-circuits it with the explanatory `400`, naming the provider, alias, and cause, instead of letting it reach the missing alias at runtime with an uninformative `Unresolved dependencies`.
+- **Propagation is transitive.** A skipped provider produces no `exposedDependencies`, so it is itself a "did not expose" case for *its* dependents, which are skipped in turn. One unauthorized provider at the root cancels the whole branch beneath it.
+- **Scope.** Propagation applies on the **topological** path (auto-detected whenever any request carries a `dependencyMapping`). The **Serial** path has no providers by definition, so a dangling `@alias` there keeps the legacy `400 Unresolved dependencies: <alias>.`. **Parallel** has no providers and does not resolve `@alias` at all.
+
+### Authorization in batches — per request, serial pre-pass
+
+Authorization is checked **per request**, not per batch. A `401` on one request does not abort the others — each response is independent (JSON-RPC-conformant), so a batch may mix unauthenticated reads with `[TrameAuthorise]` writes and return a mixed result array. Only the dependency chain is coupled (above).
+
+`HttpContext` is not thread-safe, yet every request in a batch shares the same incoming context. The server runs the `[TrameAuthorise]` check **serially in a pre-pass** before the parallel `Task.WhenAll` fan-out; the parallel execution never touches `HttpContext`. Auth is cheap (claims reads), so this does not regress parallel throughput. **User-code contract:** controllers that obtain the context via `IHttpContextAccessor`, and overrides of `OnAuthorization`, must treat it as **read-only** in a parallel batch (no writes to `Items`/response/request-body) — the framework's own concurrent access is eliminated by the pre-pass, but user code is the caller's responsibility. Full spec: [`DEPENDENCY_BINDING.md §9`](DEPENDENCY_BINDING.md#9-provider-failure--dependent-propagation).
 
 ## Known Limitations (v1)
 

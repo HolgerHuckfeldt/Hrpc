@@ -261,12 +261,38 @@ A subsequent request can **use** exposed values with `@alias` placeholders:
    every request in the batch returns `400` with the message
    `"Circular dependency detected in request batch."` and the offending request's `id`
    in `error.requestId`.
-5. **JsonPath**: Values are extracted using [JsonPath](https://goessner.net/articles/JsonPath/)
+5. **Provider failure propagates** (topological path): if a provider is unauthorized,
+   errors, or does not expose a consumed alias, its dependents are **not executed** — each
+   gets a `400` naming the provider, the alias, and the cause
+   (`Dependency '@a' unavailable: provider '<id>' was unauthorized (401).` /
+   `… returned HTTP <code>.` / `… did not expose '@a'.` / `… no provider exposes '@a'.`)
+   instead of reaching the missing alias at runtime with `Unresolved dependencies`.
+   Propagation is transitive — a skipped provider yields no `exposedDependencies`, so its
+   own dependents are skipped in turn. See
+   [DEPENDENCY_BINDING.md §9](DEPENDENCY_BINDING.md#9-provider-failure--dependent-propagation).
+6. **JsonPath**: Values are extracted using [JsonPath](https://goessner.net/articles/JsonPath/)
    expressions against the response `data` value. Because `data` is a structured JSON
    value (not a string blob), the path is evaluated directly against it; `$` is the whole
    result, `$.Property` a field, `$[0].Id` an array element. Extracted values are
    re-encoded as JSON in `exposedDependencies` (so the type is preserved for the `@alias`
    substitution into the next request's parameters).
+
+### Authorization in batches
+
+Authorization is checked **per request**, not per batch. A `401` on one request does not
+abort the others — each response is independent (JSON-RPC-conformant), so a batch may mix
+unauthenticated reads with `[TrameAuthorise]` writes and return a mixed result array. Only
+the dependency chain is coupled: a failed provider propagates to its dependents (rule 5).
+
+`HttpContext` is not thread-safe, yet every request in a batch shares the same incoming
+context. The server therefore runs the `[TrameAuthorise]` check **serially in a pre-pass**
+before the parallel fan-out; the parallel execution (`Task.WhenAll`) never touches
+`HttpContext`. Authorization is cheap (claims reads), so this does not regress parallel
+throughput. **User-code contract:** controllers that obtain the context via
+`IHttpContextAccessor`, and overrides of `OnAuthorization`, must treat it as **read-only**
+in a parallel batch — the framework's own concurrent access is eliminated by the pre-pass,
+but user code is the caller's responsibility. Full specification:
+[DEPENDENCY_BINDING.md §9](DEPENDENCY_BINDING.md#9-provider-failure--dependent-propagation).
 
 ### Alias Serialization & Type Binding
 
@@ -303,7 +329,7 @@ CLR type is enforced at the second step by `System.Text.Json`:
    | Situation | Server result |
    |---|---|
    | **Cross-kind mismatch** — a JSON number into a `string` parameter, a JSON string into an `int`, a bool into a number, an object into a scalar, an array into a scalar | `400` — `Parameter 'X' cannot be converted to type 'Y'.` `System.Text.Json` throws; the invoker catches and returns `BadRequest`. Because `AllowReadingFromString` is off, `"42"`→`int` and `42`→`string` are **both** rejected — no string/number coercion. |
-   | **Unresolved alias** — the JsonPath matched 0 nodes, or no prior request exposed that alias | `400` — `Unresolved dependencies: alias.` |
+   | **Unresolved alias** — the JsonPath matched 0 nodes, or no prior request exposed that alias | `400` — `Unresolved dependencies: alias.` (Serial / dangling-alias path). On the **topological** path this is caught *earlier* as provider-failure propagation — `400 dependency '@a' unavailable: …` (see [Resolution Rules §5](#resolution-rules) and [DEPENDENCY_BINDING.md §9](DEPENDENCY_BINDING.md#9-provider-failure--dependent-propagation)). |
    | **`null` extraction** | Reference type / `Nullable<T>` → `null` (no error). Non-nullable value type (`int`, `bool`, `DateTime`, …) → `400` (cannot convert null). |
    | **object → object (duck-typing)** | **No error.** `System.Text.Json` maps properties that match by name (case-insensitively), **ignores extra properties**, and **defaults missing properties silently** — a missing `int` becomes `0`, a missing `bool` becomes `false`, a missing reference becomes `null`. This is the one binding failure the server does *not* raise: a structurally narrower provider object binds without a `400` and yields default-filled fields. The DevUI dependency-builder flags it statically (see below). |
 

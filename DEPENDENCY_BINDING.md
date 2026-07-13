@@ -82,7 +82,7 @@ Step 3 has exactly four outcomes. They are the contract.
 | **Compatible** — same JSON kind, or object→object with overlapping properties | Binds normally | **2xx** |
 | **Cross-kind scalar** — JSON number into `string`, JSON string into `int`, bool into number, object/array into scalar | `System.Text.Json` throws | **400** `Parameter 'X' cannot be converted to type 'Y'.` |
 | **object → object, missing property** | Duck-typed: overlapping props bind case-insensitively, **extra** provider props ignored, **missing** props silently defaulted (value types → `0`/`false`/`DateTime.MinValue`, reference types → `null`) | **2xx** (silent default) — **Weak** only; **Strict** turns the top-level missing case into a 400 (alias params); **Paranoid** turns *every* missing property — at any depth, in any parameter including literals — into a 400 (see §7) |
-| **Unresolved** — JsonPath matched 0 nodes, or no prior request exposed that alias | No value to bind | **400** `Unresolved dependencies: alias.` |
+| **Unresolved** — JsonPath matched 0 nodes, or no prior request exposed that alias | No value to bind | **400** `Unresolved dependencies: alias.` (Serial / dangling-alias path). On the **topological** path, a provider that fails or does not expose is caught *before* this point — see [§9](#9-provider-failure--dependent-propagation). |
 
 ### What is accepted silently (genuine widening, not coercion)
 
@@ -359,3 +359,62 @@ only. See [Binary](README_DETAILS.md#binary).
 `CancellationToken` is injected by the server and is never an alias target. Parameters are
 matched by name (ordinal, case-sensitive); `@alias` is a value-level placeholder for one
 named parameter, not a parameter-level rerouting.
+
+## 9. Provider failure & dependent propagation
+
+Alias binding (sections 1–8) describes the **happy path**: a provider ran, exposed its
+fragments, and a consumer bound them. What happens when the **provider itself fails** — it
+is unauthorized, throws, or simply does not produce the fragment it declared — is the other
+half of the contract. It is well-defined, not a crash, and it is **propagated**:
+
+| Provider outcome | Dependent's result |
+|---|---|
+| Provider **succeeded** and **exposed** the consumed alias | binds normally (sections 1–8) → `2xx` |
+| Provider was **unauthorized** (`401`) | `400` — `Dependency '@a' unavailable: provider '<id>' was unauthorized (401).` |
+| Provider returned **any other non-2xx** (`400`/`404`/`500`/…) | `400` — `Dependency '@a' unavailable: provider '<id>' returned HTTP <code>.` |
+| Provider succeeded but **did not expose** the alias (JsonPath matched nothing, the method returned `null`/void, or a declared path produced no fragment) | `400` — `Dependency '@a' unavailable: provider '<id>' did not expose '@a'.` |
+| **No provider** in the batch exposes that alias (dangling `@alias`) | `400` — `Dependency '@a' unavailable: no provider exposes '@a'.` |
+
+Three properties make this predictable:
+
+1. **The dependent does not run.** When a provider is known to have failed or not exposed,
+   the consumer's method is **not invoked** — its parameters could not be satisfied, so the
+   server short-circuits it with the explanatory `400`. No wasted execution, and the cause is
+   named (which provider, which alias, why), instead of the consumer reaching the missing
+   alias at runtime and reporting the uninformative `Unresolved dependencies`.
+2. **Propagation is transitive.** A skipped provider produces no `exposedDependencies`, so it
+   is itself a "did not expose" case for *its* dependents, which are skipped in turn, and so
+   on down the chain. A single unauthorized provider at the root cancels the entire branch
+   beneath it — each dependent gets its own `400` naming its immediate provider.
+3. **Scope.** Propagation applies on the **topological** path (auto-detected whenever any
+   request carries a `dependencyMapping`). The **Serial** path has no providers by definition
+   (a `dependencyMapping` anywhere routes to topological), so a dangling `@alias` there keeps
+   the legacy `400 Unresolved dependencies: <alias>.` message. The **Parallel** path has no
+   providers either and does not resolve `@alias` at all.
+
+### Batch authorization is per-request
+
+Authorization is checked **per request**, not per batch. In a batch of independent commands, a
+`401` on one request does **not** abort the others — each response is independent
+(JSON-RPC-conformant). A batch may mix unauthenticated reads with `[TrameAuthorise]` writes;
+the writes fail with `401`, the reads succeed, and the client gets a mixed response array.
+Only the dependency **chain** is coupled: a failed provider propagates to its dependents (above).
+
+### Why authorization is checked before the parallel fan-out
+
+`HttpContext` is not thread-safe, yet every request in a batch shares the *same* incoming
+context (REST/WebSocket connection). The server therefore splits each batched invocation into
+two phases: **authorization** (controller/method lookup + `[TrameAuthorise]` check) runs
+**serially in a pre-pass** before the fan-out; **execution** (parameter binding, the compiled
+delegate, `exposedDependencies` extraction) runs **parallel via `Task.WhenAll` and never
+touches `HttpContext`**. This eliminates the framework's concurrent context access
+structurally. Authorization is cheap (claims reads, microseconds), so the serial pre-pass
+does not regress parallel throughput — the heavy work stays fully parallel.
+
+> **User-code contract.** A controller can still obtain the context via
+> `IHttpContextAccessor` (the standard ASP.NET pattern; Trame does not register it but
+> cannot prevent users from doing so). Because `AsyncLocal` flows into all `Task.WhenAll`
+> children, user code in a parallel batch sees the same shared context — it must treat it
+> as **read-only** (no writes to `HttpContext.Items`, the response, or the request body).
+> The same applies to overrides of `OnAuthorization(HttpContext?)`. The framework's own
+> concurrent access is eliminated by the pre-pass; this contract covers user code.
