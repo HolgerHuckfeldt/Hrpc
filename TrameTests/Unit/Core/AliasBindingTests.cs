@@ -300,14 +300,18 @@ public class AliasBindingTests
     public async Task Alias_JsonPath_PascalCase_DoesNotMatch_ReturnsUnresolvedOr400()
     {
         // Der Wire ist camelCase (id), JsonPath ist case-sensitiv: $.Id trifft nichts.
-        // Der Alias wird nicht exposed (ExtractValue liefert null) → Consumer @cid unresolved.
+        // Der Alias wird nicht exposed (ExtractValue liefert null). Da der Provider ein
+        // DependencyMapping trägt, schaltet der Auto-Detect auf den topologischen Pfad,
+        // und die Verfügbarkeits-Propagierung fängt das VOR der Ausführung ab: der Consumer
+        // läuft nicht, sondern bekommt eine erklärende 400 „did not expose" (statt erst
+        // zur Laufzeit am fehlenden Alias mit nichtssagendem „Unresolved dependencies").
         var provider = DtoProvider("p", 7, "alice", "cid", "$.Id"); // PascalCase → kein Treffer
         var consumer = Req("c", "DepChain", "EchoInt", null, Alias("value", "cid"));
 
         var res = await RunConsumer(provider, consumer);
 
         res.Code.Should().Be((int)HttpStatusCode.BadRequest);
-        res.Error!.Message.Should().Contain("Unresolved dependencies");
-        res.Error.Message.Should().Contain("cid");
+        res.Error!.Message.Should().Contain("did not expose '@cid'");
+        res.Error.Message.Should().Contain("provider 'p'");
     }
 }

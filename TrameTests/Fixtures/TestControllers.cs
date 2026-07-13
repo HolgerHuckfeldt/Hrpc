@@ -2,6 +2,7 @@ using TrameCommon.Attribute;
 using TrameCommon.Models;
 using TrameCommon.Results;
 using TrameCore.Attributes;
+using System.Threading;
 
 namespace TrameTests.Fixtures;
 
@@ -398,4 +399,39 @@ public class UnmarkedDto
 public class ExcludedDto
 {
     public int X { get; set; }
+}
+
+// --- Fixtures für die Parallel-Auth + Dependent-Propagierung --------------------
+// Deterministischer Controller mit Aufruf-Zählern (static, weil der DI-Container
+// pro Call eine frische Instanz erzeugt — instance-Counter würden pro Call wieder
+// bei 0 stehen). Die Tests serialisieren sich über die xUnit-Collection
+// "auth-propagation" und resetten die Counter im Konstruktor, sodass nebenläufige
+// Klassen-Instanzen sich nicht in die Quere kommen. Andere Test-Klassen greifen
+// nicht auf diesen Controller zu.
+[TrameController("AuthProp")]
+public class AuthPropagationController
+{
+    [TrameMethod("Echo")]
+    public string Echo(string value)
+    {
+        Interlocked.Increment(ref EchoCalls);
+        return value;
+    }
+
+    [TrameMethod("SecuredEcho")]
+    [TrameAuthorise]
+    public string SecuredEcho(string value)
+    {
+        Interlocked.Increment(ref SecuredCalls);
+        return value;
+    }
+
+    public static int EchoCalls;
+    public static int SecuredCalls;
+
+    public static void ResetCounters()
+    {
+        Interlocked.Exchange(ref EchoCalls, 0);
+        Interlocked.Exchange(ref SecuredCalls, 0);
+    }
 }
