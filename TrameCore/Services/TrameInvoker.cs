@@ -1196,7 +1196,14 @@ namespace TrameCore.Services
                 if (result != null)
                     result.Id = request.Id;
 
-                if (request.DependencyMapping != null && result?.Data.HasValue == true)
+                // Exposes-Extraktion nur bei Erfolg (2xx). Ein Fehler-Response exposiert
+                // nichts — auch nicht, wenn es (wie TrameResults.Error(ProblemDetails)) ein
+                // non-null Data mit Pfad-tragenden Feldern (title/status/detail) trägt. Sonst
+                // würden Werte aus einem Fehler-Payload als ExposedDependencies geliefert und
+                // an Dependents weitergereicht. Dependents sehen über die Propagierung (s.
+                // ExplainUnavailability: „returned HTTP <code>") ohnehin den Fehlverlauf;
+                // dieser Gate verhindert zusätzlich den Datenleck aus dem Fehler-Payload.
+                if (request.DependencyMapping != null && result != null && result.IsSuccess && result.Data.HasValue)
                 {
                     var exposed = new Dictionary<string, string>();
                     // DependencyResolver extrahiert Werte aus dem strukturierten Data (JsonElement).

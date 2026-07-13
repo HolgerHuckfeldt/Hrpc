@@ -189,6 +189,39 @@ public class ParallelAuthPropagationTests
         b.Error.Message.Should().Contain("provider 'A'");
     }
 
+    // === Topologisch: Provider-Fehler mit non-null Data exposet nichts ===========
+
+    [Fact]
+    public async Task Topology_ProviderErrorWithData_ExposesNothing_DependentGetsHttpCode()
+    {
+        // A: FailWithProblem(422) liefert einen non-2xx-Fehler IM ProblemDetails-Stil —
+        //    Data ist non-null ({ title:"Invalid", status:422, detail:"bad input" }),
+        //    und der Expose-Pfad "$.title" träfe. Ohne Status-Gate würde die Extraktion
+        //    "Invalid" aus dem Fehler-Payload als ExposedDependency "t" liefern (Datenleck
+        //    aus dem Fehler-Payload). Mit Gate: ExposedDependencies bleibt leer.
+        // B: EchoInt @t → bekommt die Propagierung "returned HTTP 422" (kein Wert aus
+        //    dem Fehler-Payload, kein "did not expose", weil der Provider-Status nicht 2xx).
+        var batch = new List<TrameRequest>
+        {
+            Req("A", "DepChain", "FailWithProblem", new() { ["t"] = "$.title" },
+                ("status", "422")),
+            Req("B", "DepChain", "EchoInt", null, Alias("value", "t")),
+        };
+
+        var responses = (await _invoker.InvokeDi(batch, null, ExecutionMode.Serial)).ToList();
+
+        var a = responses.Single(r => r?.Id == "A")!;
+        a.Code.Should().Be(422);
+        // Der Fix: aus einem Fehler-Response darf nichts exposet werden — selbst dann
+        // nicht, wenn Data existiert und der JsonPath treffen würde.
+        a.ExposedDependencies.Should().BeNullOrEmpty();
+
+        var b = responses.Single(r => r?.Id == "B")!;
+        b.Code.Should().Be((int)HttpStatusCode.BadRequest);
+        b.Error!.Message.Should().Contain("returned HTTP 422");
+        b.Error.Message.Should().Contain("provider 'A'");
+    }
+
     // === Topologisch: Dangling-Alias (kein Provider für den Alias) ===============
 
     [Fact]

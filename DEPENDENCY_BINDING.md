@@ -375,6 +375,8 @@ half of the contract. It is well-defined, not a crash, and it is **propagated**:
 | Provider succeeded but **did not expose** the alias (JsonPath matched nothing, the method returned `null`/void, or a declared path produced no fragment) | `400` — `Dependency '@a' unavailable: provider '<id>' did not expose '@a'.` |
 | **No provider** in the batch exposes that alias (dangling `@alias`) | `400` — `Dependency '@a' unavailable: no provider exposes '@a'.` |
 
+> **Extraction is gated on success.** A provider exposes fragments **only when its response is `2xx`**. Any non-2xx response — a business error returned via `TrameResults` (`NotFound`/`BadRequest`/`Error(ProblemDetails)`/…), a thrown exception (→ `500`), or an unauthorized/missing-route decision from the pre-pass — leaves `exposedDependencies` empty, *even if the error payload itself contains fields the declared JsonPath would match* (e.g. a `ProblemDetails` body with `title`/`status`). No value is ever extracted from an error payload and forwarded to a dependent; the dependent sees the propagation row above instead. This is the guarantee behind property 2 (a failed provider produces no `exposedDependencies`).
+
 Three properties make this predictable:
 
 1. **The dependent does not run.** When a provider is known to have failed or not exposed,

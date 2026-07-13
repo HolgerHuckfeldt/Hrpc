@@ -218,6 +218,17 @@ public class DependencyChainController
     [TrameMethod("FindDto")]
     public TestDto? FindDto(int id) => id > 0 ? new TestDto { Id = id, Name = "Found" } : null;
 
+    // --- Fehler-Producer: non-2xx mit non-null Data (ProblemDetails) ---------------
+    // Dokumentiert den Status-Gate der Exposes-Extraktion: ein Expose auf $.title darf
+    // bei einem Fehler-Response KEINEN Wert aus dem ProblemDetails-Payload liefern.
+
+    /// <summary>Liefert einen non-2xx-Fehler im ProblemDetails-Stil mit non-null Data
+    ///  (title/status/detail). Ein Expose auf $.title darf trotz treffendem Pfad nichts
+    ///  exposen, weil die Extraktion auf Erfolg (2xx) gate-et ist.</summary>
+    [TrameMethod("FailWithProblem")]
+    public TrameResponse FailWithProblem(int status)
+        => TrameResults.Error(new ProblemDetails { Status = status, Title = "Invalid", Detail = "bad input" });
+
     // --- Binär (byte[]) — dokumentiert die Chain-Grenze ---
 
     [TrameMethod("DownloadBytes")]
