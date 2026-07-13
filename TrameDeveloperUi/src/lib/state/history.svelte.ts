@@ -52,6 +52,13 @@ class HistoryState {
     saveToStorage(this.entries);
   }
 
+  /** Überschreibt die History aus einem Workspace-Import (deckelt auf MAX_ENTRIES). */
+  restoreFromWorkspace(entries: HistoryEntry[]): void {
+    if (!Array.isArray(entries)) return;
+    this.entries = entries.slice(0, MAX_ENTRIES);
+    saveToStorage(this.entries);
+  }
+
   toggle() {
     this.isOpen = !this.isOpen;
   }

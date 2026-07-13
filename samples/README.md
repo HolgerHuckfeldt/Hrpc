@@ -54,7 +54,10 @@ dotnet run --project samples/server/SampleServer.csproj
 Endpunkte nach dem Start:
 - **REST**: `POST https://localhost:5001/api/trame/json` (+ `/multi`, `GET /discovery`)
 - **WebSocket**: `wss://localhost:5001/tramews`
-- **Developer-UI**: `https://localhost:5001/Trame`
+- **Developer-UI**: `https://localhost:5001/Trame` — Browser-Konsole über die Live-Discovery:
+  Calls in mehreren Tabs offen halten, Batches/`@alias`-Ketten visuell bauen (mit statischem
+  Checker), TS-/C#-Code generieren, History, und den kompletten Arbeitsstand als Snapshot
+  speichern/wiederherstellen. Siehe [README_DETAILS.md → Developer UI](../README_DETAILS.md#developer-ui).
 
 ### C#-Client-Samples
 

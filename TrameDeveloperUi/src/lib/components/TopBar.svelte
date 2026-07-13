@@ -159,7 +159,7 @@
 
           <div class="section-label section-divider">Workspace</div>
           <div class="auth-actions">
-            <button class="ghost small" onclick={handleExport} disabled={tabState.tabs.length === 0} title="Verbindung + Tabs als JSON exportieren (ohne Bearer)">Export</button>
+            <button class="ghost small" onclick={handleExport} disabled={tabState.tabs.length === 0} title="Verbindung + Tabs + Theme + Layout + History als JSON exportieren (ohne Bearer)">Export</button>
             <button class="ghost small" onclick={handleImportClick} title="Workspace-JSON importieren">Import</button>
           </div>
           <input

@@ -83,6 +83,14 @@
   .node.type {
     font-weight: 500;
   }
+  .node svg {
+    flex-shrink: 0;
+  }
+  .prop-name,
+  .prop-type {
+    min-width: 0;
+    flex-shrink: 1;
+  }
   .type-name {
     color: var(--text);
   }

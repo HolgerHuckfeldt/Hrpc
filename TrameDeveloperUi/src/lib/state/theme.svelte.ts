@@ -32,6 +32,13 @@ class ThemeState {
     this.theme = this.theme === 'dark' ? 'light' : 'dark';
     applyTheme(this.theme);
   }
+
+  /** Setzt ein explizites Theme (Workspace-Import). Ignoriert ungültige Werte. */
+  set(theme: Theme) {
+    if (theme !== 'dark' && theme !== 'light') return;
+    this.theme = theme;
+    applyTheme(this.theme);
+  }
 }
 
 export const themeState = new ThemeState();
