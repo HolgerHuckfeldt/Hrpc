@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Attributes;
+using System.Text.Json.Nodes;
 using TrameCommon.Models;
 
 namespace TrameBench;
@@ -50,7 +51,7 @@ public class SingleCallBenchmarks
         {
             Controller = "Customer",
             Method = "GetAllCustomers",
-            StringData = "[]",
+            Params = JsonNode.Parse("[]"),
             Id = "Customer.GetAllCustomers"
         };
         return await _fixture.TrameRestClient.Call(request);
@@ -64,7 +65,7 @@ public class SingleCallBenchmarks
         {
             Controller = "Customer",
             Method = "GetCustomerById",
-            StringData = "[{\"" + "ParameterName" + "\":\"" + "id" + "\",\"" + "Data" + "\":\"" + "1" + "\"}]",
+            Params = JsonNode.Parse("[{\"" + "ParameterName" + "\":\"" + "id" + "\",\"" + "Data" + "\":" + "1" + "}]"),
             Id = "Customer.GetCustomerById"
         };
         return await _fixture.TrameRestClient.Call(request);
@@ -80,7 +81,7 @@ public class SingleCallBenchmarks
         {
             Controller = "Customer",
             Method = "GetAllCustomers",
-            StringData = "[]",
+            Params = JsonNode.Parse("[]"),
             Id = "Customer.GetAllCustomers"
         };
         return await _fixture.TrameWebSocketClient.Call(request);
@@ -94,7 +95,7 @@ public class SingleCallBenchmarks
         {
             Controller = "Customer",
             Method = "GetCustomerById",
-            StringData = "[{\"" + "ParameterName" + "\":\"" + "id" + "\",\"" + "Data" + "\":\"" + "1" + "\"}]",
+            Params = JsonNode.Parse("[{\"" + "ParameterName" + "\":\"" + "id" + "\",\"" + "Data" + "\":" + "1" + "}]"),
             Id = "Customer.GetCustomerById"
         };
         return await _fixture.TrameWebSocketClient.Call(request);
@@ -110,7 +111,7 @@ public class SingleCallBenchmarks
         {
             Controller = "Customer",
             Method = "GetAllCustomers",
-            StringData = "[]",
+            Params = JsonNode.Parse("[]"),
             Id = "Customer.GetAllCustomers"
         };
         return await _fixture.TrameSignalrClient.Call(request);
@@ -124,7 +125,7 @@ public class SingleCallBenchmarks
         {
             Controller = "Customer",
             Method = "GetCustomerById",
-            StringData = "[{\"" + "ParameterName" + "\":\"" + "id" + "\",\"" + "Data" + "\":\"" + "1" + "\"}]",
+            Params = JsonNode.Parse("[{\"" + "ParameterName" + "\":\"" + "id" + "\",\"" + "Data" + "\":" + "1" + "}]"),
             Id = "Customer.GetCustomerById"
         };
         return await _fixture.TrameSignalrClient.Call(request);

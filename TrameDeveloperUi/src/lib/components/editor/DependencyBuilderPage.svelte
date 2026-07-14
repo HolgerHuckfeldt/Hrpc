@@ -9,7 +9,7 @@
   import { executeBatch } from '../../api/client';
   import { formatJson } from '../../utils/json';
   import { checkSteps, methodMetaFor, type AliasProvider } from '../../utils/dependencyCheck';
-  import { ExecutionMode, type TrameRequest } from 'trame-client';
+  import { ExecutionMode, type TrameRequest, type TrameParameter } from 'trame-client';
   import DependencyStep from './DependencyStep.svelte';
   import DependencyGraph from './DependencyGraph.svelte';
 
@@ -33,30 +33,33 @@
 
   // --- TrameRequest-Transform (Kernlogik) -------------------------------------
 
-  /** Serialisiert einen Literal-Wert abhängig vom Parametertyp zu einem JSON-Token. */
-  function paramDataValue(p: DepParam): string {
+  /** Liefert den nativen `data`-Wert für einen Parameter (kein JSON-String mehr).
+   *  @alias-Platzhalter werden als native String-Werte mit @-Präfix ausgegeben. */
+  function paramDataValue(p: DepParam): unknown {
     if (p.useAlias) return `@${p.aliasRef ?? ''}`;
-    // Komplexer Typ (TypeDefinition mit Properties): raw JSON-String verwenden.
+    // Komplexer Typ (TypeDefinition mit Properties): raw JSON-String parsen → Objekt.
     if (p.typeDefinition?.properties?.length) {
-      return p.literalValue ?? '{}';
+      const raw = p.literalValue ?? '{}';
+      try { return JSON.parse(raw); } catch { return {}; }
     }
     const t = (p.parameterType || '').toLowerCase();
     const v = p.literalValue ?? '';
-    if (t === 'string') return JSON.stringify(v);
-    if (t === 'bool' || t === 'boolean') return JSON.stringify(v === 'true');
+    if (t === 'string') return v;
+    if (t === 'bool' || t === 'boolean') return v === 'true';
     if (
       t === 'int' || t === 'int32' || t === 'int64' || t === 'long' ||
       t === 'number' || t === 'double' || t === 'float' || t === 'decimal' || t === 'single'
     ) {
       const n = v === '' ? 0 : Number(v);
-      return JSON.stringify(Number.isNaN(n) ? 0 : n);
+      return Number.isNaN(n) ? 0 : n;
     }
-    return JSON.stringify(v);
+    // Unbekannter Typ: versuchen als JSON zu parsen, sonst roher String.
+    try { return JSON.parse(v); } catch { return v; }
   }
 
   /** Baut einen TrameRequest aus einem DepStep (mit echten Parameter-Namen). */
   function buildRequest(step: DepStep): TrameRequest {
-    const arr = step.params.map((p, i) => ({
+    const arr: TrameParameter[] = step.params.map((p, i) => ({
       parameterName: p.parameterName,
       num: i,
       data: paramDataValue(p),
@@ -69,7 +72,7 @@
       controller: step.controller,
       method: step.method,
       id: step.id,
-      stringData: JSON.stringify(arr),
+      params: arr,
       dependencyMapping: mapping,
     };
   }
@@ -83,7 +86,7 @@
         controller: req.controller,
         method: req.method,
         id: req.id,
-        stringData: req.stringData,
+        params: req.params,
       };
     }
     return req;
@@ -214,12 +217,15 @@ const results = await rest.callBatch(batch.requests, batch.mode);`;
         const mappingLine = wire.dependencyMapping
           ? `\n            DependencyMapping = new Dictionary<string, string> { ${Object.entries(wire.dependencyMapping).map(([k, v]) => `["${k}"] = "${v}"`).join(', ')} },`
           : '';
+        // Params als nativer JsonNode-Literal (data ist nativer JSON-Wert, kein
+        // doppelt-kodierter String mehr). Selbstcontained ohne manuelles Escaping.
+        const paramsJson = JSON.stringify(wire.params ?? []);
         return `        new TrameRequest
         {
             Controller = "${wire.controller}",
             Method = "${wire.method}",
             Id = "${wire.id}",
-            StringData = "${csEscape(wire.stringData ?? '[]')}",${mappingLine}
+            Params = JsonNode.Parse(${csStringLiteral(paramsJson)}),${mappingLine}
         }`;
       })
       .join(',\n');
@@ -240,6 +246,7 @@ const results = await rest.callBatch(batch.requests, batch.mode);`;
     return `using TrameClient.Trame;
 using TrameCommon.Models;
 using System.Collections.Generic;
+using System.Text.Json.Nodes;
 ${fluentBlock}
 var multi = new TrameMultiRequest
 {

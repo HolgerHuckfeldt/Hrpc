@@ -4,6 +4,7 @@ using TrameCommon.Models;
 using TrameTests.Fixtures;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace TrameTests.Integration;
@@ -74,9 +75,9 @@ public class WebSocketTransportTests : IClassFixture<TransportTestFixture>
         {
             Controller = "TestInvoker",
             Method = "UploadBlob",
-            StringData = JsonSerializer.Serialize(new[]
+            Params = JsonSerializer.SerializeToNode(new[]
             {
-                new TrameParameter { ParameterName = "filename", Data = JsonSerializer.Serialize("f.bin") }
+                new TrameParameter { ParameterName = "filename", Data = JsonSerializer.SerializeToNode("f.bin") }
             }),
             BinaryData = bytes,
             Id = "TestInvoker.UploadBlob"

@@ -55,13 +55,24 @@ public static class TramePipelineExtensions
         var options = endpoints.ServiceProvider.GetService<TrameOptions>();
 
         // Rate Limiting nur durchreichen, wenn der Host die "trame"-Policy registriert hat.
-        endpoints.MapTrameEndpoints(restPrefix, enableRateLimiting: options?.RateLimitPermitLimit > 0);
+        // JSON-RPC-Compat nur auf ausdrücklichen Wunsch (TrameOptions.EnableJsonRpcCompat).
+        endpoints.MapTrameEndpoints(restPrefix,
+            enableRateLimiting: options?.RateLimitPermitLimit > 0,
+            enableJsonRpcCompat: options?.EnableJsonRpcCompat == true);
         endpoints.MapTrameDeveloperUi(developerUiPath);
 
         if (options?.UseSignalR == true)
         {
             // Vollqualifiziert, um den Namen vom gleichnamigen Namespace zu trennen.
-            endpoints.MapHub<TrameHub.Hub.TrameHub>(hubPath);
+            // North-Bound-Härtung: RequireAuthorization wenn RequireAuthentication an
+            // (F9.2 — Verbindungs-Gate; der Invoker kann pro-Method-Auth nicht mehr
+            // retten, wenn die Verbindung schon steht). Rate-Limiting auf den Hub-
+            // Endpoint, wenn die "trame"-Policy registriert ist (F5.2).
+            var hub = endpoints.MapHub<TrameHub.Hub.TrameHub>(hubPath);
+            if (options?.RequireAuthentication == true)
+                hub.RequireAuthorization();
+            if (options?.RateLimitPermitLimit > 0)
+                hub.RequireRateLimiting("trame");
         }
 
         return endpoints;

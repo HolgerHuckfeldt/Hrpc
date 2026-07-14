@@ -1,256 +1,231 @@
 # Trame Roadmap
 
-> Nach-v1, nach vorne gerichtet. Diese Datei listet Features, die bewusst *nicht* in
-> den ersten öffentlichen Release gekommen sind — entweder weil sie den v1-Vertrag
-> berühren würden, oder weil sie optional sind und das Code-first-Default-Modell nicht
-> verändern dürfen. Stand: 2026-07-08.
+> Post-v1, forward-looking. This file lists features that deliberately did *not* make the first
+> public release — either because they would touch the v1 contract, or because they are optional
+> and must not change the code-first default model. As of: 2026-07-08.
 >
-> **Mit v1 geliefert:** Ein isomorpher JS/TypeScript-Client (REST + WebSocket) unter
-> [`clients/ts/`](clients/ts/) (`npm i trame-client`). SignalR für JS/TS und
-> Discovery→TS-Codegen bleiben offen (siehe „Später").
+> **Shipped with v1:** an isomorphic JS/TypeScript client (REST + WebSocket) at
+> [`clients/ts/`](clients/ts/) (`npm i trame-client`). SignalR for JS/TS and
+> discovery → typed client codegen remain open (see "Later").
+>
+> **In progress — client stub generators:** typed client stubs (TS/JS/C#/Python) generated from
+> runtime discovery, plus the v1.1 source-generator endgame. Tracked in
+> [`CLIENT_GENERATION.md`](CLIENT_GENERATION.md) (Increment 1: TS + JS + `trame-gen` CLI).
 
 ---
 
-## Motivation: Was Batching + Dependency-Auflösung in der Praxis bringen
+## Motivation: what batching + dependency resolution deliver in practice
 
-Trames Kernversprechen ist nicht „eine hübsche Client-API", sondern **N+1- und
-Roundtrip-Kosten eliminieren, ohne dass der Server dafür Spezialmethoden baut.**
-Ein beobachtetes Beispiel aus einer realen Anwendung:
+Trame's core promise is not "a pretty client API" but **eliminating N+1 and roundtrip cost without
+the server building special-purpose methods.** An observed example from a real application:
 
-> Eine Seite, die zum Laden ursprünglich **über 5 Sekunden** brauchte, fiel mit
-> gezieltem Trame-Batching auf **rund 100 ms** — **ohne Server-seitige Änderung**,
-> also ohne eine extra Methode nur für genau diesen Fall. Die Liste der Kunden,
-> das Prefetchen der ersten beiden und die Bestellpositionen des ersten Kunden
-> laufen in einem Roundtrip, so parallel wie die Abhängigkeiten es zulassen.
+> A page that originally needed **over 5 seconds** to load dropped to **around 100 ms** with
+> targeted Trame batching — **with no server-side change**, i.e. no extra method built just for
+> this one case. The customer list, prefetching the first two, and the order lines of the first
+> customer run in a single roundtrip, as parallel as the dependencies allow.
 
-Das ist das Potenzial, das die Architektur trägt: der Client orchestriert, der
-Server löst auf und parallelisiert. Die unten dokumentierten Features sind dazu
-da, dieses Modell bei Skalierung *sicherer* zu machen — nicht, es zu ersetzen.
+That is the potential the architecture carries: the client orchestrates, the server resolves and
+parallelizes. The features documented below exist to make this model *safer* at scale — not to
+replace it.
 
 ---
 
-## v1.1 — Versionierung & Build-Time-Vertrag
+## v1.1 — Versioning & build-time contract
 
 ### Problem
 
-Versionierung ist das einzige Problem, das **jede RPC-Generation wieder eingeholt**
-hat (CORBA → COM → SOAP → gRPC). Und die einzige Maßnahme, die verlässlich greift,
-ist **Build-Time-Stub-Erzeugung**: ein Interface-Drift, der beim Kompilieren
-knallt, statt erst im Produktionstraffic. Das war damals `wsdl.exe`/`svcutil`,
-heute protobuf — und fehlt in Trame bislang.
+Versioning is the one problem that **catches up with every RPC generation** (CORBA → COM → SOAP →
+gRPC). And the one measure that reliably works is **build-time stub generation**: interface drift
+that fails at compile time instead of only in production traffic. That was `wsdl.exe`/`svcutil`
+back then, protobuf today — and it is missing from Trame so far.
 
-v1 löst Versionierung rein als **Konvention** (`[TrameController("Customer.v1")]`,
-dotted Namespace, siehe README *Known Limitations*). Das erlaubt Koexistenz von
-v1/v2, bietet aber keine Build-Time-Sicherung: ein Client, der gegen eine alte
-Form compiliert wurde, merkt einen Server-seitigen Interface-Bruch erst zur
-Laufzeit.
+v1 solves versioning purely as a **convention** (`[TrameController("Customer.v1")]`, dotted
+namespace, see README *Known Limitations*). This allows v1/v2 coexistence but offers no build-time
+guarantee: a client compiled against an old shape notices a server-side interface break only at
+runtime.
 
-### Ziel
+### Goal
 
-Ein **optionales, opt-in** zweites Modell neben dem Code-first-Default:
+An **optional, opt-in** second model alongside the code-first default:
 
-- **Default bleibt:** Runtime-Discovery, keine Code-Generierung, kein IDL — wie in v1.
-- **Opt-in:** Ein Source-Generator erzeugt aus einem committed Contract-Snapshot
-  getypte Client-Stubs + Versionskonstanten. Interface-Bruch → Build fehlschlägt.
+- **Default stays:** runtime discovery, no code generation, no IDL — as in v1.
+- **Opt-in:** a source generator produces typed client stubs + version constants from a committed
+  contract snapshot. Interface break → build fails.
 
-### Architektur (zweistückig — wie wsdl.exe, nur .NET-nativ)
+### Architecture (two pieces — like wsdl.exe, but .NET-native)
 
-Ein Roslyn-Source-Generator kann zur Build-Zeit **kein** `/api/trame/discovery`
-abrufen (kein Netz, kein laufender Server). Deshalb zwei Stücke:
+A Roslyn source generator cannot fetch `/api/trame/discovery` at build time (no network, no
+running server). Hence two pieces:
 
-1. **Contract-Export (Server-Seite).** Ein MSBuild-Target oder CLI-Tool erzeugt
-   das Discovery-JSON — das mit `/api/trame/discovery` bereits existiert — und
-   schreibt es in eine Datei, die ins Repo committed wird (z. B. `contract.trame.json`).
-2. **Source-Generator (Client-Seite).** Ein `IIncrementalGenerator` liest die
-   committed Datei via `AdditionalFiles` und erzeugt pro Controller eine
-   partielle Klasse `CustomerClient` mit stark getypteten Methoden
-   (`Task<Customer?> GetById(int id, CancellationToken ct)`) plus einer
-   `TrameControllerVersion`-Konstante. Intern bauen die Stubs weiterhin auf
-   `TrameCall`/`ITrameClient` auf — sie sind ein getypter Wrapper, kein zweites
-   Protokoll.
-3. **Drift-Check (Pflichtbestandteil).** Ein MSBuild-Target auf dem
-   Server-Projekt regeneriert das Discovery zur Build-Zeit und lässt den Build
-   **fehlschlagen**, wenn das committed JSON abweicht. *Ohne diesen Check ist es
-   genau die wsdl-Falle:* jemand ändert den Server, vergisst zu regenerieren,
-   der Client-Build ist trotzdem grün. Der Drift-Check ist der Teil, der
-   `wsdl.exe` damals besser gemacht hätte.
+1. **Contract export (server side).** An MSBuild target or CLI tool produces the discovery JSON —
+   the same one `/api/trame/discovery` already returns — and writes it to a file committed to the
+   repo (e.g. `contract.trame.json`).
+2. **Source generator (client side).** An `IIncrementalGenerator` reads the committed file via
+   `AdditionalFiles` and produces, per controller, a partial class `CustomerClient` with strongly
+   typed methods (`Task<Customer?> GetById(int id, CancellationToken ct)`) plus a
+   `TrameControllerVersion` constant. Internally the stubs still build on
+   `TrameCall`/`ITrameClient` — they are a typed wrapper, not a second protocol.
+3. **Drift check (mandatory component).** An MSBuild target on the server project regenerates the
+   discovery at build time and **fails the build** if the committed JSON differs. *Without this
+   check it is exactly the wsdl trap:* someone changes the server, forgets to regenerate, and the
+   client build is still green. The drift check is the part that would have made `wsdl.exe` better
+   back then.
 
-### Versionierungsmodell: Routing-Key, nicht Compatibility-Gate
+### Versioning model: routing key, not compatibility gate
 
-- **Routing-Key (empfohlen):** `Customer.v1` und `Customer.v2` sind zwei Einträge
-  im Controller-Dict, beide registriert; der Request wählt über das `controller`-Feld.
-  Baut auf Vorhandenem auf, kein neues Wire-Feld nötig. Der Generator brennt die
-  Version als Konstante in den Stub; der Server kann bei Mismatch hart
-  `409`/`400` „Version mismatch" returnen — explizit statt stillschweigend.
-- **Compatibility-Gate (alternative):** ein typisiertes `version`-Feld im
-  `TrameRequest`, ein Controller, Server lehnt nicht-passende Versionen ab. Mehr
-  Metadata, größere Protokolländerung. Nur wählen, wenn Routing-Key nicht reicht.
+- **Routing key (recommended):** `Customer.v1` and `Customer.v2` are two entries in the controller
+  dictionary, both registered; the request selects via the `controller` field. Builds on what
+  exists, no new wire field needed. The generator burns the version as a constant into the stub;
+  the server can hard-fail with `409`/`400` "Version mismatch" on mismatch — explicit instead of
+  silent.
+- **Compatibility gate (alternative):** a typed `version` field in `TrameRequest`, one controller,
+  server rejects non-matching versions. More metadata, larger protocol change. Choose only if the
+  routing key is not enough.
 
-### Bewusst akzeptierte Trade-offs
+### Deliberately accepted trade-offs
 
-- **Laufzeit-Typsicherheit geht vor Compile-Time dort, wo Generierung nicht
-  eingesetzt wird.** Wer das Default-Modell nutzt, hat weiterhin keine
-  Build-Time-Sicherung auf verketteten Werten (`@alias`) — ein Tippfehler knallt
-  erst zur Laufzeit als `400`. Das ist ein bewusstes Opfer für die Flexibilität
-  des Code-first-Modells; der Generator ist das Gegenstück für Teams, die
-  Build-Time-Sicherung brauchen.
-- **Zweites Verkaufsmodell.** Trames Pitch bislang: „code-first, no IDL, no code
-  generation." Das bleibt als Default wahr. Der Generator muss klar als *opt-in*
-  positioniert werden, nicht als Ersatz — sonst widerspricht er der Kernposition.
-- **Contract-Snapshot ist Drift-anfällig per se.** Daher der Drift-Check als
-  Pflichtbestandteil, nicht als Nice-to-have.
+- **Runtime type safety precedes compile-time safety where generation is not used.** Anyone using
+  the default model still has no build-time guarantee on chained values (`@alias`) — a typo fails
+  only at runtime as a `400`. This is a deliberate sacrifice for the flexibility of the code-first
+  model; the generator is the counterpart for teams that need build-time safety.
+- **A second sales model.** Trame's pitch so far: "code-first, no IDL, no code generation." That
+  stays true as the default. The generator must be positioned clearly as *opt-in*, not as a
+  replacement — otherwise it contradicts the core position.
+- **The contract snapshot is drift-prone by nature.** Hence the drift check as a mandatory
+  component, not a nice-to-have.
 
-### Offene Entwurfsfragen (bei Implementierung entscheiden)
+### Open design questions (decide at implementation time)
 
-- Konkrete Form der Contract-Datei (reines Discovery-JSON vs. eigene
-  Contract-Schema-Datei mit Versions-Metadaten).
-- Ob der Generator nur Stubs oder auch Request/Response-DTOs (`[TrameDataContract]`)
-  als C#-Typen erzeugt — und wie er mit Typen umgeht, die client-seitig schon
-  existieren (Namenskollisionen).
-- Ob `version` als Wire-Feld (Gate) oder nur als Generatorkonstante (Routing-Key)
-  umgesetzt wird.
-- NuGet-Paketierung: separater Generator-Analyzer vs. Bestandteil von `Trame.Client`.
+- Concrete form of the contract file (plain discovery JSON vs. a dedicated contract schema file
+  with version metadata).
+- Whether the generator produces only stubs or also request/response DTOs (`[TrameDataContract]`)
+  as C# types — and how it handles types that already exist client-side (name collisions).
+- Whether `version` is a wire field (gate) or only a generator constant (routing key).
+- NuGet packaging: a separate generator analyzer vs. part of `Trame.Client`.
 
-### Beziehung zu v1
+### Relationship to v1
 
-v1 bleibt unverändert. Die `Customer.v1`-Konvention aus den *Known Limitations*
-ist die v1-Story; dieser Feature macht sie zur Build-Time-Sicherung. Keine
-Protokolländerung am Bestand (außer im optionalen Gate-Pfad), keine
-Inkompatibilität für bestehende Clients.
+v1 stays unchanged. The `Customer.v1` convention from *Known Limitations* is the v1 story; this
+feature turns it into a build-time guarantee. No protocol change to the existing contract (except
+in the optional gate path), no incompatibility for existing clients.
 
-### Proof-of-Concept: `spikes/LinqProvider/` (Stand 2026-07-08)
+### Proof of concept: `spikes/LinqProvider/` (as of 2026-07-08)
 
-Ein Expression-Tree-getypter RPC-Proxy-Spike validiert die Machbarkeit des
-getypteten Client-Modells end-to-end gegen die Sample-App:
+An Expression-Tree-typed RPC proxy spike validates the feasibility of the typed client model
+end-to-end against the sample app:
 
-- `client.Build((ICustomerService c) => c.GetCustomerById(id))` → korrekter
-  `TrameRequest` aus dem `MethodCallExpression` (Controller/Methode aus
-  Vertrags-Attributen, Parameter aus der Signatur).
-- **Typsichere Dep-Verdrahtung** über `Dep<T>`-Marker + `Arg<T>`-Wrapper mit
-  impliziten Konvertierungen: ein `Dep<string>` an einer `Arg<int>`-Stelle ist
-  ein Compile-Fehler, kein Laufzeit-500.
-- `Expose(x => x.Name)` → ergebnisrelativer JsonPath `$.Name`.
-- `ContractGenerator` erzeugt C#-Verträge aus `discovery.json` (Modell „c").
+- `client.Build((ICustomerService c) => c.GetCustomerById(id))` → correct `TrameRequest` from the
+  `MethodCallExpression` (controller/method from contract attributes, parameters from the
+  signature).
+- **Type-safe dependency wiring** via `Dep<T>` marker + `Arg<T>` wrapper with implicit
+  conversions: a `Dep<string>` at an `Arg<int>` position is a compile error, not a runtime 500.
+- `Expose(x => x.Name)` → result-relative JsonPath `$.Name`.
+- `ContractGenerator` produces C# contracts from `discovery.json` (model "c").
 
-**Fazit: technisch gangbar, aber nicht in v1 ausgebaut.** Der Spike hat die
-Daseinsberechtigung indirekt schon bewiesen — die getypte Verdrahtung hat die
-drei Server-Bugs im Dependency-Chaining (`$.data`-Konvention, typgetreue
-`@alias`-Substitution, nicht auflösender topologischer Batch-Pfad) überhaupt
-erst sichtbar gemacht, weil sie einen numerischen Chain end-to-end ausführt.
-Ehrlich eingeordnet ist der ROI aber begrenzt: der untypisierte
-`TrameCall`-Builder funktioniert, Methoden-/Parameterfehler fallen in der
-Entwicklung ohnehin sofort zur Laufzeit auf, und der größte Gewinn (typisierte
-Dep-Verdrahtung) deckt den engsten Fall (Batch-Chains). Der Codegen +
-`Arg<T>`-Tax rechtfertigt sich nur als opt-in.
+**Verdict: technically feasible, but not built out in v1.** The spike has indirectly already
+justified its existence — the typed wiring is what made the three server bugs in dependency
+chaining (the `$.data` convention, type-faithful `@alias` substitution, the non-resolving
+topological batch path) visible in the first place, because it executes a numeric chain
+end-to-end. Assessed honestly, though, the ROI is limited: the untyped `TrameCall` builder works,
+method/parameter errors surface immediately at runtime during development anyway, and the biggest
+gain (typed dependency wiring) covers only the narrowest case (batch chains). The codegen +
+`Arg<T>` tax is justified only as an opt-in.
 
-**Aus dem Spike zu lösende Punkte für ein v1.x:**
+**Points to resolve from the spike for a v1.x:**
 
-- **Kein `IQueryable` nötig.** Der Spike ist ein getypter Proxy, kein Query-
-  Provider — das IQueryable-Monad-Problem entfällt. Beim Entwurf darauf achten,
-  keine unnötige Komplexität aus dem LINQ-Vorbild zu übernehmen.
-- **Alias-Lexik ist server-seitig restriktiv.** `DependencyGraphBuilder.ExtractAliases`
-  bricht an `.`/`#` u. ä. (nur `[A-Za-z0-9_]`). Der Spike sanitisiert
-  generierte Aliase client-seitig; sauberer wäre, den Server freier extrahieren
-  zu lassen — als Server-Change vorm Generator-Release prüfen.
-- **`Arg<T>` nur wo nötig.** Der Spike wickelt jeden Parameter in `Arg<T>`; ein
-  Produkt würde das nur an Dep-empfangenden Positionen tun, um die API nicht
-  zu überladen.
-- **Konstanten-Faltung + Caching** der Argument-Evaluation (`Expression.Lambda(arg).Compile().DynamicInvoke()`
-  pro Call ist für heiße Loops zu teuer).
-- **Durchreichung** von Cancellation, `IAsyncEnumerable`, `byte[]` — der
-  untypisierte `ITrameClient` kann das schon; die getypte Schicht muss es spiegeln.
+- **No `IQueryable` needed.** The spike is a typed proxy, not a query provider — the IQueryable
+  monad problem does not apply. When designing, take care not to inherit unnecessary complexity
+  from the LINQ template.
+- **Alias lexicon is restrictive server-side.** `DependencyGraphBuilder.ExtractAliases` breaks on
+  `.`/`#` and similar (only `[A-Za-z0-9_]`). The spike sanitizes generated aliases client-side;
+  cleaner would be to let the server extract more freely — evaluate as a server change before the
+  generator release.
+- **`Arg<T>` only where needed.** The spike wraps every parameter in `Arg<T>`; a product would do
+  that only at dependency-receiving positions, to avoid overloading the API.
+- **Constant folding + caching** of argument evaluation (`Expression.Lambda(arg).Compile().DynamicInvoke()`
+  per call is too expensive for hot loops).
+- **Pass-through** of cancellation, `IAsyncEnumerable`, `byte[]` — the untyped `ITrameClient` can
+  already do this; the typed layer must mirror it.
 
-Details und vollständige Entscheidung im Spike unter
-[`spikes/LinqProvider/README.md`](spikes/LinqProvider/README.md). Der Spike ist
-bewusst *nicht* Teil von `Trame.sln` — er läuft isoliert:
+Details and the full decision in the spike at
+[`spikes/LinqProvider/README.md`](spikes/LinqProvider/README.md). The spike is deliberately *not*
+part of `Trame.sln` — it runs isolated:
 `dotnet test spikes/LinqProvider/Trame.Spike.LinqProvider.csproj`.
 
 ---
 
-## Binary-Transfer (v1.x+)
+## Binary transfer (v1.x+)
 
 ### Status quo (v1)
 
-`byte[]`-Parameter (`TrameRequest.binaryData`) und `byte[]`-Rückgaben
-(`TrameResponse.content`) sind Out-of-band zum JSON-`data`-Feld geführt — sie
-konkurrieren nicht mit strukturierten Argumenten und werden nicht doppelt in
-`data` kodiert. Die Wire-Kodierung ist transportabhängig:
+`byte[]` parameters (`TrameRequest.binaryData`) and `byte[]` returns (`TrameResponse.content`)
+are carried out of band from the JSON `data` field — they do not compete with structured arguments
+and are not double-encoded in `data`. The wire encoding is transport-dependent:
 
-- **REST und WebSocket (JSON):** Base64-in-JSON (~33 % Overhead), begrenzt
-  durch die Message-Size-Caps (REST 1 MB Body, WebSocket 1 MB/Message,
-  hardcodiert). WebSocket nimmt bewusst nur Text-Frames an — native
-  Binary-Frames werden nicht akzeptiert.
-- **SignalR (MessagePack):** native `bin`-Kodierung, kein Base64.
+- **REST and WebSocket (JSON):** base64-in-JSON (~33% overhead), bounded by the message-size caps
+  (REST 1 MB body, WebSocket 1 MB/message, hardcoded). WebSocket deliberately accepts text frames
+  only — native binary frames are not accepted.
+- **SignalR (MessagePack):** native `bin` encoding, no base64.
 
-Offene Lücken, die in v1 bewusst nicht gelöst sind (siehe README *Known
-Limitations* — Binary):
+Open gaps deliberately unsolved in v1 (see README *Known Limitations* — Binary):
 
-1. **C#-Fluent-Builder ohne `WithBinary`** — Binary-Upload aus C# nur per
-   `request.BinaryData = …`. Helper fehlt (TS hat `withBinary`).
-2. **First-Match-only für `byte[]`-Parameter** — eine Methode mit mehreren
-   `byte[]`-Parametern bekommt die Payload nur im ersten.
-3. **Kein Streaming** — `byte[]`-Responses puffern in `content`;
-   `TrameResponse.ContentStream` ist am Modell deklariert, aber von keinem
-   Transport angebunden.
-4. **Kein Multipart/Chunking** für große REST-Uploads (nur Base64-in-JSON,
-   1 MB-Cap).
+1. **C# fluent builder without `WithBinary`** — binary upload from C# only via
+   `request.BinaryData = …`. Helper missing (TS has `withBinary`).
+2. **First-match-only for `byte[]` parameters** — a method with several `byte[]` parameters gets
+   the payload only in the first.
+3. **No streaming** — `byte[]` responses buffer in `content`; `TrameResponse.ContentStream` is
+   declared on the model but not wired up by any transport.
+4. **No multipart/chunking** for large REST uploads (only base64-in-JSON, 1 MB cap).
 
-### Ziel (v1.x+)
+### Goal (v1.x+)
 
-Binary-Transfer als gleichberechtigten, nicht base64-bepackten Pfad ausbauen —
-ohne das JSON-Text-Wire für REST/WebSocket aufzugeben (Sprachneutralität bleibt
-das Kriterium).
+Build out binary transfer as an equal, non-base64-laden path — without giving up the JSON text
+wire for REST/WebSocket (language neutrality remains the criterion).
 
-- **WebSocket native Binary-Frames** optional annehmen (Auto-Detection:
-  Text-Frame = JSON-Request wie heute; Binary-Frame = rohe Payload für eine
-  `byte[]`-Methode plus dünner Header für Controller/Methode/Id). Der
-  Base64-Weg bleibt kompatibel.
-- **`ContentStream` anbinden** — große `byte[]`-Responses streamen statt
-  puffern (REST: chunked transfer; WebSocket/SignalR: sequentielle Frames).
-- **`WithBinary` im C#-Builder** nachziehen, symmetrisch zum TS-Client.
-- **Namens-Bindung für `byte[]`-Parameter** statt First-Match-only, sobald ein
-  zweites Binary-Feld pro Request nötig ist — oder mehrere benannte
-  Binary-Slots in `TrameRequest`.
-- **Konfigurierbare Message-Size-Caps** über `TrameOptions` (WebSocket heute
-  hardcodiert 1 MB).
+- **WebSocket native binary frames** optionally accepted (auto-detection: text frame = JSON
+  request as today; binary frame = raw payload for a `byte[]` method plus a thin header for
+  controller/method/id). The base64 path stays compatible.
+- **Wire up `ContentStream`** — stream large `byte[]` responses instead of buffering (REST:
+  chunked transfer; WebSocket/SignalR: sequential frames).
+- **Add `WithBinary` to the C# builder**, symmetric with the TS client.
+- **Name binding for `byte[]` parameters** instead of first-match-only, as soon as a second
+  binary field per request is needed — or multiple named binary slots in `TrameRequest`.
+- **Configurable message-size caps** via `TrameOptions` (WebSocket is hardcoded to 1 MB today).
 
-### Bewusst akzeptierter Trade-off
+### Deliberately accepted trade-off
 
-Binary ist in v1 eine **Zweitklass-Bürger-Warnung wert**, kein Verkaufsargument:
-wer große oder frequente Binary-Ströme braucht, lässt sie heute besser über
-einen plain-REST- oder WebSocket-Endpunkt neben Trame laufen. Das RPC-Modell
-trägt Befehls- und Chaining-Last, nicht Bulk-Transfer. Der v1.x+-Plan hebt
-Binary auf dieses Niveau, ohne das JSON-Wire zu brechen.
+Binary is in v1 worth a **second-class-citizen warning**, not a selling point: anyone who needs
+large or frequent binary streams is better off running them over a plain REST or WebSocket
+endpoint alongside Trame today. The RPC model carries the command and chaining load, not bulk
+transfer. The v1.x+ plan raises binary to that level without breaking the JSON wire.
 
-### Offene Entwurfsfragen (bei Implementierung entscheiden)
+### Open design questions (decide at implementation time)
 
-- WebSocket Binary-Frame-Header-Format (minimal JSON-Präfix vs. eigener
-  Frame-Sub-Typ) und Korrelation mit `id`.
-- Ob `ContentStream` pro Transport oder generisch über einen Transport-Adapter
-  läuft.
-- Ob mehrere `byte[]`-Parameter über mehrere benannte Slots in `TrameRequest`
-  oder über ein Binary-Multipart-Frame gelöst werden.
+- WebSocket binary-frame header format (minimal JSON prefix vs. a dedicated frame sub-type) and
+  correlation with `id`.
+- Whether `ContentStream` runs per transport or generically through a transport adapter.
+- Whether multiple `byte[]` parameters are solved via multiple named slots in `TrameRequest` or
+  via a binary multipart frame.
 
 ---
 
-## Später (v1.x+, unsortiert)
+## Later (v1.x+, unsorted)
 
-- **SignalR-Client für JS/TS.** Der `clients/ts/`-Client (v1) deckt REST +
-  WebSocket ab. Ein SignalR-Transport (`/tramehub`-Hub, MessagePack) für den
-  Browser/Node folgt als v1.1 — bewusst nicht in v1, um die schwere
-  `@microsoft/signalr`-Abhängigkeit + MessagePack aus dem Default-Build
-  herauszuhalten. REST + WebSocket decken Browser-RPC bereits ab.
-- **Discovery→TypeScript-Codegen.** `/api/trame/discovery` liefert vollständige
-  Typ-Metadaten. Ein Generator, der daraus getypte Client-Stubs (statt der
-  heute rein funktionalen API) erzeugt, ist das JS-Äquivalent des oben
-  beschriebenen .NET-Source-Generators und teilt dessen Drift-Check-Anforderung.
-- **Policy-basierte Autorisierung** für `[TrameAuthorise]` via `IAuthorizationHandler`,
-  damit `403` (authentifiziert, aber nicht erlaubt) von `401` (nicht
-  authentifiziert) unterschieden werden kann — aktuell Roadmap im
-  RELEASE-PLAN Phase 3.1.
-- **Direkte/Fluent-Handler-Registrierung** ohne `[TrameController]`/`[TrameMethod]`
-  — für Szenarien, die keine Attribut-Scan-Registrierung wollen.
-- **Input-Validierung** der Parameter (DataAnnotations / FluentValidation) im
-  Interceptor-Pipeline.
-- **Echte REST-Streams** statt Materialisierung zu JSON-Array (aktuell Limitation;
-  WebSocket/SignalR bieten Streaming-Semantik).
+- **SignalR client for JS/TS.** The `clients/ts/` client (v1) covers REST + WebSocket. A SignalR
+  transport (`/tramehub` hub, MessagePack) for browser/Node follows in v1.1 — deliberately not in
+  v1, to keep the heavy `@microsoft/signalr` dependency + MessagePack out of the default build.
+  REST + WebSocket already cover browser RPC.
+- **Discovery → typed client codegen.** `/api/trame/discovery` delivers full type metadata.
+  Multi-language stub generators (TS/JS/C#/Python) from a single TS core, with dependency chaining
+  as a first-class compile-checked surface, are in progress — see
+  [`CLIENT_GENERATION.md`](CLIENT_GENERATION.md). This is the JS/Python equivalent of the .NET
+  source generator described above and shares its drift-check requirement.
+- **Policy-based authorization** for `[TrameAuthorise]` via `IAuthorizationHandler`, so that
+  `403` (authenticated but not permitted) can be distinguished from `401` (not authenticated) —
+  currently a roadmap item in RELEASE-PLAN Phase 3.1.
+- **Direct/fluent handler registration** without `[TrameController]`/`[TrameMethod]` — for
+  scenarios that do not want attribute-scan registration.
+- **Input validation** of parameters (DataAnnotations / FluentValidation) in the interceptor
+  pipeline.
+- **True REST streams** instead of materialization to a JSON array (currently a limitation;
+  WebSocket/SignalR offer streaming semantics).

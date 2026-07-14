@@ -5,11 +5,15 @@ using Microsoft.AspNetCore.Http;
 namespace TrameCore.Attributes
 {
     /// <summary>
-    /// Beispielhaftes Authorize-Attribute für Trame.
-    /// Prüft bspw. nur, ob der Nutzer authentifiziert ist und/oder
-    /// eine bestimmte Rolle hat.
+    /// Authorize-Attribute für Trame. Prüft, ob der Nutzer authentifiziert ist
+    /// und/oder eine bestimmte Rolle hat. Auf Methoden-Ebene anwendbar; auf
+    /// Klassen-Ebene gilt es als Default für alle Methoden des Controllers
+    /// (Methoden-Ebene gewinnt, falls vorhanden). Im North-Bound-Modus
+    /// (<see cref="TrameHub.Extensions.TrameOptions.RequireAuthentication"/>=true)
+    /// verlangen auch unbestückte Methoden einen authentifizierten User; mit
+    /// <c>[TrameAnonymous]</c> lässt sich eine Methode explizit öffnen.
     /// </summary>
-    [AttributeUsage(AttributeTargets.Method)]
+    [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
     public class TrameAuthoriseAttribute : Attribute
     {
         /// <summary>

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TrameCommon.Models;
 using TrameCore.Services;
 using TrameTests.Fixtures;
@@ -58,14 +59,18 @@ public class ParallelAuthPropagationTests
         params (string name, string jsonValue)[] parameters)
     {
         var paramList = parameters
-            .Select(p => new TrameParameter { ParameterName = p.name, Data = p.jsonValue })
+            .Select(p => new TrameParameter
+            {
+                ParameterName = p.name,
+                Data = p.jsonValue.StartsWith("@") ? JsonValue.Create(p.jsonValue) : JsonNode.Parse(p.jsonValue)
+            })
             .ToList();
         return new TrameRequest
         {
             Id = id,
             Controller = controller,
             Method = method,
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             DependencyMapping = mapping,
         };
     }

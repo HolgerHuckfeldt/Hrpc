@@ -2,44 +2,42 @@ import { ExecutionMode } from "./types.js";
 import type { TrameMultiRequest, TrameParameter, TrameRequest, TrameResponse } from "./types.js";
 
 /**
- * Baut das `stringData`-Feld (JSON-String eines TrameParameter-Arrays) aus
+ * Baut das `params`-Feld (Array von TrameParameter mit nativen `data`-Werten) aus
  * Aufrufargumenten. Spiegelt den C#-TrameCall-Builder.
  *
- * - **Named** (Object): `{parameterName: key, data: JSON.stringify(value)}`.
+ * - **Named** (Object): `{parameterName: key, data: value}`.
  *   Sichere, positionsunabhängige Bindung (Server bindet nach Parametername).
- * - **Positional** (Array): `{parameterName: "param{i}", num: i, data: ...}`.
+ * - **Positional** (Array): `{parameterName: "param{i}", num: i, data: value}`.
  *   Server bindet nach Name ("param{i" passt nie) und fällt dann auf `num` zurück
  *   (PROTOCOL.md:60-66).
  *
- * `data` ist immer ein **JSON-String** des Werts (lazy Deserialisierung server-side).
+ * `data` ist der **native JSON-Wert** (kein JSON-String mehr); `undefined` → `null`.
  */
-export function buildStringData(
+export function buildParams(
   params: Record<string, unknown> | unknown[] | undefined,
-): string {
-  if (params == null) return "[]";
+): TrameParameter[] {
+  if (params == null) return [];
 
   if (Array.isArray(params)) {
-    const arr: TrameParameter[] = params.map((value, i) => ({
+    return params.map((value, i) => ({
       parameterName: `param${i}`,
       num: i,
-      data: serializeValue(value),
+      data: normalizeValue(value),
     }));
-    return JSON.stringify(arr);
   }
 
   const entries = Object.entries(params);
-  const arr: TrameParameter[] = entries.map(([key, value], i) => ({
+  return entries.map(([key, value], i) => ({
     parameterName: key,
     num: i,
-    data: serializeValue(value),
+    data: normalizeValue(value),
   }));
-  return JSON.stringify(arr);
 }
 
-/** JSON-stringifiziert einen Parameterwert; undefined → "null" (Wire-konsistent). */
-function serializeValue(value: unknown): string {
-  if (value === undefined) return "null";
-  return JSON.stringify(value);
+/** Normiert einen Parameterwert: undefined → null (Wire-konsistent), sonst nativ. */
+function normalizeValue(value: unknown): unknown {
+  if (value === undefined) return null;
+  return value;
 }
 
 /** Baut einen einzelnen TrameRequest. */
@@ -55,7 +53,7 @@ export function buildSingle(opts: {
   const request: TrameRequest = {
     controller: opts.controller,
     method: opts.method,
-    stringData: buildStringData(opts.params),
+    params: buildParams(opts.params),
     id,
     dependencyMapping: opts.dependencyMapping ?? null,
     binaryData:

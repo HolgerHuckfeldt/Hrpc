@@ -6,7 +6,8 @@ export type TabType = 'request' | 'codegen' | 'dependency';
 // --- Dependency-Builder-Modell ----------------------------------------------
 // Ein DepStep entspricht einem TrameRequest innerhalb eines Serial-Batches mit
 // @alias-Abhängigkeitskettung. exposes → dependencyMapping; alias-params → @alias
-// im stringData. Die Struktur ist rein serialisierbar (persistiert mit dem Tab).
+// in params (native String-Werte mit @-Präfix). Die Struktur ist rein serialisierbar
+// (persistiert mit dem Tab).
 
 export interface DepExpose {
   /** Alias-Name (ohne @), den Folgeschritte als @alias referenzieren. */
@@ -120,7 +121,9 @@ function defaultValueForParam(param: ParameterMeta): unknown {
   return defaultValueForType(param.parameterType);
 }
 
-function serializeValueByType(value: unknown, type: string, typeDefinition?: { properties?: { propertyName: string; propertyType: string }[] } | null): string {
+// `data` ist jetzt der NATIVE JSON-Wert (kein JSON-String mehr). Ein Objekt wird
+// als Record durchgereicht, Skalare als native JS-Werte (number/boolean/string).
+function serializeValueByType(value: unknown, type: string, typeDefinition?: { properties?: { propertyName: string; propertyType: string }[] } | null): unknown {
   if (typeDefinition?.properties?.length) {
     let v = value;
     if (typeof v === 'string') {
@@ -134,16 +137,16 @@ function serializeValueByType(value: unknown, type: string, typeDefinition?: { p
         obj[prop.propertyName] = defaultValueForType(prop.propertyType);
       }
     }
-    return JSON.stringify(obj);
+    return obj;
   }
   const t = (type || '').toLowerCase();
-  if (t === 'string') return JSON.stringify(value ?? '');
-  if (t === 'bool' || t === 'boolean') return JSON.stringify(value === '' ? false : !!value);
+  if (t === 'string') return value ?? '';
+  if (t === 'bool' || t === 'boolean') return value === '' ? false : !!value;
   if (t === 'int' || t === 'int32' || t === 'int64' || t === 'long' || t === 'number' || t === 'double' || t === 'float' || t === 'decimal' || t === 'single') {
     const n = value === '' ? 0 : Number(value);
-    return JSON.stringify(Number.isNaN(n) ? 0 : n);
+    return Number.isNaN(n) ? 0 : n;
   }
-  return JSON.stringify(value ?? null);
+  return value ?? null;
 }
 
 function buildDefaultPayload(params: (ParameterMeta & { value: unknown })[]): TrameParameter[] {
@@ -297,11 +300,8 @@ class TabState {
         for (const p of tab.params) {
           const match = arr.find((x: TrameParameter) => x.parameterName === p.parameterName);
           if (match) {
-            try {
-              p.value = JSON.parse(match.data);
-            } catch {
-              p.value = match.data;
-            }
+            // data ist jetzt nativ (kein JSON-String mehr) → direkt übernehmen.
+            p.value = match.data;
           }
         }
       }

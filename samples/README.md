@@ -1,5 +1,9 @@
 # Trame Samples
 
+> Neu hier? Der Schritt-für-Schritt-Einstieg (null → DevUI) steht in
+> [`../GETTING_STARTED.md`](../GETTING_STARTED.md). Diese Samples hier sind die
+> ausführbare Referenz — NuGet/npm-basiert, gegen denselben Server.
+
 Ausführbare, sauber kommentierte Code-Beispiele als Entwickler-Referenz. Jeder
 der drei Projekte (Server, C#-Client, TS-Client) läuft eigenständig und zieht
 Trame aus dem **lokalen NuGet-/npm-Paket** — kein Build der Solution nötig. Pro

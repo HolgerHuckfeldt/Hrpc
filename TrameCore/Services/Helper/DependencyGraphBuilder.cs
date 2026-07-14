@@ -1,5 +1,6 @@
 using TrameCommon.Models;
 using System.Collections.Concurrent;
+using System.Text.Json.Nodes;
 
 namespace TrameCore.Services.Helper;
 
@@ -49,18 +50,18 @@ public static class DependencyGraphBuilder
             }
         }
 
-        // Build dependency edges: for each request, find which aliases it uses (via @alias in StringData)
+        // Build dependency edges: for each request, find which aliases it uses (via @alias in Params)
         foreach (var request in requests)
         {
             var id = request.Id ?? string.Empty;
             if (string.IsNullOrEmpty(id))
                 id = $"{request.Controller}.{request.Method}";
 
-            if (string.IsNullOrEmpty(request.StringData))
+            if (request.Params == null)
                 continue;
 
-            // Find all @alias placeholders in the parameter JSON
-            var usedAliases = ExtractAliases(request.StringData);
+            // Find all @alias placeholders in the native Params-JsonNode
+            var usedAliases = ExtractAliases(request.Params);
             foreach (var alias in usedAliases)
             {
                 if (providers.TryGetValue(alias, out var providerId))
@@ -105,39 +106,41 @@ public static class DependencyGraphBuilder
     }
 
     /// <summary>
-    /// Extrahiert alle @alias-Platzhalter aus einem JSON-Parameter-String. Rein statischer
-    /// Token-Scan (kein JSON-Parse) — wird für die statische Verfügbarkeits-Propagierung im
-    /// Invoker genutzt, wo die Abhängigkeiten noch nicht aufgelöst sind. Die präzise Match-Logik
-    /// liegt im Invoker (ReplaceDependencyByAlias); hier reicht die grobe Erkennung.
+    /// Extrahiert alle @alias-Platzhalter aus dem nativen <see cref="TrameRequest.Params"/>-
+    /// <see cref="JsonNode"/>. Durchläuft den Knotenbaum und sammelt String-Werte, die mit
+    /// <c>@</c> beginnen (der Alias-Name ist der alphanumerische+_--Anteil danach). Wird für
+    /// die statische Verfügbarkeits-Propagierung genutzt, wo die Abhängigkeiten noch nicht
+    /// aufgelöst sind; die präzise Match-Logik liegt im Invoker (ReplaceDependencyByAlias).
     /// </summary>
-    internal static HashSet<string> ExtractAliases(string json)
+    internal static HashSet<string> ExtractAliases(JsonNode? paramsNode)
     {
         var aliases = new HashSet<string>(StringComparer.Ordinal);
-        if (string.IsNullOrEmpty(json))
-            return aliases;
-
-        // Simple token scan: find strings starting with @
-        // This is intentionally simple to avoid full JSON parsing overhead.
-        // The actual replacement logic in the invoker handles the precise matching.
-        for (int i = 0; i < json.Length; i++)
-        {
-            if (json[i] == '@')
-            {
-                // Extract the alias name (alphanumeric + underscore)
-                var sb = new System.Text.StringBuilder();
-                int j = i + 1;
-                while (j < json.Length && (char.IsLetterOrDigit(json[j]) || json[j] == '_'))
-                {
-                    sb.Append(json[j]);
-                    j++;
-                }
-                if (sb.Length > 0)
-                {
-                    aliases.Add(sb.ToString());
-                }
-                i = j - 1;
-            }
-        }
+        CollectAliases(paramsNode, aliases);
         return aliases;
+    }
+
+    private static void CollectAliases(JsonNode? node, HashSet<string> aliases)
+    {
+        if (node == null) return;
+        if (node is JsonValue v && v.TryGetValue<string>(out var s) && s.StartsWith("@"))
+        {
+            // Alias-Name: alphanumerisch + _ (wie früherer Token-Scan).
+            var sb = new System.Text.StringBuilder();
+            for (int j = 1; j < s.Length; j++)
+            {
+                char c = s[j];
+                if (char.IsLetterOrDigit(c) || c == '_') sb.Append(c); else break;
+            }
+            if (sb.Length > 0)
+                aliases.Add(sb.ToString());
+        }
+        else if (node is JsonObject obj)
+        {
+            foreach (var kvp in obj) CollectAliases(kvp.Value, aliases);
+        }
+        else if (node is JsonArray arr)
+        {
+            foreach (var item in arr) CollectAliases(item, aliases);
+        }
     }
 }

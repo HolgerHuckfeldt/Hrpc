@@ -27,12 +27,13 @@
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
-  <!-- Der JsonElementMessagePackFormatter und TrameResponseMessagePackFormatter benötigen
-       die volle MessagePack-Assembly, die TrameCommon nicht referenziert (nur Annotations).
-       Die Dateien werden daher hier NICHT kompiliert, sondern per <Compile Include> in
-       TrameHub + TrameClient gelinkt (jeweils gegen deren eigene MessagePack-Version). -->
+  <!-- Die MessagePack-Formatter (JsonElement, JsonNode, TrameResponse) benötigen die volle
+       MessagePack-Assembly, die TrameCommon nicht referenziert (nur Annotations). Die Dateien
+       werden daher hier NICHT kompiliert, sondern per <Compile Include> in TrameHub + TrameClient
+       gelinkt (jeweils gegen deren eigene MessagePack-Version). -->
   <ItemGroup>
     <Compile Remove="MessagePack\JsonElementMessagePackFormatter.cs" />
+    <Compile Remove="MessagePack\JsonNodeMessagePackFormatter.cs" />
     <Compile Remove="MessagePack\TrameResponseMessagePackFormatter.cs" />
   </ItemGroup>
 

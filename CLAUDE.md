@@ -75,6 +75,8 @@ Trame (sample app) · TrameTests (xUnit + FluentAssertions) · TrameBench (Bench
 
 All transports deserialize the incoming `TrameRequest`/`TrameMultiRequest` and delegate to `ITrameCore.InvokeDi()`.
 
+**JSON-RPC 2.0 compat adapter** (`TrameRest/JsonRpc/`, opt-in via `TrameOptions.EnableJsonRpcCompat` → `POST /api/trame/jsonrpc`). `JsonRpcAdapter` is a *pure* bidirectional translator (JSON-RPC ↔ `TrameRequest`/`TrameResponse`, error-code map, `trame.capabilities` manifest); `JsonRpcDispatcher` is the orchestration (reads raw body, dispatches `trame.discover`/`trame.capabilities`, calls `InvokeDi` in **Parallel**, assembles single/batch, applies the `200`/`204` envelope). `method` is `Controller.Method` (split at the last dot), `params` object → named / array → positional (by `num`), `id` echoed with original type, notifications emit no response (all-notification → `204`). Error-code map distinguishes **routing** 404 (`"Controller '…'"/"Method '…'"` prefix → `-32601`) from **business** 404 (`→ -32000`); `400/422→-32602`, `401/403→-32001`, `500→-32603`, else `-32000`; parse→`-32700`, invalid→`-32600`. Limitations: no `@alias` chaining, no execution-mode selection (Parallel only), no binary out-of-band, no streaming — graduate to the native wire. Spec + differences table: `JSONRPC_COMPAT.md`.
+
 ### Client Library (`TrameClient`)
 
 - `ITrameClient` interface with `Call(TrameRequest)`, `Call<T>(TrameRequest)`, `Call(TrameMultiRequest)`.
@@ -144,7 +146,7 @@ Uses **xUnit** + **FluentAssertions** + **Moq**. Tests are organized as:
 
 ### Code Conventions
 
-- The codebase uses **German** for comments and domain error strings (e.g. `TrameResults.*` messages, `[TrameDocumentation]` text). **Log messages and console output are in English.** New code should follow this split.
+- **All code-facing and user-facing text is in English** — comments, log messages, console output, domain error strings (`TrameResults.*` messages), and `[TrameDocumentation]` text. Trame targets the international market; German would exclude most readers. **Existing German comments/strings are legacy** — migrate opportunistically when touching the surrounding code, but this is not a 1.0 blocker. New code must be English.
 - Controllers are registered via attribute scanning (`[TrameController]`), not manual registration.
 - The `TrameInvoker` is a singleton — controllers are resolved per-call via `IServiceScopeFactory.CreateScope()`.
 - Expression Tree compilation happens once at registration time, not per invocation.

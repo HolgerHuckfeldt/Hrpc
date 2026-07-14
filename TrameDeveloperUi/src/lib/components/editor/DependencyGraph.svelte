@@ -3,13 +3,18 @@
 
   let { requests = [] }: { requests: TrameRequest[] } = $props();
 
-  // Extract @alias references from stringData
-  function extractAliases(json: string): string[] {
+  // Extrahiert @alias-Referenzen aus dem nativen `params`-Array. Ein Alias ist
+  // ein String-Wert in `data`, der mit '@' beginnt (z. B. "@newId").
+  function extractAliases(params: { data?: unknown }[] | null | undefined): string[] {
+    if (!params || !Array.isArray(params)) return [];
     const aliases: string[] = [];
-    const re = /@(\w+)/g;
-    let match;
-    while ((match = re.exec(json)) !== null) {
-      aliases.push(match[1]);
+    for (const entry of params) {
+      const d = entry?.data;
+      if (typeof d === 'string' && d.startsWith('@')) {
+        // Alias-Namen: alphanumerisch + Unterstrich nach dem '@'.
+        const m = d.slice(1).match(/^[A-Za-z0-9_]+/);
+        if (m) aliases.push(m[0]);
+      }
     }
     return aliases;
   }
@@ -20,7 +25,7 @@
       id: req.id || `req-${i}`,
       label: `${req.controller}.${req.method}` || `Request ${i + 1}`,
       provides: req.dependencyMapping ? Object.keys(req.dependencyMapping) : [],
-      dependsOn: extractAliases(req.stringData ?? ''),
+      dependsOn: extractAliases(req.params),
     }));
 
     // Resolve edges

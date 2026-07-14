@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TrameCommon.Models;
 using TrameCore.Services;
 using TrameTests.Fixtures;
@@ -38,7 +39,13 @@ public class AliasBindingTests
         _invoker.Register<DependencyChainController>();
     }
 
-    /// <summary>Baut einen TrameRequest mit Id, benannten Parametern (JSON-kodierte Data)
+    /// <summary>Wandelt einen JSON-kodierten Wert-ODER einen rohen @alias-String in ein
+    ///  JsonNode? um: führendes @ → JsonValue.Create (roher Alias-Platzhalter), sonst
+    ///  JsonNode.Parse (JSON-kodierter Wert).</summary>
+    private static JsonNode? ToData(string jsonValue) =>
+        jsonValue.StartsWith("@") ? JsonValue.Create(jsonValue) : JsonNode.Parse(jsonValue);
+
+    /// <summary>Baut einen TrameRequest mit Id, benannten Parametern (Data als JsonNode)
     ///  und optionaler dependencyMapping (Provider-Expose). Consumer-@alias-Parameter
     ///  einfach als ("paramName", "\"@aliasName\"") übergeben.</summary>
     private static TrameRequest Req(
@@ -49,14 +56,14 @@ public class AliasBindingTests
         params (string name, string jsonValue)[] parameters)
     {
         var paramList = parameters
-            .Select(p => new TrameParameter { ParameterName = p.name, Data = p.jsonValue })
+            .Select(p => new TrameParameter { ParameterName = p.name, Data = ToData(p.jsonValue) })
             .ToList();
         return new TrameRequest
         {
             Id = id,
             Controller = controller,
             Method = method,
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             DependencyMapping = mapping,
         };
     }
@@ -80,9 +87,10 @@ public class AliasBindingTests
             ("id", JsonSerializer.Serialize(dtoId)));
 
     /// <summary>Consumer-Parameter, der einen @alias-Platzhalter trägt. Das Data-Feld
-    ///  hält den ROHEN Alias-Text „@name" (ohne JSON-Anführungszeichen) — nur so erkennt
-    ///  ContainsAlias das führende @ und ReplaceDependencyByAlias substituiert es. Ein
-    ///  versehentlich JSON-kodiertes „\"@name\"" startet mit „"“ und wird nicht erkannt.</summary>
+    ///  hält den ROHEN Alias-Text „@name" (ohne JSON-Anführungszeichen) als JsonValue —
+    ///  nur so erkennt ContainsAlias das führende @ und ReplaceDependencyByAlias
+    ///  substituiert es. Ein versehentlich JSON-kodiertes „\"@name\"" startet mit „"“
+    ///  und wird nicht erkannt.</summary>
     private static (string name, string jsonValue) Alias(string paramName, string alias) =>
         (paramName, $"@{alias}");
 

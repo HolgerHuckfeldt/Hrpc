@@ -43,13 +43,13 @@ export async function run(rest: TrameRestClient): Promise<void> {
   }
 
   // --- Raw-Form (ohne Fluent Builder) — gelegentlich nützlich -----------------
-  // stringData = JSON.stringify(TrameParameter[]); data ist der JSON-token des
-  // Werts. GetAllCustomers hat keine Parameter -> leeres Array.
+  // params = TrameParameter[]; data ist der native JSON-Wert. GetAllCustomers hat
+  // keine Parameter -> leeres Array.
   const rawList = await rest.callJson<Customer[]>({
     controller: "Customer",
     method: "GetAllCustomers",
     id: "Customer.GetAllCustomers",
-    stringData: "[]",
+    params: [],
   });
   console.log(`  [REST raw] GetAllCustomers -> ${rawList?.length ?? 0} Kunde(n)`);
 }

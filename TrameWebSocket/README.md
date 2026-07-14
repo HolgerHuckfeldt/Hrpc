@@ -28,7 +28,9 @@ Jede Nachricht ist ein JSON-Objekt, das entweder einen Einzel-Request oder einen
 {
   "controller": "Customer",
   "method": "GetCustomerById",
-  "stringData": "[{\"parameterName\":\"id\",\"data\":\"1\"}]",
+  "params": [
+    { "parameterName": "id", "data": 1 }
+  ],
   "id": "my-request-id"
 }
 ```
@@ -39,7 +41,7 @@ Antwort:
 {
   "id": "my-request-id",
   "code": 200,
-  "data": "{\"id\":1,\"name\":\"Max\"}",
+  "data": { "id": 1, "name": "Max" },
   "exposedDependencies": null
 }
 ```
@@ -53,14 +55,18 @@ Antwort:
     {
       "controller": "Customer",
       "method": "AddCustomer",
-      "stringData": "[{\"parameterName\":\"name\",\"data\":\"\\\"Max\\\"\"}]",
+      "params": [
+        { "parameterName": "name", "data": "Max" }
+      ],
       "id": "create",
       "dependencyMapping": { "newId": "$" }
     },
     {
       "controller": "Customer",
       "method": "GetCustomerById",
-      "stringData": "[{\"parameterName\":\"id\",\"data\":\"@newId\"}]",
+      "params": [
+        { "parameterName": "id", "data": "@newId" }
+      ],
       "id": "read"
     }
   ]
@@ -75,7 +81,7 @@ Antwort:
 
 ```json
 [
-  { "id": "create", "code": 200, "data": "1", "exposedDependencies": { "newId": "1" } },
+  { "id": "create", "code": 200, "data": 1, "exposedDependencies": { "newId": "1" } },
   { "id": "read", "code": 200, "data": "..." }
 ]
 ```

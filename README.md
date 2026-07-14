@@ -12,7 +12,7 @@ Your C# classes are the contract — no `.proto`, no IDL, no code generation. Th
 
 > **The name.** *Trame* (French, /tʁam/) — the weft, the cross-threads that hold a fabric together. Trame weaves multiple transports and chained calls into one framework.
 
-> **Full reference:** [README_DETAILS.md](README_DETAILS.md) · **Wire format:** [PROTOCOL.md](PROTOCOL.md) · **Roadmap:** [ROADMAP.md](ROADMAP.md)
+> **Getting started:** [GETTING_STARTED.md](GETTING_STARTED.md) · **Full reference:** [README_DETAILS.md](README_DETAILS.md) · **Wire format:** [PROTOCOL.md](PROTOCOL.md) · **Security:** [SECURITY_GUIDE.md](SECURITY_GUIDE.md) · **Best practices:** [BEST_PRACTICES.md](BEST_PRACTICES.md) · **Roadmap:** [ROADMAP.md](ROADMAP.md)
 
 ---
 
@@ -188,6 +188,35 @@ Limits: REST 1 MB body, WebSocket 1 MB/message, SignalR configurable. For large 
 
 ---
 
+## JSON-RPC 2.0 Compatibility
+
+Any existing JSON-RPC 2.0 client can drive a Trame server as-is, opt-in:
+
+```csharp
+builder.Services.AddTrame(new TrameOptions { EnableJsonRpcCompat = true });
+app.MapTrame();
+```
+
+```
+POST /api/trame/jsonrpc          # {"jsonrpc":"2.0","method":"Customer.GetById","params":{"id":42},"id":1}
+→ {"jsonrpc":"2.0","result":{...},"id":1}
+```
+
+`method` is `Controller.Method`; `params` object → named, array → positional; `id`
+(number/string) is echoed with its original type; batches run in Parallel; notifications
+emit no response (an all-notification batch → `HTTP 204`). Errors map to the JSON-RPC
+ranges (routing `404` → `-32601`, business `404` → `-32000`, `401`/`403` → `-32001`, …)
+and live in the `200` envelope, JSON-RPC-conformant.
+
+This is an **adoption lure**: start with the JSON-RPC ecosystem you already have, then
+graduate to the native wire for `@alias` chaining, execution-mode selection, binary
+out-of-band, and streaming. Two capability methods bridge the gap — `trame.discover`
+returns the full discovery metadata, `trame.capabilities` lists the native strengths
+the compat mode doesn't expose. Full spec + a Trame-vs-JSON-RPC protocol-differences
+table: [`JSONRPC_COMPAT.md`](JSONRPC_COMPAT.md).
+
+---
+
 ## Features
 
 - Command-oriented Web APIs
@@ -206,6 +235,9 @@ Limits: REST 1 MB body, WebSocket 1 MB/message, SignalR configurable. For large 
 
 ## Quick Start
 
+> **Full step-by-step from an empty directory to a running DevUI: see
+> [GETTING_STARTED.md](GETTING_STARTED.md).** What follows is the wiring in one block.
+
 ### Server
 
 ```csharp
@@ -213,6 +245,9 @@ using TrameHub.Extensions;
 using TrameServer;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Serve the DevUI bundles from the neighboring TrameDeveloperUi project in Development.
+builder.WebHost.UseStaticWebAssets();
 
 // Register Trame with all transports (hub + REST + WebSocket + DevUI)
 builder.Services.AddTrame(o =>
@@ -223,10 +258,15 @@ builder.Services.AddTrame(o =>
 });
 
 var app = builder.Build();
+app.UseStaticFiles();      // actually serves the DevUI static assets
+app.UseRouting();
 app.UseTrameTransports();   // WebSocket + controller registration
 app.MapTrame();             // REST (/api/trame) + DevUI (/Trame) + SignalR hub (/tramehub)
 app.Run();
 ```
+
+After `dotnet run`, open **`/Trame`** in the browser — the Developer UI over live discovery.
+(`UseStaticWebAssets()` is a Development hook; for `dotnet publish` see GETTING_STARTED.)
 
 ### Controller
 

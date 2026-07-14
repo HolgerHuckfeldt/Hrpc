@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TrameCommon.Models;
 using TrameCore.Services;
 using TrameTests.Fixtures;
@@ -39,23 +40,26 @@ public class AliasBindingParanoidTests
         _invoker.AliasBindingMode = AliasBindingMode.Paranoid; // Paranoid aktiviert
     }
 
+    private static JsonNode? ToData(string jsonValue) =>
+        jsonValue.StartsWith("@") ? JsonValue.Create(jsonValue) : JsonNode.Parse(jsonValue);
+
     private static TrameRequest Req(
         string id, string controller, string method,
         Dictionary<string, string>? mapping = null,
         params (string name, string jsonValue)[] parameters)
     {
         var paramList = parameters
-            .Select(p => new TrameParameter { ParameterName = p.name, Data = p.jsonValue })
+            .Select(p => new TrameParameter { ParameterName = p.name, Data = ToData(p.jsonValue) })
             .ToList();
         return new TrameRequest
         {
             Id = id, Controller = controller, Method = method,
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             DependencyMapping = mapping,
         };
     }
 
-    /// <summary>Ein Literal-Parameter: der JSON-Wert direkt als data-String (kein @alias).</summary>
+    /// <summary>Ein Literal-Parameter: der JSON-Wert direkt (kein @alias).</summary>
     private static (string, string) Lit(string paramName, string jsonLiteral) => (paramName, jsonLiteral);
 
     /// <summary>Ein @alias-Parameter: roher @name-String (kein JSON-Quote, sonst erkennt der

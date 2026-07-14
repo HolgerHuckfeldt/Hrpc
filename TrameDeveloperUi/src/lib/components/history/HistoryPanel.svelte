@@ -6,7 +6,7 @@
   function loadEntry(entry: HistoryEntry) {
     tabState.createTab({
       title: `${entry.request.controller}.${entry.request.method}`,
-      requestText: entry.request.stringData ?? '[]',
+      requestText: entry.request.params ? JSON.stringify(entry.request.params) : '[]',
       responseText: entry.response ? formatJson(entry.response.data ?? entry.response) : '{}',
       status: entry.response ? String(entry.response.code) : 'Error',
       respIdText: entry.response?.id ?? '-',

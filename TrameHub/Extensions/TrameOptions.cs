@@ -25,9 +25,51 @@ namespace TrameHub.Extensions
         public int RateLimitWindowSeconds { get; set; } = 10;
 
         /// <summary>
-        /// Whether to enforce authentication for all RPC calls.
+        /// Wenn <c>true</c>, verlangt das Framework für jeden RPC-Aufruf einen
+        /// authentifizierten User (North-Bound-Default-Deny). Eine Methode ohne
+        /// <c>[TrameAuthorise]</c> ist dann nur noch erreichbar, wenn der User
+        /// authentifiziert ist; eine Methode mit <c>[TrameAnonymous]</c> bleibt
+        /// explizit offen (Opt-out, z.B. Health/Ping). <c>[TrameAuthorise]</c>
+        /// prüft weiterhin Rolle/Authentication wie bisher. Default <c>false</c>
+        /// (South-Bound-Default-Allow — nicht breaking). Wird über <c>AddTrame</c>
+        /// an den Invoker durchgereicht und am WebSocket-Upgrade sowie am
+        /// Discovery-Endpunkt zusätzlich als Transport-Gate durchgesetzt.
+        /// Siehe <c>SECURITY.md</c>.
         /// </summary>
         public bool RequireAuthentication { get; set; } = false;
+
+        /// <summary>
+        /// Maximale Anzahl Requests in einem Batch (Default 0 = unbegrenzt, nicht
+        /// breaking). Schützt den Server vor Fan-Out-DoS: ein einzelner 1-MB-Body
+        /// kann ohne Cap Tausende Requests enthalten, die per Task.WhenAll
+        /// gleichzeitig feuern. Enforceiert am Batch-Einstieg des Invokers
+        /// (Backstop) und an den Multi-Endpunkten (REST /json/multi, WebSocket,
+        /// JSON-RPC-Batch) als frühes 400-Gate. North-Bound empfohlen &gt; 0.
+        /// Siehe <c>SECURITY.md</c>.
+        /// </summary>
+        public int MaximumBatchSize { get; set; } = 0;
+
+        /// <summary>
+        /// Maximale Länge eines client-kontrollierten JsonPath in einem
+        /// <c>dependencyMapping</c> (Default 256, 0 = unbegrenzt). Der Client
+        /// wählt den Pfad und (über die Provider-Wahl) das JSON, gegen das er
+        /// ausgewertet wird — ein langer Pfad kann die JsonPath.Net-Evaluation
+        /// (insb. <c>$..</c>) zu einem CPU-Stall treiben. Der Cap wird vor dem
+        /// Parsen geprüft; ein zu langer Pfad wird verworfen (Alias bleibt
+        /// ungesetzt → der Dependente erhält die Propagierungs-400). Siehe
+        /// <c>SECURITY.md</c>.
+        /// </summary>
+        public int MaxDependencyPathLength { get; set; } = 256;
+
+        /// <summary>
+        /// Wenn <c>false</c>, werden rekursive-descent-Pfade (<c>$..foo</c>) in
+        /// client-kontrollierten <c>dependencyMapping</c>-Pfaden abgelehnt (vor
+        /// der teuren Evaluation). Default <c>true</c> (nicht breaking —
+        /// <c>$..</c> ist ein legitimes JsonPath-Mittel). North-Bound-Härtung
+        /// kann ihn auf <c>false</c> stellen, um den teuersten Pfad-Typ
+        /// auszuschließen. Siehe <c>SECURITY.md</c>.
+        /// </summary>
+        public bool AllowRecursiveDescent { get; set; } = true;
 
         /// <summary>
         /// Maximale Elementzahl eines Array-/Collection-Parameters (Default 1000, 0 = unbegrenzt).
@@ -56,5 +98,15 @@ namespace TrameHub.Extensions
         /// 400. Greift nur @alias-sourced Parameter. Siehe DEPENDENCY_BINDING.md.
         /// </summary>
         public AliasBindingMode AliasBindingMode { get; set; } = AliasBindingMode.Weak;
+
+        /// <summary>
+        /// Schaltet den JSON-RPC-2.0-Kompatibilitäts-Endpoint (POST /api/trame/jsonrpc)
+        /// frei. Default <c>false</c> — Opt-in. Mappt JSON-RPC-Requests auf den
+        /// Trame-Invoker (Parallel-Modus, Routing <c>Controller.Method</c>, named und
+        /// positional params, Batch, Notifications). Chaining, Ausführungsmodus-Auswahl
+        /// und binäres Out-of-Band bleiben dem nativen Trame-Wire vorbehalten. Siehe
+        /// <c>JSONRPC_COMPAT.md</c>.
+        /// </summary>
+        public bool EnableJsonRpcCompat { get; set; } = false;
     }
 }

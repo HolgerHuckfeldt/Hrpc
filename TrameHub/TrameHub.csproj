@@ -27,6 +27,7 @@
        Source geteilt mit TrameClient (dort 3.1.8). -->
   <ItemGroup>
     <Compile Include="..\TrameCommon\MessagePack\JsonElementMessagePackFormatter.cs" Link="MessagePack\JsonElementMessagePackFormatter.cs" />
+    <Compile Include="..\TrameCommon\MessagePack\JsonNodeMessagePackFormatter.cs" Link="MessagePack\JsonNodeMessagePackFormatter.cs" />
     <Compile Include="..\TrameCommon\MessagePack\TrameResponseMessagePackFormatter.cs" Link="MessagePack\TrameResponseMessagePackFormatter.cs" />
   </ItemGroup>
 

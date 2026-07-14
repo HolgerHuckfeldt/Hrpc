@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace TrameTests.Integration;
@@ -53,14 +54,14 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         var paramList = parameters.Select(p => new TrameParameter
         {
             ParameterName = p.name,
-            Data = p.jsonValue
+            Data = p.jsonValue.StartsWith("@") ? JsonValue.Create(p.jsonValue) : JsonNode.Parse(p.jsonValue)
         }).ToList();
 
         return new TrameRequest
         {
             Controller = controller,
             Method = method,
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             Id = $"{controller}.{method}"
         };
     }
@@ -223,9 +224,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "Customer",
             Method = "AddCustomer",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "name", Data = "\"DepChainIT\"" }
+                new() { ParameterName = "name", Data = JsonNode.Parse("\"DepChainIT\"") }
             }),
             Id = "chain-step1",
             DependencyMapping = new Dictionary<string, string> { { "newId", "$" } }
@@ -234,9 +235,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "Customer",
             Method = "GetCustomerById",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "id", Data = "@newId" }
+                new() { ParameterName = "id", Data = JsonValue.Create("@newId") }
             }),
             Id = "chain-step2"
         };
@@ -287,9 +288,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "Customer",
             Method = "AddCustomer",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "name", Data = "\"SrcNameIT\"" }
+                new() { ParameterName = "name", Data = JsonNode.Parse("\"SrcNameIT\"") }
             }),
             Id = "str-step1",
             DependencyMapping = new Dictionary<string, string> { { "newId", "$" } }
@@ -298,9 +299,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "Customer",
             Method = "GetCustomerById",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "id", Data = "@newId" }
+                new() { ParameterName = "id", Data = JsonValue.Create("@newId") }
             }),
             Id = "str-step2",
             DependencyMapping = new Dictionary<string, string> { { "srcName", "$.name" } }
@@ -309,9 +310,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "Customer",
             Method = "AddCustomer",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "name", Data = "@srcName" }
+                new() { ParameterName = "name", Data = JsonValue.Create("@srcName") }
             }),
             Id = "str-step3"
         };
@@ -359,10 +360,10 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "MakeDto",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "id", Data = "7" },
-                new() { ParameterName = "name", Data = "\"Alice\"" }
+                new() { ParameterName = "id", Data = JsonNode.Parse("7") },
+                new() { ParameterName = "name", Data = JsonNode.Parse("\"Alice\"") }
             }),
             Id = "obj-s1",
             DependencyMapping = new Dictionary<string, string> { { "dto", "$" } }
@@ -371,9 +372,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "EchoDto",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "dto", Data = "@dto" }
+                new() { ParameterName = "dto", Data = JsonValue.Create("@dto") }
             }),
             Id = "obj-s2"
         };
@@ -410,7 +411,7 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "MakeDtoList",
-            StringData = "[]",
+            Params = JsonNode.Parse("[]"),
             Id = "arr-s1",
             DependencyMapping = new Dictionary<string, string> { { "dtos", "$" } }
         };
@@ -418,9 +419,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "CountDtoList",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "dtos", Data = "@dtos" }
+                new() { ParameterName = "dtos", Data = JsonValue.Create("@dtos") }
             }),
             Id = "arr-s2"
         };
@@ -456,10 +457,10 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "MakeDto",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "id", Data = "7" },
-                new() { ParameterName = "name", Data = "\"Alice\"" }
+                new() { ParameterName = "id", Data = JsonNode.Parse("7") },
+                new() { ParameterName = "name", Data = JsonNode.Parse("\"Alice\"") }
             }),
             Id = "ma-s1",
             DependencyMapping = new Dictionary<string, string> { { "id", "$.id" } }
@@ -468,10 +469,10 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "MakeDto",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "id", Data = "99" },
-                new() { ParameterName = "name", Data = "\"Bob\"" }
+                new() { ParameterName = "id", Data = JsonNode.Parse("99") },
+                new() { ParameterName = "name", Data = JsonNode.Parse("\"Bob\"") }
             }),
             Id = "ma-s2",
             DependencyMapping = new Dictionary<string, string> { { "name", "$.name" } }
@@ -480,10 +481,10 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "MakeDto",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "id", Data = "@id" },
-                new() { ParameterName = "name", Data = "@name" }
+                new() { ParameterName = "id", Data = JsonValue.Create("@id") },
+                new() { ParameterName = "name", Data = JsonValue.Create("@name") }
             }),
             Id = "ma-s3"
         };
@@ -521,10 +522,10 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "MakeDto",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "id", Data = "7" },
-                new() { ParameterName = "name", Data = "\"Alice\"" }
+                new() { ParameterName = "id", Data = JsonNode.Parse("7") },
+                new() { ParameterName = "name", Data = JsonNode.Parse("\"Alice\"") }
             }),
             Id = "un-s1",
             DependencyMapping = new Dictionary<string, string> { { "id", "$.id" } }
@@ -533,9 +534,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "EchoLong",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "value", Data = "@nonexistent" }
+                new() { ParameterName = "value", Data = JsonValue.Create("@nonexistent") }
             }),
             Id = "un-s2"
         };
@@ -572,9 +573,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "EchoLong",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "value", Data = "42" }
+                new() { ParameterName = "value", Data = JsonNode.Parse("42") }
             }),
             Id = "se-s1",
             DependencyMapping = new Dictionary<string, string> { { "big", "$" } }
@@ -583,9 +584,9 @@ public class RestTransportTests : IClassFixture<WebApplicationFactory<Program>>
         {
             Controller = "DepChain",
             Method = "EchoLong",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "value", Data = "@big" }
+                new() { ParameterName = "value", Data = JsonValue.Create("@big") }
             }),
             Id = "se-s2"
         };

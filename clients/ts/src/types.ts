@@ -31,12 +31,13 @@ export interface TrameErrorBody {
   requestId?: string | null;
 }
 
-/** Ein einzelner Parameter innerhalb von TrameRequest.stringData. */
+/** Ein einzelner Parameter innerhalb von TrameRequest.params. */
 export interface TrameParameter {
   /** Parametername (Server bindet danach). Bei Positionalen leer/ein Platzhalter. */
   parameterName: string;
-  /** JSON-String des Werts (z. B. "42", "\"hi\"", "{\"id\":1}"). */
-  data: string;
+  /** Nativer JSON-Wert (Zahl, String, Bool, Objekt, Array), kein JSON-String mehr.
+   *  Ein @alias-Platzhalter ist ein String-Wert mit @-Präfix (z. B. "@newId"). */
+  data: unknown;
   /** Positionaler Index (Fallback, wenn parameterName nicht bindet). */
   num?: number;
 }
@@ -45,8 +46,8 @@ export interface TrameParameter {
 export interface TrameRequest {
   controller: string;
   method: string;
-  /** JSON-String eines Arrays von TrameParameter. */
-  stringData?: string;
+  /** Parameter als natives Array von TrameParameter (data ist nativer JSON-Wert). */
+  params?: TrameParameter[] | null;
   id?: string;
   /** alias → JsonPath; Werte aus dieser Response werden für Folgerequests exposed. */
   dependencyMapping?: Record<string, string> | null;

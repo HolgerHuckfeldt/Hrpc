@@ -52,8 +52,8 @@ describe("TrameRestClient", () => {
     expect(body.method).toBe("M");
     expect(body.id).toBe("C.M");
     expect(body.dependencyMapping).toBeNull();
-    expect(JSON.parse(body.stringData)).toEqual([
-      { parameterName: "id", data: "1", num: 0 },
+    expect(body.params).toEqual([
+      { parameterName: "id", data: 1, num: 0 },
     ]);
   });
 
@@ -93,7 +93,7 @@ describe("TrameRestClient", () => {
     }) as unknown as FetchImpl;
     const c = new TrameRestClient("http://x", { fetch });
     const arr = await c.callBatch(
-      [{ controller: "C", method: "M", stringData: "[]" } as any],
+      [{ controller: "C", method: "M", params: [] } as any],
       ExecutionMode.Parallel,
     );
     expect(captured.url).toBe("http://x/api/trame/json/multi");

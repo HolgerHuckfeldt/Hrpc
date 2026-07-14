@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using System.Text.Json.Nodes;
 
 namespace Trame.Spike.LinqProvider;
 
@@ -37,8 +38,8 @@ public sealed class Dep<T>
 /// </summary>
 public sealed class TrameCallSpec<T> : TrameCallSpec
 {
-    internal TrameCallSpec(string controller, string method, string id, string stringData)
-        : base(controller, method, id, stringData)
+    internal TrameCallSpec(string controller, string method, string id, JsonNode? paramsNode)
+        : base(controller, method, id, paramsNode)
     {
     }
 

@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using MessagePack;
 
 namespace TrameCommon.Models;
@@ -22,8 +23,10 @@ public class TrameParameter
     public string ParameterName { get; set; } = string.Empty;
 
     /// <summary>
-    /// JSON-serialized parameter value.
+    /// Nativer JSON-Wert des Parameters (Zahl, String, Bool, Objekt, Array) — kein
+    /// JSON-String mehr. Ein <c>@alias</c>-Platzhalter ist ein String-Wert mit
+    /// <c>@</c>-Präfix (z.B. <c>"@firstId"</c>); der Server erkennt ihn am <c>@</c>-Präfix.
     /// </summary>
     [Key(2)]
-    public string? Data { get; set; }
+    public JsonNode? Data { get; set; }
 }

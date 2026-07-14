@@ -446,3 +446,54 @@ public class AuthPropagationController
         Interlocked.Exchange(ref SecuredCalls, 0);
     }
 }
+
+/// <summary>
+/// Fixture für die Auth-Postur-Matrix (North-Bound-Default-Deny): jede Methode trägt eine
+/// andere Bestückung, damit RequireAuthentication {off,on} × Methode × User durchgespielt
+/// werden kann. Static-Counter isolieren die Aufrufe wie <see cref="AuthPropagationController"/>.
+/// </summary>
+[TrameController("AuthPosture")]
+public class AuthPostureController
+{
+    [TrameMethod("Open")]
+    public string Open() { Interlocked.Increment(ref OpenCalls); return "open"; }
+
+    [TrameMethod("Locked")]
+    [TrameAuthorise]
+    public string Locked() { Interlocked.Increment(ref LockedCalls); return "locked"; }
+
+    [TrameMethod("AdminOnly")]
+    [TrameAuthorise(Role = "Admin")]
+    public string AdminOnly() { Interlocked.Increment(ref AdminCalls); return "admin"; }
+
+    [TrameMethod("Public")]
+    [TrameAnonymous]
+    public string Public() { Interlocked.Increment(ref PublicCalls); return "public"; }
+
+    public static int OpenCalls, LockedCalls, AdminCalls, PublicCalls;
+
+    public static void ResetCounters()
+    {
+        Interlocked.Exchange(ref OpenCalls, 0);
+        Interlocked.Exchange(ref LockedCalls, 0);
+        Interlocked.Exchange(ref AdminCalls, 0);
+        Interlocked.Exchange(ref PublicCalls, 0);
+    }
+}
+
+/// <summary>
+/// Controller mit KLASSEN-LEVEL-[TrameAuthorise] — gilt als Default für alle Methoden
+/// des Controllers (North-Bound nutzt das: ein bestückter Controller schützt alles).
+/// </summary>
+[TrameController("AuthPostureClass")]
+[TrameAuthorise]
+public class AuthPostureClassLevelController
+{
+    [TrameMethod("Inherited")]
+    public string Inherited() { return "inherited"; }
+
+    // Methoden-Level-Opt-out schlägt den Klassen-Default.
+    [TrameMethod("Opened")]
+    [TrameAnonymous]
+    public string Opened() { return "opened"; }
+}

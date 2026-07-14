@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace TrameTests.Unit.Core;
@@ -36,20 +37,26 @@ public class TrameInvokerTests
         _invoker.Register<DependencyChainController>();
     }
 
+    // jsonValue ist entweder ein roher @alias-Platzhalter (C#-String ab "@") oder ein
+    // JSON-kodierter Wert ("42", "\"alice\"", "true", …). Seit Data ein nativer JsonNode
+    // ist, wandelt dieser Guard beides in die richtige Knotenform.
+    private static JsonNode? ToData(string jsonValue)
+        => jsonValue.StartsWith("@") ? JsonValue.Create(jsonValue) : JsonNode.Parse(jsonValue);
+
     private static TrameRequest CreateRequest(string controller, string method,
         params (string name, string jsonValue)[] parameters)
     {
         var paramList = parameters.Select(p => new TrameParameter
         {
             ParameterName = p.name,
-            Data = p.jsonValue
+            Data = ToData(p.jsonValue)
         }).ToList();
 
         return new TrameRequest
         {
             Controller = controller,
             Method = method,
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             Id = $"{controller}.{method}"
         };
     }
@@ -195,7 +202,7 @@ public class TrameInvokerTests
         {
             Controller = "TestInvoker",
             Method = "NoParams",
-            StringData = "[]",
+            Params = JsonNode.Parse("[]"),
             Id = "NoParams"
         };
 
@@ -356,7 +363,7 @@ public class TrameInvokerTests
         {
             Controller = "NonExistent",
             Method = "AnyMethod",
-            StringData = "[]"
+            Params = JsonNode.Parse("[]")
         };
 
         // Act
@@ -375,7 +382,7 @@ public class TrameInvokerTests
         {
             Controller = "TestInvoker",
             Method = "NonExistentMethod",
-            StringData = "[]"
+            Params = JsonNode.Parse("[]")
         };
 
         // Act
@@ -428,14 +435,14 @@ public class TrameInvokerTests
         // The method Add(int a, int b) has no matching names -> server must fall back to Num.
         var paramList = new List<TrameParameter>
         {
-            new() { Num = 0, ParameterName = "param0", Data = "3" },
-            new() { Num = 1, ParameterName = "param1", Data = "4" }
+            new() { Num = 0, ParameterName = "param0", Data = JsonNode.Parse("3") },
+            new() { Num = 1, ParameterName = "param1", Data = JsonNode.Parse("4") }
         };
         var request = new TrameRequest
         {
             Controller = "TestInvoker",
             Method = "Add",
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             Id = "pos"
         };
 
@@ -457,13 +464,13 @@ public class TrameInvokerTests
         // general case where a CancellationToken sits before a value parameter.
         var paramList = new List<TrameParameter>
         {
-            new() { Num = 0, ParameterName = "param0", Data = "\"hello\"" }
+            new() { Num = 0, ParameterName = "param0", Data = JsonNode.Parse("\"hello\"") }
         };
         var request = new TrameRequest
         {
             Controller = "TestInvoker",
             Method = "Echo",
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             Id = "pos-ct"
         };
 
@@ -482,14 +489,14 @@ public class TrameInvokerTests
         // Arrange
         var paramList = new List<TrameParameter>
         {
-            new() { ParameterName = "a", Data = "3" },
-            new() { ParameterName = "a", Data = "4" }
+            new() { ParameterName = "a", Data = JsonNode.Parse("3") },
+            new() { ParameterName = "a", Data = JsonNode.Parse("4") }
         };
         var request = new TrameRequest
         {
             Controller = "TestInvoker",
             Method = "Add",
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             Id = "dup"
         };
 
@@ -621,7 +628,7 @@ public class TrameInvokerTests
         {
             Controller = "TestInvoker",
             Method = "UploadBlob",
-            StringData = "[{\"ParameterName\":\"filename\",\"Data\":\"\\\"test.bin\\\"\"}]",
+            Params = JsonNode.Parse("[{\"ParameterName\":\"filename\",\"Data\":\"test.bin\"}]"),
             BinaryData = binaryData,
             Id = "UploadBlob"
         };
@@ -643,7 +650,7 @@ public class TrameInvokerTests
         {
             Controller = "TestInvoker",
             Method = "DownloadBlob",
-            StringData = "[{\"ParameterName\":\"name\",\"Data\":\"\\\"myfile\\\"\"}]",
+            Params = JsonNode.Parse("[{\"ParameterName\":\"name\",\"Data\":\"myfile\"}]"),
             Id = "DownloadBlob"
         };
 
@@ -668,7 +675,7 @@ public class TrameInvokerTests
         {
             Controller = "TestInvoker",
             Method = "UploadAndProcess",
-            StringData = "[]",
+            Params = JsonNode.Parse("[]"),
             BinaryData = binaryData,
             Id = "UploadAndProcess"
         };
@@ -831,7 +838,11 @@ public class TrameInvokerTests
         {
             Controller = "TestInvoker",
             Method = "Echo",
-            StringData = "not valid json {{{",
+            // Seit Params ein nativer JsonNode ist, kann kein invalides JSON mehr beim
+            // Invoker ankommen — der Parse-Fehler liegt jetzt an der Transportgrenze.
+            // Äquivalentes graceful-400 ohne Leak: ein strukturell fehlerhaftes Params-
+            // Array mit doppeltem Parameternamen.
+            Params = JsonNode.Parse("[{\"parameterName\":\"message\",\"data\":\"a\"},{\"parameterName\":\"message\",\"data\":\"b\"}]"),
             Id = "test"
         };
 
@@ -877,7 +888,7 @@ public class TrameInvokerTests
         {
             Controller = "TestInvoker",
             Method = "Echo",
-            StringData = "[{\"parameterName\":\"message\",\"data\":\"hello\"}]",
+            Params = JsonNode.Parse("[{\"parameterName\":\"message\",\"data\":\"hello\"}]"),
             Id = "test"
         };
 
@@ -919,13 +930,13 @@ public class TrameInvokerTests
         var paramList = parameters.Select(p => new TrameParameter
         {
             ParameterName = p.name,
-            Data = p.jsonValue
+            Data = ToData(p.jsonValue)
         }).ToList();
         return new TrameRequest
         {
             Controller = controller,
             Method = method,
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             Id = id,
             DependencyMapping = mapping
         };

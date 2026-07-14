@@ -3,7 +3,7 @@
   import { historyState } from '../../state/history.svelte.ts';
   import { executeRequest, executeBatch } from '../../api/client';
   import { formatJson } from '../../utils/json';
-  import { ExecutionMode, type TrameRequest } from 'trame-client';
+  import { ExecutionMode, type TrameRequest, type TrameParameter } from 'trame-client';
   import TabBar from './TabBar.svelte';
   import ParamEditor from './ParamEditor.svelte';
   import JsonEditor from './JsonEditor.svelte';
@@ -12,6 +12,17 @@
   import CodegenPanel from './CodegenPanel.svelte';
   import CodegenPage from './CodegenPage.svelte';
   import DependencyBuilderPage from './DependencyBuilderPage.svelte';
+
+  // `requestText` ist ein JSON-String für die Anzeige (formatiert zum Editieren);
+  // für den Wire-Call muss er in das native `params`-Array geparst werden.
+  function safeParseParams(text: string): TrameParameter[] {
+    try {
+      const arr = JSON.parse(text);
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  }
 
   let isBatch = $state(false);
   let batchRequests = $state<TrameRequest[]>([]);
@@ -39,7 +50,7 @@
     const request: TrameRequest = {
       controller: tab.controller.name,
       method: tab.method.methodName,
-      stringData: tab.requestText,
+      params: safeParseParams(tab.requestText),
       id: `${tab.controller.name}.${tab.method.methodName}`,
       dependencyMapping: null,
     };

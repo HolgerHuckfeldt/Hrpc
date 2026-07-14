@@ -9,10 +9,21 @@
   // DependencyStep.buildRequest. Der Prop-Vertrag (requests/mode/onchange, bind-
   // fähig) bleibt erhalten — EditorPane.svelte braucht keine Änderung.
 
-  import { ExecutionMode, type TrameRequest, type ControllerMeta, type MethodMeta, type ParameterMeta } from 'trame-client';
+  import { ExecutionMode, type TrameRequest, type TrameParameter, type ControllerMeta, type MethodMeta, type ParameterMeta } from 'trame-client';
   import { discoveryState } from '../../state/discovery.svelte.ts';
   import { defaultValueForParam, inferValue, jsonPathSuggestions } from '../../utils/params';
   import BatchCodegen from './BatchCodegen.svelte';
+
+  // `stringDataRaw` ist ein JSON-String für die Anzeige (Fallback-Textarea); für
+  // den Wire-Call wird er in das native `params`-Array geparst.
+  function safeParseParams(text: string): TrameParameter[] {
+    try {
+      const arr = JSON.parse(text);
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  }
 
   let {
     requests = [],
@@ -117,11 +128,11 @@
         exposes: r.dependencyMapping
           ? Object.entries(r.dependencyMapping).map(([alias, jsonPath]) => ({ alias, jsonPath }))
           : [],
-        stringDataRaw: r.stringData ?? '[]',
+        stringDataRaw: r.params ? JSON.stringify(r.params) : '[]',
         showExposes: !!r.dependencyMapping && Object.keys(r.dependencyMapping).length > 0,
       };
       if (mm) {
-        // Methode bekannt → Parameter mit Defaults belegen (Werte aus stringData
+        // Methode bekannt → Parameter mit Defaults belegen (Werte aus params
         // werden nicht zurückgeparst — Hydratation ist Best-Effort, da batchRequests
         // nicht persistiert wird und Remounts selten sind).
         row.params = mm.parameters.map((p) => ({
@@ -139,15 +150,15 @@
 
   function rowToRequest(row: BatchRow): TrameRequest {
     const mm = methodMeta(row);
-    const stringData = mm
-      ? JSON.stringify(
-          row.params.map((p, i) => ({
-            parameterName: p.parameterName,
-            num: i,
-            data: p.useAlias ? `@${p.aliasRef ?? ''}` : JSON.stringify(p.value ?? null),
-          })),
-        )
-      : row.stringDataRaw || '[]';
+    // `params` ist das native Array (data = native Werte ODER "@alias"-String).
+    // Im Fallback-Fall (Methode nicht in Discovery) wird der Rohtext geparst.
+    const params = mm
+      ? row.params.map((p, i) => ({
+          parameterName: p.parameterName,
+          num: i,
+          data: p.useAlias ? `@${p.aliasRef ?? ''}` : (p.value ?? null),
+        }))
+      : safeParseParams(row.stringDataRaw);
     const exposes = row.exposes.filter((e) => e.alias);
     const dependencyMapping = exposes.length
       ? Object.fromEntries(exposes.map((e) => [e.alias, e.jsonPath]))
@@ -155,7 +166,7 @@
     return {
       controller: row.controllerName,
       method: row.methodName,
-      stringData,
+      params,
       id: row.id,
       dependencyMapping,
     };
@@ -332,7 +343,7 @@
 
   // Platzhalter enthält `{}` — als JS-String gebunden, damit Svelte die braces
   // nicht als Expression parst.
-  const fallbackPlaceholder = '[{"parameterName":"x","data":"42"}]';
+  const fallbackPlaceholder = '[{"parameterName":"x","data":42}]';
 </script>
 
 <div class="batch-editor">
@@ -530,9 +541,9 @@
             {/if}
           </div>
         {:else}
-          <!-- Fallback: Methode nicht in Discovery → stringData als Rohtext -------->
+          <!-- Fallback: Methode nicht in Discovery → params als Rohtext -------->
           <div class="fallback-block">
-            <span class="fallback-hint">Methode nicht in der Discovery — Parameter als JSON-Array (stringData) manuell eingeben:</span>
+            <span class="fallback-hint">Methode nicht in der Discovery — Parameter als JSON-Array (params) manuell eingeben:</span>
             <textarea
               class="code fallback-textarea"
               value={row.stringDataRaw}

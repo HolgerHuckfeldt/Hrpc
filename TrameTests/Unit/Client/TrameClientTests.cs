@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace TrameTests.Unit.Client;
@@ -38,7 +39,7 @@ public class TrameCallTests
         request.Should().NotBeNull();
         request.Controller.Should().Be("Customer");
         request.Method.Should().Be("Add");
-        request.StringData.Should().NotBeNullOrEmpty();
+        request.Params.Should().NotBeNull();
     }
 
     [Fact]
@@ -50,7 +51,7 @@ public class TrameCallTests
 
         // Assert
         var request = call.ToRequest();
-        request.StringData.Should().Contain("test");
+        request.Params!.ToJsonString().Should().Contain("test");
     }
 
     [Fact]
@@ -89,7 +90,7 @@ public class TrameCallTests
 
         // Assert
         var request = call.ToRequest();
-        request.StringData.Should().Contain("@customerId");
+        request.Params!.ToJsonString().Should().Contain("@customerId");
     }
 
     [Fact]
@@ -101,7 +102,7 @@ public class TrameCallTests
 
         // Assert
         var request = call.ToRequest();
-        var params_ = JsonSerializer.Deserialize<List<TrameParameter>>(request.StringData!);
+        var params_ = JsonSerializer.Deserialize<List<TrameParameter>>(request.Params!);
         params_.Should().NotBeNull();
         params_!.Should().ContainSingle()
             .Which.ParameterName.Should().Be("customerId");
@@ -116,11 +117,11 @@ public class TrameCallTests
 
         // Assert
         var request = call.ToRequest();
-        var params_ = JsonSerializer.Deserialize<List<TrameParameter>>(request.StringData!);
+        var params_ = JsonSerializer.Deserialize<List<TrameParameter>>(request.Params!);
         params_.Should().NotBeNull();
         params_!.Should().ContainSingle()
             .Which.ParameterName.Should().Be("id");
-        params_!.Single().Data.Should().Be("42");
+        params_!.Single().Data!.GetValue<int>().Should().Be(42);
     }
 
     [Fact]
@@ -132,7 +133,7 @@ public class TrameCallTests
 
         // Assert
         var request = call.ToRequest();
-        var params_ = JsonSerializer.Deserialize<List<TrameParameter>>(request.StringData!);
+        var params_ = JsonSerializer.Deserialize<List<TrameParameter>>(request.Params!);
         params_.Should().NotBeNull();
         params_!.Should().ContainSingle()
             .Which.ParameterName.Should().Be("param0");
@@ -149,7 +150,7 @@ public class TrameCallTests
 
         // Assert
         var request = call.ToRequest();
-        var params_ = JsonSerializer.Deserialize<List<TrameParameter>>(request.StringData!);
+        var params_ = JsonSerializer.Deserialize<List<TrameParameter>>(request.Params!);
         params_.Should().HaveCount(3);
         params_![0].ParameterName.Should().Be("param0");
         params_![1].ParameterName.Should().Be("param1");
@@ -228,7 +229,7 @@ public class TrameModelTests
         request.Controller.Should().BeEmpty();
         request.Method.Should().BeEmpty();
         request.Id.Should().BeEmpty();
-        request.StringData.Should().BeNull();
+        request.Params.Should().BeNull();
         request.BinaryData.Should().BeNull();
         request.DependencyMapping.Should().BeNull();
     }
@@ -353,7 +354,7 @@ public class TrameWebSocketClientTests
         {
             Controller = "Test",
             Method = "Echo",
-            StringData = "[]"
+            Params = JsonNode.Parse("[]")
             // Id is not set — defaults to string.Empty
         };
 

@@ -12,8 +12,27 @@ public static class DependencyResolver
     /// Data ist seit dem Single-Pass-Fix ein JsonElement (kein JSON-String mehr) — wir
     /// materialisieren es über GetRawText() zu einem JsonNode für JsonPath.Net.
     /// </summary>
-    public static JsonNode? ExtractValue(JsonElement element, string jsonPath)
+    /// <param name="maxPathLength">Maximal zulässige Pfad-Länge (0 = unbegrenzt). Ein zu
+    /// langer Pfad wird vor dem Parsen verworfen (wirft → Aufrufer behandelt als
+    /// „Alias ungesetzt"). Schützt vor client-seitigem JsonPath-DoS (North-Bound).</param>
+    /// <param name="allowRecursiveDescent">Wenn <c>false</c>, werden <c>$..</c>-Pfade
+    /// abgelehnt (der teuerste Pfad-Typ über großen Graphen).</param>
+    public static JsonNode? ExtractValue(JsonElement element, string jsonPath,
+        int maxPathLength = 256, bool allowRecursiveDescent = true)
     {
+        // North-Bound-Härtung: client-kontrollierter Pfad. Längen-Cap VOR dem Parsen —
+        // ein langer Pfad treibt sonst Parse + Evaluate (insb. $..) zu einem CPU-Stall.
+        if (maxPathLength > 0 && jsonPath.Length > maxPathLength)
+            throw new ArgumentException(
+                $"Dependency path exceeds MaxDependencyPathLength ({maxPathLength}).");
+
+        // Recursive descent ($..) ist der teuerste Pfad-Typ über großen Graphen; der
+        // Server kann ihn für North-Bound ausschalten. Konservativer String-Check —
+        // ein legitimer JsonPath enthält „.." nur als Recursive-Descent-Operator.
+        if (!allowRecursiveDescent && jsonPath.Contains(".."))
+            throw new ArgumentException(
+                "Recursive descent ($..) is disabled by AllowRecursiveDescent=false.");
+
         // JsonElement → JSON-Text → JsonNode (JsonPath.Net.Evaluate erwartet JsonNode-Root).
         var root = JsonNode.Parse(element.GetRawText());
         var parsedPath = JsonPath.Parse(jsonPath);

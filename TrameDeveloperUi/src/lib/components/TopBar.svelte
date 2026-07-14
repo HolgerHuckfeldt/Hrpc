@@ -96,11 +96,12 @@
 
 <header class="topbar">
   <div class="brand">
-    <div class="dots">
-      <span class="dot green"></span>
-      <span class="dot blue"></span>
-      <span class="dot purple"></span>
-    </div>
+    <!-- Trame = French "weft": the cross-threads that hold a fabric together.
+         Brand mark: two woven threads (green + blue) instead of three colored dots. -->
+    <svg class="brand-mark" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke-width="1.9" stroke-linecap="round" aria-hidden="true" title="Trame — woven threads">
+      <path d="M2 5 C 5 5, 5 11, 8 11 S 11 5, 14 5" stroke="var(--success)"></path>
+      <path d="M2 11 C 5 11, 5 5, 8 5 S 11 11, 14 11" stroke="var(--accent-secondary)"></path>
+    </svg>
     <span class="title">Trame Developer</span>
   </div>
 
@@ -293,20 +294,11 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
   }
-  .dots {
-    display: flex;
-    gap: 5px;
+  .brand-mark {
+    flex-shrink: 0;
   }
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-  }
-  .dot.green { background: var(--success); }
-  .dot.blue { background: var(--accent-secondary); }
-  .dot.purple { background: #8b5cf6; }
   .title {
     font-weight: 700;
     font-size: 1rem;

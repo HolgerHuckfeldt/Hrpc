@@ -78,7 +78,7 @@ describe("TrameWebSocketClient", () => {
   it("concurrent calls teilen sich EINEN Connect (B1) und korrelieren per id (B3)", async () => {
     const { client, ref } = makeClient();
     const calls = [0, 1, 2, 3, 4].map((i) =>
-      client.call({ controller: "C", method: "M", stringData: "[]", id: `r${i}` }),
+      client.call({ controller: "C", method: "M", params: [], id: `r${i}` }),
     );
     expect(ref.created).toBe(1); // nur ein WebSocket trotz 5 paralleler Calls
     const ws = ref.ws!;
@@ -99,7 +99,7 @@ describe("TrameWebSocketClient", () => {
   it("verwirft Responses ohne passenden pending Call (B3, kein Last-Resort)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { client, ref } = makeClient();
-    const p = client.call({ controller: "C", method: "M", stringData: "[]", id: "a" });
+    const p = client.call({ controller: "C", method: "M", params: [], id: "a" });
     const ws = ref.ws!;
     ws.fireOpen();
     await vi.waitFor(() => expect(ws.sent.length).toBe(1), { interval: 1, timeout: 1000 });
@@ -120,8 +120,8 @@ describe("TrameWebSocketClient", () => {
     const { client, ref } = makeClient();
     const p = client.callBatch(
       [
-        { controller: "C", method: "M", stringData: "[]", id: "b0" },
-        { controller: "C", method: "M", stringData: "[]", id: "b1" },
+        { controller: "C", method: "M", params: [], id: "b0" },
+        { controller: "C", method: "M", params: [], id: "b1" },
       ],
       ExecutionMode.Serial,
     );
@@ -139,7 +139,7 @@ describe("TrameWebSocketClient", () => {
   it("Timeout -> CancelledError mit timedOut=true", async () => {
     const { client, ref } = makeClient();
     const p = client.call(
-      { controller: "C", method: "M", stringData: "[]", id: "t" },
+      { controller: "C", method: "M", params: [], id: "t" },
       { timeout: 20 },
     );
     const ws = ref.ws!;
@@ -153,7 +153,7 @@ describe("TrameWebSocketClient", () => {
     const ac = new AbortController();
     ac.abort();
     const p = client.call(
-      { controller: "C", method: "M", stringData: "[]", id: "c" },
+      { controller: "C", method: "M", params: [], id: "c" },
       { signal: ac.signal },
     );
     // Der Client lehnt bereits abgebrochene Signale per Microtask ab. Im realen
@@ -170,7 +170,7 @@ describe("TrameWebSocketClient", () => {
   it("Schließen der Verbindung lehnt pending Calls mit TrameError ab", async () => {
     // reconnect aus — der In-Flight-Drop wird isoliert geprüft (Spiegel SignalR).
     const { client, ref } = makeClient({ reconnect: false });
-    const p = client.call({ controller: "C", method: "M", stringData: "[]", id: "p" });
+    const p = client.call({ controller: "C", method: "M", params: [], id: "p" });
     const ws = ref.ws!;
     ws.fireOpen();
     await vi.waitFor(() => expect(ws.sent.length).toBe(1), { interval: 1, timeout: 1000 });
@@ -181,7 +181,7 @@ describe("TrameWebSocketClient", () => {
 
   it("leitet isSuccess aus code ab, wenn der Server es nicht sendet (Wire-Fakt)", async () => {
     const { client, ref } = makeClient();
-    const p = client.call({ controller: "C", method: "M", stringData: "[]", id: "d" });
+    const p = client.call({ controller: "C", method: "M", params: [], id: "d" });
     const ws = ref.ws!;
     ws.fireOpen();
     await vi.waitFor(() => expect(ws.sent.length).toBe(1), { interval: 1, timeout: 1000 });
@@ -206,7 +206,7 @@ describe("TrameWebSocketClient", () => {
       WebSocketCtor: factory,
       wsPath: "tramews",
     });
-    const p = client.call({ controller: "C", method: "M", stringData: "[]", id: "x" });
+    const p = client.call({ controller: "C", method: "M", params: [], id: "x" });
     // factory wird synchron beim Connect angelegt
     expect(created).toBe(1);
     expect(url).toBe("wss://host:5001/app/tramews");
@@ -218,7 +218,7 @@ describe("TrameWebSocketClient", () => {
 
   it("reconnectet im Hintergrund nach Close und nachfolgender Call gelingt", async () => {
     const { client, ref } = makeClient({ reconnectDelays: [10] });
-    const p0 = client.call({ controller: "C", method: "M", stringData: "[]", id: "r0" });
+    const p0 = client.call({ controller: "C", method: "M", params: [], id: "r0" });
     const ws1 = ref.ws!;
     ws1.fireOpen();
     await vi.waitFor(() => expect(ws1.sent.length).toBe(1), { interval: 1, timeout: 1000 });
@@ -241,7 +241,7 @@ describe("TrameWebSocketClient", () => {
     });
 
     // Nachfolgender Call geht über die reconnected Verbindung.
-    const p1 = client.call({ controller: "C", method: "M", stringData: "[]", id: "r1" });
+    const p1 = client.call({ controller: "C", method: "M", params: [], id: "r1" });
     await vi.waitFor(() => expect(ws2.sent.length).toBe(1), { interval: 1, timeout: 1000 });
     ws2.fireMessage(resp("r1", "v1"));
     const r1 = await p1;
@@ -268,7 +268,7 @@ describe("TrameWebSocketClient", () => {
       WebSocketCtor: factory,
       reconnectDelays: [5, 5, 5],
     });
-    const p0 = client.call({ controller: "C", method: "M", stringData: "[]", id: "x0" });
+    const p0 = client.call({ controller: "C", method: "M", params: [], id: "x0" });
     ref.ws!.fireOpen();
     await vi.waitFor(() => expect(ref.ws!.sent.length).toBe(1), { interval: 1, timeout: 1000 });
     ref.ws!.fireMessage(resp("x0", "0"));
@@ -285,7 +285,7 @@ describe("TrameWebSocketClient", () => {
 
   it("dispose bricht den Reconnect ab (terminal, kein weiterer Versuch)", async () => {
     const { client, ref } = makeClient({ reconnectDelays: [10, 10, 10] });
-    const p0 = client.call({ controller: "C", method: "M", stringData: "[]", id: "z0" });
+    const p0 = client.call({ controller: "C", method: "M", params: [], id: "z0" });
     ref.ws!.fireOpen();
     await vi.waitFor(() => expect(ref.ws!.sent.length).toBe(1), { interval: 1, timeout: 1000 });
     ref.ws!.fireMessage(resp("z0", "0"));

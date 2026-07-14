@@ -61,28 +61,28 @@ export async function run(rest: TrameRestClient): Promise<void> {
       controller: "Customer",
       method: "AddCustomer",
       id: "step1",
-      stringData: JSON.stringify([
-        { parameterName: "name", num: 0, data: JSON.stringify("Dave") },
-        { parameterName: "email", num: 1, data: JSON.stringify("dave@x.com") },
-      ]),
+      params: [
+        { parameterName: "name", num: 0, data: "Dave" },
+        { parameterName: "email", num: 1, data: "dave@x.com" },
+      ],
       dependencyMapping: { custId: "$" }, // neue CustomerId weitergeben
     },
     {
       controller: "Order",
       method: "CreateOrder",
       id: "step2",
-      stringData: JSON.stringify([
+      params: [
         // data: "@custId" → Server erkennt @-Präfix und substituiert.
         { parameterName: "customerId", num: 0, data: "@custId" },
-        { parameterName: "total", num: 1, data: JSON.stringify(99.9) },
-      ]),
+        { parameterName: "total", num: 1, data: 99.9 },
+      ],
       dependencyMapping: { orderId: "$" }, // neue OrderId weitergeben
     },
     {
       controller: "Order",
       method: "GetOrderById",
       id: "step3",
-      stringData: JSON.stringify([{ parameterName: "id", num: 0, data: "@orderId" }]),
+      params: [{ parameterName: "id", num: 0, data: "@orderId" }],
     },
   ];
 

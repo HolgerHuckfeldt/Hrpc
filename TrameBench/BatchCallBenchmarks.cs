@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Attributes;
+using System.Text.Json.Nodes;
 using TrameCommon.Models;
 
 namespace TrameBench;
@@ -29,7 +30,7 @@ public class BatchCallBenchmarks
             {
                 Controller = "Customer",
                 Method = "GetCustomerById",
-                StringData = "[{\"" + "ParameterName" + "\":\"" + "id" + "\",\"" + "Data" + "\":\"" + i + "\"}]",
+                Params = JsonNode.Parse("[{\"" + "ParameterName" + "\":\"" + "id" + "\",\"" + "Data" + "\":" + i + "}]"),
                 Id = "req-" + i
             });
         }

@@ -31,5 +31,19 @@ namespace TrameCore.Services
             CancellationToken ct = default);
 
         DiscoveryInfo GetDiscoveryInfo();
+
+        /// <summary>
+        /// North-Bound-Default-Deny (aus <see cref="TrameHub.Extensions.TrameOptions.RequireAuthentication"/>).
+        /// Transporte lesen dies, um WebSocket-Upgrade und Discovery-Endpunkt zu gate-n.
+        /// Siehe <c>SECURITY.md</c>.
+        /// </summary>
+        bool RequireAuthentication { get; }
+
+        /// <summary>
+        /// Max Requests pro Batch (0 = unbegrenzt; aus
+        /// <see cref="TrameHub.Extensions.TrameOptions.MaximumBatchSize"/>). Transporte
+        /// lesen dies für das frühe 400-Batch-Cap-Gate. Siehe <c>SECURITY.md</c>.
+        /// </summary>
+        int MaximumBatchSize { get; }
     }
 }

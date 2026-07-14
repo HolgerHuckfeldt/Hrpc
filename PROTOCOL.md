@@ -8,7 +8,7 @@
 ## Overview
 
 Trame is a method-oriented RPC protocol. A client sends a `TrameRequest` containing
-a controller name, method name, and JSON-encoded parameters. The server invokes the
+a controller name, method name, and parameters (a native JSON array). The server invokes the
 matching method and returns a `TrameResponse` with a status code and JSON-encoded result.
 
 Trame supports three transports (REST, WebSocket, SignalR) but the request/response
@@ -26,7 +26,7 @@ Single method invocation.
 {
   "controller": "Customer",
   "method": "GetById",
-  "stringData": "[{\"ParameterName\":\"id\",\"Data\":\"42\"}]",
+  "params": [{ "parameterName": "id", "data": 42 }],
   "id": "Customer.GetById",
   "dependencyMapping": null,
   "binaryData": null
@@ -37,26 +37,26 @@ Single method invocation.
 |-------|------|----------|-------------|
 | `controller` | string | ✅ | Target controller name. A dotted namespace is allowed (e.g. `Customer.Address.Contact`) to express arbitrarily deep hierarchies — there is no fixed two-level limit. Controller names must be unique app-wide. |
 | `method` | string | ✅ | Target method name. Dispatch is **name-only** — the server resolves `{controller}_{method}` against registered handlers and does **not** consider the parameter set, so there is no signature-based overloading over the wire. Method names must be unique within a controller. Duplicate controller or method names throw `InvalidOperationException` at startup instead of silently shadowing. Model C# overloads with distinct names (`add`, `addAll`). |
-| `stringData` | string (JSON) | ✅ | JSON array of `TrameParameter` objects |
+| `params` | array \| null | ❌ | Native JSON array of `TrameParameter` objects (`null` or omitted = no parameters). The array and each `data` value are native JSON — there is no double encoding (no JSON-string-wrapping of values). |
 | `id` | string | ✅ | Request identifier for correlation |
 | `dependencyMapping` | object\|null | ❌ | Map of alias → JsonPath for dependency chaining |
 | `binaryData` | base64\|null | ❌ | Optional binary payload. base64 over REST and WebSocket (JSON text wire); native MessagePack `bin` over SignalR. Injected into the first `byte[]` parameter of the target method (first-match-only; a method with more than one `byte[]` parameter is not supported in v1). |
 
 ### TrameParameter
 
-Method parameter within `stringData`.
+Method parameter within `params`.
 
 ```json
 {
   "parameterName": "id",
-  "data": "42"
+  "data": 42
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `parameterName` | string | ✅ | Parameter name (matched server-side by name) |
-| `data` | string | ✅ | JSON-encoded parameter value (string, number, object, array) |
+| `data` | value | ✅ | Native JSON parameter value — a number, string, boolean, object, or array (NOT a JSON string). The server deserializes this value directly into the target parameter type. An `@alias` dependency placeholder is a native **string** value with an `@` prefix, e.g. `"@newId"`. |
 | `num` | int | ❌ | Positional index (fallback when `parameterName` does not match) |
 
 > **Binding order:** the server binds each method parameter by `parameterName` first.
@@ -65,9 +65,12 @@ Method parameter within `stringData`.
 > positionally without knowing the server-side parameter names. `byte[]` parameters
 > are never bound positionally — they are injected from `binaryData`.
 >
-> `data` is always a **JSON string** that the server deserializes into the target type.
-> Example: `"42"` (number as string), `"\"hello\""` (string with escaped quotes),
-> `"{\"id\":1,\"name\":\"Alice\"}"` (object as string).
+> `data` is a **native JSON value**, not a JSON string. Example: `42` (number),
+> `"hello"` (string), `true` (boolean), `{"id":1,"name":"Alice"}` (object),
+> `[1,2,3]` (array). The server feeds it straight into its `System.Text.Json`
+> deserializer for the declared parameter type. The one special case is `@alias`
+> dependency chaining: a `data` value that is the **string** `"@aliasName"` is
+> resolved against an earlier request's `exposedDependencies` before invocation.
 
 ### TrameResponse
 
@@ -134,9 +137,9 @@ Batch of multiple requests in one roundtrip.
 ```json
 {
   "requests": [
-    { "controller": "Customer", "method": "Add", "stringData": "[...]", "id": "step1",
+    { "controller": "Customer", "method": "Add", "params": [...], "id": "step1",
       "dependencyMapping": { "newId": "$" } },
-    { "controller": "Customer", "method": "GetById", "stringData": "[{\"ParameterName\":\"id\",\"Data\":\"@newId\"}]", "id": "step2" }
+    { "controller": "Customer", "method": "GetById", "params": [{ "parameterName": "id", "data": "@newId" }], "id": "step2" }
   ],
   "mode": 1
 }
@@ -246,8 +249,8 @@ JSON path is **result-relative** — the root (`$`) is the serialized result (e.
 - `dependencyMapping: { "ids": "$[*].id" }` → **multi-match fan-out**: a wildcard/recursive path (`$[*].id`, `$..id`) collects *every* match into a JSON array. The array is injected as a single list-typed parameter value (`List<T>`, `T[]`, `IEnumerable<T>`), so `Search → GetByIds(@ids)` completes in one roundtrip.
 
 A subsequent request can **use** exposed values with `@alias` placeholders:
-- `"stringData": "[{\"ParameterName\":\"id\",\"Data\":\"@orderId\"}]"`
-- The server replaces `@orderId` with the actual value from the previous response
+- `"params": [{ "parameterName": "id", "data": "@orderId" }]`
+- The server replaces the `@orderId` string value with the actual value from the previous response
 
 ### Resolution Rules
 
@@ -311,15 +314,15 @@ CLR type is enforced at the second step by `System.Text.Json`:
    - **1 match** → the matched node as-is — a scalar, or, if the match itself is an
      array/object, that array/object (exposing `$` over a list returns the whole list).
    - **>1 matches** (`$[*].x`, `$..x`) → a JSON **array** of all matches.
-   The extracted value is re-encoded as a JSON string in `exposedDependencies`
+   The extracted value is stored in `exposedDependencies` as its JSON text
    (`alias → extracted.ToJsonString()`), preserving its type for the next step.
 
-2. **Inject.** In the consuming request, `@alias` placeholders inside `stringData`
-   are replaced by that JSON string. The replacement is a **JSON string node whose
-   content is the JSON text**, so the `TrameParameter.data` field carries the JSON
-   encoding of the extracted value (e.g. `42`, `"alice"`, `[1,2,3]`, `{...}`).
+2. **Inject.** In the consuming request, an `@alias` placeholder — a `data` field that
+   is the **string** `"@alias"` — is replaced by a native `JsonNode` parsed from that
+   stored JSON text. The `TrameParameter.data` field then carries the native extracted
+   value (e.g. `42`, `"alice"`, `[1,2,3]`, `{...}`), not a JSON string.
 
-3. **Bind.** `BuildParameters` deserializes each `data` field into the method's
+3. **Bind.** `BuildParameters` deserializes each native `data` value into the method's
    declared parameter type via `JsonSerializer.Deserialize(data, parameterType,
    options)` — the same options used for the rest of the protocol
    (`PropertyNameCaseInsensitive = true`, `PropertyNamingPolicy = CamelCase`, **no**
@@ -393,7 +396,7 @@ mysterious `400`:
 
 | Where | Sensitivity | Rule |
 |---|---|---|
-| **Parameter *name* binding** (`stringData[].parameterName` → C# parameter) | **Case-sensitive** (`StringComparer.Ordinal`) | The client must send the parameter name exactly as declared in C# (PascalCase by .NET convention). `parameterName: "id"` does **not** bind to a C# parameter `Id`. |
+| **Parameter *name* binding** (`params[].parameterName` → C# parameter) | **Case-sensitive** (`StringComparer.Ordinal`) | The client must send the parameter name exactly as declared in C# (PascalCase by .NET convention). `parameterName: "id"` does **not** bind to a C# parameter `Id`. |
 | **Parameter *value* properties** (the JSON inside `data` → contract type) | **Case-insensitive** (`PropertyNameCaseInsensitive = true`) | The server accepts `{"Id":…}`, `{"id":…}`, `{"ID":…}` alike. It **writes** camelCase (`PropertyNamingPolicy = CamelCase`): a C# `Id` is serialized as `id` on the wire. |
 | **JsonPath extraction** (`dependencyMapping` paths over results) | **Case-sensitive** (JsonPath.Net, RFC 9535) | The path must match the server's **camelCase** output. `$.name` matches; `$.Name` matches nothing → *Unresolved*. |
 
@@ -511,7 +514,7 @@ Content-Type: application/json
 {
   "controller": "Customer",
   "method": "GetById",
-  "stringData": "[{\"ParameterName\":\"id\",\"Data\":\"42\"}]",
+  "params": [{ "parameterName": "id", "data": 42 }],
   "id": "Customer.GetById"
 }
 ```
@@ -608,10 +611,16 @@ Content-Type: application/json
 > for real use prefer `import { createClient } from "trame-client"`.
 
 ```typescript
+interface TrameParameter {
+  parameterName: string;
+  data: unknown; // native JSON value — number, string, boolean, object, array
+  num?: number;
+}
+
 interface TrameRequest {
   controller: string;
   method: string;
-  stringData: string;
+  params?: TrameParameter[] | null; // native array (no JSON-string wrapping)
   id: string;
   dependencyMapping?: Record<string, string> | null;
 }
@@ -636,12 +645,10 @@ async function trameCall(
   const request: TrameRequest = {
     controller,
     method,
-    stringData: JSON.stringify(
-      Object.entries(params).map(([name, value]) => ({
-        parameterName: name,
-        data: JSON.stringify(value),
-      }))
-    ),
+    params: Object.entries(params).map(([name, value]) => ({
+      parameterName: name,
+      data: value,
+    })),
     id: id ?? `${controller}.${method}`,
   };
 
@@ -665,7 +672,6 @@ console.log(customer.name);
 ## Python Client Example
 
 ```python
-import json
 import requests
 from typing import Any
 
@@ -673,10 +679,10 @@ def trame_call(url: str, controller: str, method: str, params: dict[str, Any], i
     request = {
         "controller": controller,
         "method": method,
-        "stringData": json.dumps([
-            {"parameterName": k, "data": json.dumps(v)}
+        "params": [
+            {"parameterName": k, "data": v}
             for k, v in params.items()
-        ]),
+        ],
         "id": id or f"{controller}.{method}",
     }
     response = requests.post(f"{url}/api/trame/json", json=request)
@@ -695,6 +701,32 @@ print(customer["name"])
 ## Design Principles for Cross-Platform Implementations
 
 1. **Wire format is JSON** – no binary dependency for the protocol itself (MessagePack is optional for SignalR only)
-2. **Parameter values are JSON strings** – `stringData` contains a JSON array of `{parameterName, data}` where `data` is itself a JSON string. This allows lazy deserialization on the server.
+2. **Parameter values are native JSON** – `params` is a JSON array of `{parameterName, data}` where `data` is itself a native JSON value (number, string, boolean, object, array). There is no double encoding: a parameter `42` is sent as `42`, not `"42"`. The server deserializes each value directly into the target parameter type.
 3. **Discovery enables code generation** – the `/api/trame/discovery` endpoint returns full type metadata, enabling auto-generated clients in any language.
 4. **No schema language required** – unlike gRPC (`.proto`) or GraphQL (SDL), the contract is defined in code and discovered at runtime.
+
+---
+
+## JSON-RPC 2.0 Compatibility
+
+Trame ships an **opt-in** JSON-RPC 2.0 adapter (`TrameOptions.EnableJsonRpcCompat`,
+default off) that maps JSON-RPC requests onto the same `TrameInvoker`:
+
+```
+POST /api/trame/jsonrpc        # single object or a batch array
+```
+
+* `method` is `Controller.Method` (split at the last dot).
+* `params` object → named parameters; `params` array → positional (bound by `num`).
+* `id` (number/string) echoed with its original type; absent/null → notification (no
+  response). A batch of only notifications → `HTTP 204`.
+* HTTP envelope is envelope-at-200 like the native REST transport; errors live in
+  `error.code` (Trame codes mapped to the JSON-RPC ranges — incl. routing-404 →
+  `-32601` vs. business-404 → `-32000`).
+* Capability methods `trame.discover` (→ DiscoveryInfo) and `trame.capabilities`
+  (→ static strengths manifest) bridge to the native surface.
+* **Limitations:** no `@alias` chaining, no execution-mode selection (Parallel only),
+  no binary out-of-band, no streaming — graduate to the native wire for those.
+
+Full spec, the Trame-vs-JSON-RPC protocol-differences table, and the implementation
+map: see [`JSONRPC_COMPAT.md`](JSONRPC_COMPAT.md).

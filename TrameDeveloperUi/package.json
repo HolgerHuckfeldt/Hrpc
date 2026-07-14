@@ -10,7 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "trame-client": "file:../clients/ts"
+    "trame-client": "file:../clients/ts",
+    "trame-codegen": "file:../clients/codegen"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",

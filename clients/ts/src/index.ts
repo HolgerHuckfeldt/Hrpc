@@ -16,7 +16,7 @@ export {
   type IWebSocket,
   type WsFactory,
 } from "./websocket.js";
-export { buildStringData, buildSingle, buildMulti, toBase64, fromBase64 } from "./request.js";
+export { buildParams, buildSingle, buildMulti, toBase64, fromBase64 } from "./request.js";
 
 import { TrameRestClient, type TrameRestClientOptions } from "./rest.js";
 import {

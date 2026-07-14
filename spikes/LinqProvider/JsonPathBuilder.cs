@@ -6,13 +6,15 @@ namespace Trame.Spike.LinqProvider;
 /// <summary>
 /// Übersetzt einen Selector-Expression-Körper in einen ergebnisrelativen JsonPath
 /// (Konvention des Trame-Dependency-Chaining: Wurzel "$" ist das serialisierte
-/// Resultat, Eigenschaften sind PascalCase, Listen-Elemente über [i]).
+/// Resultat, Eigenschaften sind camelCase — der Server serialisiert Antworten mit
+/// JsonNamingPolicy.CamelCase, und JsonPath ist case-sensitiv gegen das Wire-Dokument,
+/// daher MUSS der Pfad camelCase sein, sonst trifft er nichts). Listen-Elemente über [i].
 /// Unterstützte Formen:
 ///   <c>x</c>          → "$"
-///   <c>x.Name</c>     → "$.Name"
+///   <c>x.Name</c>     → "$.name"
 ///   <c>x[0]</c>       → "$[0]"
-///   <c>x[0].Id</c>    → "$[0].Id"
-///   <c>x.A.B</c>      → "$.A.B"
+///   <c>x[0].Id</c>    → "$[0].id"
+///   <c>x.A.B</c>      → "$.a.b"
 /// </summary>
 internal static class JsonPathBuilder
 {
@@ -41,7 +43,10 @@ internal static class JsonPathBuilder
 
             case MemberExpression member:
                 BuildCore(member.Expression, sb);
-                sb.Append('.').Append(member.Member.Name);
+                // camelCase: der C#-Eigenschaftsname (PascalCase) wird an das camelCase-
+                // Wire-Dokument angepasst (Server serialisiert CamelCase, JsonPath ist
+                // case-sensitiv). Z.B. "Name" → "name", "Id" → "id".
+                sb.Append('.').Append(ToCamelCase(member.Member.Name));
                 return;
 
             case UnaryExpression unary when unary.NodeType == ExpressionType.Convert:
@@ -75,5 +80,14 @@ internal static class JsonPathBuilder
         else
             index = (int)Expression.Lambda(indexExpr).Compile().DynamicInvoke()!;
         sb.Append('[').Append(index).Append(']');
+    }
+
+    /// <summary>Wandelt einen PascalCase-Eigenschaftsnamen in camelCase um
+    ///  (erster Buchstabe klein). Einbuchstabe-Namen bleiben unverändert.</summary>
+    private static string ToCamelCase(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return name;
+        if (name.Length == 1) return name.ToLowerInvariant();
+        return char.ToLowerInvariant(name[0]) + name[1..];
     }
 }

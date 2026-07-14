@@ -15,8 +15,8 @@ describe("TrameCall", () => {
     expect(req.id).toBe("step1");
     expect(req.dependencyMapping).toEqual({ newId: "$" });
     expect(req.binaryData).toBeNull();
-    expect(JSON.parse(req.stringData!)).toEqual([
-      { parameterName: "name", data: '"Alice"', num: 0 },
+    expect(req.params).toEqual([
+      { parameterName: "name", data: "Alice", num: 0 },
     ]);
   });
 
@@ -26,16 +26,16 @@ describe("TrameCall", () => {
 
   it("positional via array -> param{i} + num", () => {
     const req = TrameCall.init("C", "M").with([1, 2]).toRequest();
-    expect(JSON.parse(req.stringData!)).toEqual([
-      { parameterName: "param0", data: "1", num: 0 },
-      { parameterName: "param1", data: "2", num: 1 },
+    expect(req.params).toEqual([
+      { parameterName: "param0", data: 1, num: 0 },
+      { parameterName: "param1", data: 2, num: 1 },
     ]);
   });
 
   it("param() fügt benannten Parameter hinzu", () => {
     const req = TrameCall.init("C", "M").param("id", 42).toRequest();
-    expect(JSON.parse(req.stringData!)).toEqual([
-      { parameterName: "id", data: "42", num: 0 },
+    expect(req.params).toEqual([
+      { parameterName: "id", data: 42, num: 0 },
     ]);
   });
 
@@ -44,7 +44,7 @@ describe("TrameCall", () => {
       .with(["base"])
       .withAlias("@newId")
       .toRequest();
-    const arr = JSON.parse(req.stringData!);
+    const arr = req.params!;
     expect(arr[1]).toEqual({ parameterName: "newId", data: "@newId", num: 1 });
   });
 

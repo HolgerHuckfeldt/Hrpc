@@ -322,7 +322,7 @@ Returned `TrameResponse` objects from controllers are **not** gated by `EnableDe
 
 | Regime | Applies to | Casing | Consequence |
 |---|---|---|---|
-| **Parameter NAME binding** | matching `stringData` entries to method parameters | **case-sensitive, ordinal** | `{"parameterName":"CustomerId"}` binds to `int CustomerId`, **not** to `int customerId`. Send the exact C# parameter name. |
+| **Parameter NAME binding** | matching `params` entries to method parameters | **case-sensitive, ordinal** | `{"parameterName":"CustomerId"}` binds to `int CustomerId`, **not** to `int customerId`. Send the exact C# parameter name. |
 | **Parameter VALUE properties** | JSON properties inside an object argument or result | **read case-insensitive, written camelCase** | STJ reads `{"Id":1}` and `{"id":1}` into `int Id` equally. The server *writes* results camelCase (`id`, `customerId`). |
 | **JsonPath extraction** | the `.Exposes("$.…", …)` path against a result | **case-sensitive** | The path runs against the camelCase wire document, so it must use camelCase: `$.customerId`, `$.items[*].id`. A PascalCase `$.Id` matches **nothing** → `Unresolved`. |
 

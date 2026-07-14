@@ -22,4 +22,9 @@
     <ProjectReference Include="..\TrameCore\TrameCore.csproj" />
   </ItemGroup>
 
+  <!-- Adapter/Dispatcher/Models sind internal; Tests übersetzen rein. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="TrameTests" />
+  </ItemGroup>
+
 </Project>

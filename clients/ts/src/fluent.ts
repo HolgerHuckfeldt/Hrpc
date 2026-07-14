@@ -45,8 +45,8 @@ export class TrameCall {
 
   /**
    * Fügt benannte (Object) oder positionale (Array) Parameter hinzu.
-   * - Object → `{parameterName: key, data: JSON.stringify(value)}` (sichere Bindung).
-   * - Array  → `{parameterName: "param{i}", num: i, data: ...}` (Positional via `num`).
+   * - Object → `{parameterName: key, data: value}` (sichere Bindung).
+   * - Array  → `{parameterName: "param{i}", num: i, data: value}` (Positional via `num`).
    */
   with(params: Record<string, unknown> | unknown[]): this {
     if (Array.isArray(params)) {
@@ -111,7 +111,7 @@ export class TrameCall {
     return {
       controller: this._controller,
       method: this._method,
-      stringData: JSON.stringify(this._params),
+      params: this._params,
       id,
       dependencyMapping: this._exposed.size > 0 ? Object.fromEntries(this._exposed) : null,
       binaryData: this._binary ? toBase64(this._binary) : null,
@@ -130,7 +130,7 @@ export class TrameCall {
     this._params.push({
       parameterName: name,
       num: this._num,
-      data: value === undefined ? "null" : JSON.stringify(value),
+      data: value === undefined ? null : value,
     });
     this._num++;
   }
@@ -139,7 +139,7 @@ export class TrameCall {
     this._params.push({
       parameterName: `param${this._num}`,
       num: this._num,
-      data: value === undefined ? "null" : JSON.stringify(value),
+      data: value === undefined ? null : value,
     });
     this._num++;
   }

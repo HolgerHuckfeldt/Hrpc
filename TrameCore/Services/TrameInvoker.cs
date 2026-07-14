@@ -65,6 +65,35 @@ namespace TrameCore.Services
         /// </summary>
         public AliasBindingMode AliasBindingMode { get; set; } = AliasBindingMode.Weak;
 
+        /// <summary>
+        /// North-Bound-Default-Deny. Wenn <c>true</c>, verlangt jede Methode ohne
+        /// <c>[TrameAnonymous]</c> einen authentifizierten User; <c>[TrameAuthorise]</c>
+        /// prüft weiterhin Rolle/Authentication. Default <c>false</c> (South-Bound,
+        /// nicht breaking). Wird über AddTrame aus TrameOptions gesetzt. Siehe
+        /// SECURITY.md.
+        /// </summary>
+        public bool RequireAuthentication { get; set; }
+
+        /// <summary>
+        /// Maximale Anzahl Requests pro Batch (Default 0 = unbegrenzt, nicht
+        /// breaking). Backstop am Batch-Einstieg; die Transport-Multi-Endpunkte
+        /// gate-n früher mit 400. Siehe SECURITY.md.
+        /// </summary>
+        public int MaximumBatchSize { get; set; }
+
+        /// <summary>
+        /// Maximale Länge eines client-kontrollierten dependencyMapping-JsonPath
+        /// (Default 256, 0 = unbegrenzt). Wird an DependencyResolver.ExtractValue
+        /// durchgereicht; ein zu langer Pfad wird vor der Evaluation verworfen.
+        /// </summary>
+        public int MaxDependencyPathLength { get; set; } = 256;
+
+        /// <summary>
+        /// Wenn <c>false</c>, werden <c>$..</c>-Pfade in dependencyMapping
+        /// abgelehnt (vor der Evaluation). Default <c>true</c> (nicht breaking).
+        /// </summary>
+        public bool AllowRecursiveDescent { get; set; } = true;
+
         // camelCase + relaxed Encoder: Der Payload wird jetzt strukturiert (JsonElement)
         // in Data abgelegt und von den Transporten in einem Pass roh serialisiert —
         // kein Double-Wrapping mehr. UnsafeRelaxed verhindert dennoch `"`-Escaping im
@@ -74,18 +103,6 @@ namespace TrameCore.Services
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-        };
-
-        // Statische Options für die Serialisierung der aufgelösten Parameter-JsonNode
-        // in ResolveParameterValues (WriteIndented + keine Naming-Policy → Original-
-        // schreibweise der Parameter-Keys bleibt erhalten). JsonSerializerOptions sind
-        // teuer zu bauen (interner TypeInfo-Cache); eine static-Instanz vermeidet die
-        // Pro-Call-Allokation im Chaining-Heißpfad. Nach dem ersten Gebrauch eingefroren
-        // → threadsicher für serialisierende Lesezugriffe.
-        private static readonly JsonSerializerOptions _aliasResolveJsonOptions = new()
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = null,
         };
 
 
@@ -157,7 +174,12 @@ namespace TrameCore.Services
                     var invokeInfo = new InvokeInfo()
                     {
                         MethodInfo = methodInfo,
-                        AuthoriseAttribute = GetAttribute<TrameAuthoriseAttribute>(methodInfo),
+                        // Methoden-Level schlägt Controller-Level (Default); beides null
+                        // → im RequireAuthentication-Modus verlangt CheckAuthorisation
+                        // mindestens IsAuthenticated, sonst default-allow (South-Bound).
+                        AuthoriseAttribute = GetAttribute<TrameAuthoriseAttribute>(methodInfo)
+                            ?? GetAttribute<TrameAuthoriseAttribute>(controllerType),
+                        AnonymousAttribute = GetAttribute<TrameAnonymousAttribute>(methodInfo),
                         CompiledInvocation = CompileInvocation(controllerType, methodInfo),
                         IsAsync = typeof(Task).IsAssignableFrom(methodInfo.ReturnType),
                         HasResult = GetHasResult(methodInfo)
@@ -184,6 +206,12 @@ namespace TrameCore.Services
             CancellationToken ct = default)
         {
             var requestList = requests.ToList();
+
+            // Batch-Cap-Backstop: die Transport-Multi-Endpunkte gate-n früher mit 400;
+            // dieser Check schützt direkte In-Process-Aufrufer (Tests, ITrameCore-Konsumenten).
+            if (MaximumBatchSize > 0 && requestList.Count > MaximumBatchSize)
+                throw new InvalidOperationException(
+                    $"Batch exceeds MaximumBatchSize ({MaximumBatchSize}): {requestList.Count} requests.");
 
             // Batch-Parent-Activity (rpc.system + trame.batch.mode/count). Null ohne Listener.
             using var batchActivity = TrameTracing.StartBatch(requestList, mode);
@@ -275,7 +303,7 @@ namespace TrameCore.Services
 
                 try
                 {
-                    await CheckAuthorisation(invokeInfo.AuthoriseAttribute, context);
+                    await CheckAuthorisation(invokeInfo, context);
 
                 }
                 catch (UnauthorizedAccessException)
@@ -284,9 +312,7 @@ namespace TrameCore.Services
                 }
 
                 // Im Single-Call ohne Dependencies brauchen wir keine Alias-Auflösung:
-                string parameterJson = request?.StringData ?? String.Empty;
-
-                var parameters = BuildParameters(parameterJson, invokeInfo.MethodInfo!.GetParameters(), ct);
+                var parameters = BuildParameters(request?.Params, invokeInfo.MethodInfo!.GetParameters(), ct);
                 if (parameters.Items == null) return parameters.Response;
 
                 // Inject binary data for byte[] parameters
@@ -374,7 +400,7 @@ namespace TrameCore.Services
                     Id = current.Id,
                     Controller = current.Controller,
                     Method = current.Method,
-                    StringData = resolution.ResolvedJson,
+                    Params = resolution.ResolvedParams,
                     DependencyMapping = current.DependencyMapping
                 };
 
@@ -524,7 +550,7 @@ namespace TrameCore.Services
 
             // @alias-Auflösung gegen priorResponses (bestehend).
             TrameRequest effective = request!;
-            if (!string.IsNullOrEmpty(request?.StringData))
+            if (request?.Params != null)
             {
                 var resolution = ResolveParameterValues(request, priorResponses);
                 if (resolution.Error != null)
@@ -538,7 +564,7 @@ namespace TrameCore.Services
                     Id = request!.Id,
                     Controller = request.Controller,
                     Method = request.Method,
-                    StringData = resolution.ResolvedJson,
+                    Params = resolution.ResolvedParams,
                     DependencyMapping = request.DependencyMapping,
                 };
             }
@@ -561,10 +587,10 @@ namespace TrameCore.Services
             Dictionary<string, string> aliasToProvider,
             ConcurrentDictionary<string, TrameResponse?> priorResponses)
         {
-            if (string.IsNullOrEmpty(request.StringData))
+            if (request.Params == null)
                 return null;
 
-            var consumed = DependencyGraphBuilder.ExtractAliases(request.StringData);
+            var consumed = DependencyGraphBuilder.ExtractAliases(request.Params);
             if (consumed.Count == 0)
                 return null;
 
@@ -600,29 +626,31 @@ namespace TrameCore.Services
         /// <summary>
         /// Löst Alias-Platzhalter (@alias) in den Parametern eines Requests anhand der
         /// ExposedDependencies vorheriger Responses auf. Gibt BadRequest zurück, wenn
-        /// ein Alias nicht auflösbar ist.
+        /// ein Alias nicht auflösbar ist. Arbeitiert direkt auf dem nativen
+        /// <see cref="TrameRequest.Params"/>-<see cref="JsonNode"/> (DeepClone, damit das
+        /// DTO unverändert bleibt) und reicht den aufgelösten Knoten weiter — kein
+        /// String-Roundtrip mehr.
         /// </summary>
-        private (string? ResolvedJson, TrameResponse? Error) ResolveParameterValues(
+        private (JsonNode? ResolvedParams, TrameResponse? Error) ResolveParameterValues(
             TrameRequest current,
             ConcurrentDictionary<string, TrameResponse?>? previousResponses)
         {
-            var parameterJson = current.StringData;
-            if (string.IsNullOrWhiteSpace(parameterJson))
-                return (parameterJson, null);
+            var paramsNode = current.Params;
+            if (paramsNode == null)
+                return (null, null);
 
-            // Parse die Parameter-JSON
+            // DeepClone: die Substitution mutiert den Knotenbaum — das DTO darf dabei
+            // unverändert bleiben (ein Request-Objekt wird nicht doppelt aufgelöst,
+            // aber der Clone bewahrt die Trennung sauber).
             JsonNode? parameterNode;
             try
             {
-                parameterNode = JsonNode.Parse(parameterJson);
+                parameterNode = paramsNode.DeepClone();
             }
             catch (Exception)
             {
                 return (null, BadRequest("Invalid parameter JSON format."));
             }
-
-            if (parameterNode == null)
-                return (parameterJson, null);
 
             if (!ContainsAlias(parameterNode))
             {
@@ -634,10 +662,13 @@ namespace TrameCore.Services
                     if (paranoidError != null)
                         return (null, paranoidError);
                 }
-                return (parameterJson, null);
+                return (parameterNode, null);
             }
 
-            // Alle ExposedDependencies aus den bisherigen Responses zusammenführen
+            // Alle ExposedDependencies aus den bisherigen Responses zusammenführen.
+            // ExposedDependencies ist Dictionary<string,string>: die Werte sind die
+            // JSON-Form des extrahierten Fragments (ToJsonString), das in
+            // ReplaceDependencyByAliasCore per JsonNode.Parse zu einem nativen Knoten wird.
             var mergedDependencies = new Dictionary<string, string>(StringComparer.Ordinal);
             if (previousResponses != null)
             {
@@ -680,7 +711,7 @@ namespace TrameCore.Services
                     return (null, paranoidError);
             }
 
-            return (parameterNode.ToJsonString(_aliasResolveJsonOptions), null);
+            return (parameterNode, null);
         }
 
         /// <summary>
@@ -784,7 +815,8 @@ namespace TrameCore.Services
             }
 
             // parameterNode ist ein JsonArray von {"parameterName","data"}-Einträgen. data ist
-            // ein JSON-String, dessen Inhalt das Fragment (Alias nach Auflösung oder Literal) ist.
+            // ein nativer JSON-Wert (Object/Array/Skalar); Skalare haben keine deckbaren
+            // Eigenschaften und werden über ExtractFragment übersprungen.
             if (parameterNode is not JsonArray paramArray)
                 return null;
 
@@ -847,27 +879,20 @@ namespace TrameCore.Services
         }
 
         /// <summary>
-        /// Liest das <c>data</c>-Feld eines TrameParameter-Eintrags und liefert seinen Inhalt
-        /// als <see cref="JsonNode"/> — ein <see cref="JsonObject"/> oder <see cref="JsonArray"/>,
+        /// Liest das native <c>data</c>-Feld eines TrameParameter-Eintrags und liefert es als
+        /// <see cref="JsonNode"/> — ein <see cref="JsonObject"/> oder <see cref="JsonArray"/>,
         /// je nachdem, was der Literal/das Fragment ist; für Skalare/null <c>null</c> (nichts
-        /// zu decken). <c>data</c> ist ein JSON-String, dessen Inhalt das Fragment/der Literal
-        /// ist (für Alias-Parameter nach der Auflösung, für Literale wie gesendet). Ein direkt
-        /// eingebettetes JsonObject/JsonArray (theoretisch möglich) wird ebenfalls akzeptiert.
+        /// zu decken). <c>data</c> ist seit der Wire-Vereinfachung ein nativer JSON-Wert (kein
+        /// JSON-String mehr), daher entfällt das frühere <c>JsonNode.Parse</c> des String-Inhalts.
         /// </summary>
         private static JsonNode? ExtractFragment(JsonObject entryObj)
         {
             var dataNode = entryObj["data"] ?? entryObj["Data"];
-            if (dataNode == null)
-                return null;
             if (dataNode is JsonObject directObj)
                 return directObj;
             if (dataNode is JsonArray directArr)
                 return directArr;
-            if (dataNode is JsonValue v && v.TryGetValue<string>(out var s) && !string.IsNullOrWhiteSpace(s))
-            {
-                try { return JsonNode.Parse(s); }
-                catch { return null; } // unparsebar → überlasse es STJ.
-            }
+            // Skalare (Zahl/String/Bool/null) haben keine deckbaren Eigenschaften → null.
             return null;
         }
 
@@ -1023,15 +1048,12 @@ namespace TrameCore.Services
                     {
                         // actualValue ist die JSON-Form des extrahierten Werts (siehe
                         // exposed[alias] = extracted.ToJsonString()) — z. B. "2" (int),
-                        // "\"hi\"" (string) oder "{...}" (Objekt). Das `data`-Feld von
-                        // TrameParameter ist selbst ein string, der den JSON-serialisierten
-                        // Wert aufnimmt. Wir hüllen actualValue daher als JSON-String-Knoten
-                        // ein (JsonValue.Create), damit es beim erneuten Serialisieren als
-                        // String-Feld herauskommt und BuildParameters per
-                        // JsonSerializer.Deserialize<T>(data) den typgetreuen Wert
-                        // rekonstruiert. JsonNode.Parse würde stattdessen einen Number-/
-                        // Object-Knoten erzeugen — dann ist `data` kein string mehr und die
-                        // TrameParameter-Deserialisierung schlägt fehl.
+                        // "\"hi\"" (string) oder "{...}" (Objekt). Da TrameParameter.Data
+                        // nun ein nativer JsonNode-Wert ist, parsen wir actualValue in
+                        // seinen nativen Typ (Zahl/String/Object) und injizieren ihn direkt.
+                        // Das frühere JsonValue.Create (das einen String-Knoten erzeugte,
+                        // damit `data` ein String blieb) entfällt — BuildParameters bindet
+                        // den nativen Knoten per JsonSerializer.Deserialize(JsonNode, Type).
                         // Strict-Check-Buchhaltung: protokolliere die Ersetzung, wenn der
                         // Alias direkt der Wert eines TrameParameter-Objekts ist (Eltern-
                         // JsonObject hat einen parameterName-/ParameterName-Eintrag). Für
@@ -1044,7 +1066,7 @@ namespace TrameCore.Services
                             if (!string.IsNullOrEmpty(paramName))
                                 replacements.Add(new AliasReplacement(paramName, alias, actualValue));
                         }
-                        var newNode = JsonValue.Create(actualValue);
+                        var newNode = JsonNode.Parse(actualValue);
                         ReplaceInParent(node, newNode);
                     }
                     else
@@ -1152,7 +1174,7 @@ namespace TrameCore.Services
 
             try
             {
-                await CheckAuthorisation(invokeInfo.AuthoriseAttribute, context);
+                await CheckAuthorisation(invokeInfo, context);
             }
             catch (UnauthorizedAccessException)
             {
@@ -1183,7 +1205,7 @@ namespace TrameCore.Services
             Activity.Current = activity;
             try
             {
-                var parameters = BuildParameters(request.StringData, invokeInfo.MethodInfo!.GetParameters(), ct);
+                var parameters = BuildParameters(request.Params, invokeInfo.MethodInfo!.GetParameters(), ct);
                 // BuildParameters liefert bei Fehler (Cap überschritten, Duplikat-Name,
                 // falscher Typ, ungültiges JSON) (Items: null, Response: BadRequest). Der
                 // Vergleich `== default` ((null,null)) fängt (null, BadRequest) NICHT ab —
@@ -1216,7 +1238,8 @@ namespace TrameCore.Services
                         string jsonPath = kv.Value;
                         try
                         {
-                            var extracted = DependencyResolver.ExtractValue(result.Data.Value, jsonPath);
+                            var extracted = DependencyResolver.ExtractValue(
+                                result.Data.Value, jsonPath, MaxDependencyPathLength, AllowRecursiveDescent);
                             if (extracted != null)
                                 // ToJsonString (nicht ToString!) bewahrt den JSON-Typ: Zahl/Bool/Object
                                 // bleiben korrekt kodiert, damit die @alias-Substitution weiter unten
@@ -1272,34 +1295,44 @@ namespace TrameCore.Services
         #region Parameter-Bau und Validierung
 
         private (object?[]? Items, TrameResponse? Response) BuildParameters(
-            string? jsonInput,
+            JsonNode? paramsNode,
             ParameterInfo[] methodParams,
             CancellationToken ct)
         {
             try
             {
-                List<TrameParameter>? requestParams;
-                if (!string.IsNullOrEmpty(jsonInput))
+                // Parameter-Liste aus dem nativen Params-JsonArray (Einträge mit
+                // parameterName/num/data, data ist nativer JsonNode). Direkter Durchlauf
+                // statt Deserialize<List<TrameParameter>>(string) — kein String-Roundtrip.
+                var entries = new List<(string Name, int Num, JsonNode? Data)>();
+                if (paramsNode is JsonArray arr)
                 {
-                    requestParams = JsonSerializer.Deserialize<List<TrameParameter>>(jsonInput, _jsonSerializerOptions);
-                    if (requestParams == null || !requestParams.All(rp => rp.Data != null))
-                        throw new FormatException("Invalid parameter structure.");
-                }
-                else
-                {
-                    requestParams = new List<TrameParameter>();
+                    foreach (var entry in arr)
+                    {
+                        if (entry is not JsonObject eo)
+                            continue;
+                        var name = eo["parameterName"]?.GetValue<string>()
+                                   ?? eo["ParameterName"]?.GetValue<string>()
+                                   ?? string.Empty;
+                        int num = 0;
+                        var numNode = eo["num"] ?? eo["Num"];
+                        if (numNode is JsonValue nv && nv.TryGetValue<int>(out var ni))
+                            num = ni;
+                        var data = eo["data"] ?? eo["Data"];
+                        entries.Add((name, num, data));
+                    }
                 }
 
                 // Nach Parameternamen indizieren. Doppelte Namen als BadRequest melden,
                 // statt über ToDictionary eine unbehandelte Exception auszulösen.
-                var byName = new Dictionary<string, string?>(StringComparer.Ordinal);
-                foreach (var rp in requestParams)
+                var byName = new Dictionary<string, JsonNode?>(StringComparer.Ordinal);
+                foreach (var (name, _, data) in entries)
                 {
-                    if (string.IsNullOrEmpty(rp.ParameterName))
+                    if (string.IsNullOrEmpty(name))
                         continue;
-                    if (byName.ContainsKey(rp.ParameterName))
-                        return (null, BadRequest($"Duplicate parameter name '{rp.ParameterName}'."));
-                    byName[rp.ParameterName] = rp.Data;
+                    if (byName.ContainsKey(name))
+                        return (null, BadRequest($"Duplicate parameter name '{name}'."));
+                    byName[name] = data;
                 }
 
                 // Parameter ohne CancellationToken in der Reihenfolge der Methodensignatur.
@@ -1329,11 +1362,14 @@ namespace TrameCore.Services
                     if (!matched && param.ParameterType != typeof(byte[]))
                     {
                         int positionalIndex = Array.IndexOf(nonTokenParams, param);
-                        var positional = requestParams.FirstOrDefault(rp => rp.Num == positionalIndex);
-                        if (positional != null)
+                        foreach (var e in entries)
                         {
-                            jsonValue = positional.Data;
-                            matched = true;
+                            if (e.Num == positionalIndex)
+                            {
+                                jsonValue = e.Data;
+                                matched = true;
+                                break;
+                            }
                         }
                     }
 
@@ -1341,6 +1377,10 @@ namespace TrameCore.Services
                     {
                         try
                         {
+                            // jsonValue ist ein nativer JsonNode (oder null bei fehlendem
+                            // data-Feld). Ein JSON-null-Wert ist ein nicht-null JsonNode und
+                            // wird hier deserialisiert (→ null für Ref-Typen, 400 für nicht-
+                            // nullable Werttypen); ein fehlendes data-Feld ist C#-null → Default.
                             if (jsonValue != null)
                             {
                                 parameters[param.Position] =
@@ -1732,10 +1772,31 @@ namespace TrameCore.Services
         private Type? GetControllerType(string controllerName)
             => _routeHandlers.GetValueOrDefault(controllerName);
 
-        private async Task CheckAuthorisation(TrameAuthoriseAttribute? authAttr, HttpContext? context)
+        private async Task CheckAuthorisation(InvokeInfo invokeInfo, HttpContext? context)
         {
-            if (authAttr != null && !await authAttr.OnAuthorization(context))
-                throw new UnauthorizedAccessException();
+            // [TrameAnonymous] → immer erlaubt, auch im RequireAuthentication-Modus
+            // (bewusst öffentlicher Endpunkt, z.B. Health/Ping). Greift nur am
+            // REST-Transport (per-Request-Gate im Invoker).
+            if (invokeInfo.AnonymousAttribute != null) return;
+
+            // Explizite [TrameAuthorise] (Method- oder Controller-Level) →
+            // Role/Authentication-Check wie bisher.
+            if (invokeInfo.AuthoriseAttribute != null)
+            {
+                if (!await invokeInfo.AuthoriseAttribute.OnAuthorization(context))
+                    throw new UnauthorizedAccessException();
+                return;
+            }
+
+            // Unbestückte Methode:
+            //  - RequireAuthentication=false (South-Bound-Default): erlaubt (default-allow).
+            //  - RequireAuthentication=true  (North-Bound): IsAuthenticated verlangen.
+            if (RequireAuthentication)
+            {
+                var authenticated = context?.User?.Identity?.IsAuthenticated ?? false;
+                if (!authenticated)
+                    throw new UnauthorizedAccessException();
+            }
         }
 
         #endregion
@@ -1801,6 +1862,12 @@ namespace TrameCore.Services
         {
             public MethodInfo MethodInfo { get; set; } = null!;
             public TrameAuthoriseAttribute? AuthoriseAttribute { get; set; }
+
+            /// <summary>
+            /// Methoden-Level [TrameAnonymous] → Opt-out vom RequireAuthentication-
+            /// Default-Deny (Health/Ping). Null, wenn nicht vorhanden.
+            /// </summary>
+            public TrameAnonymousAttribute? AnonymousAttribute { get; set; }
 
             /// <summary>
             /// Kompilierter Delegate für den Methodenaufruf.

@@ -45,53 +45,42 @@
 
   const emptyMsg = '// Noch keine Batch-Zeilen — im Editor „+ Add" klicken.';
 
-  // --- Hilfsfunktionen: stringData → Fluent-Builder -----------------------------
-  // Der BatchEditor legt die Parameter als JSON-Array in `stringData` ab (jeder
-  // Eintrag: { parameterName, num, data }, `data` ist JSON.stringify(value) ODER
-  // ein "@alias"-Marker). Für den Codegen kehren wir das zurück in einzelne
+  // --- Hilfsfunktionen: params → Fluent-Builder -----------------------------
+  // Der BatchEditor legt die Parameter als natives Array in `params` ab (jeder
+  // Eintrag: { parameterName, num, data }, `data` ist der native JSON-Wert ODER
+  // ein "@alias"-Marker-String). Für den Codegen kehren wir das zurück in einzelne
   // .Param/.withAlias-Aufrufe, damit der Entwickler lesbaren Code bekommt statt
   // handgeschriebener JSON-Strings.
 
   interface ParsedParam {
     parameterName: string;
-    data: string;
+    data: unknown;
   }
 
-  /** Parst stringData in die Parameter-Liste, oder null bei unparsebarer Form
-   *  (z. B. manuelle Fallback-Eingabe). */
+  /** Liest `req.params` (natives Array) in die Parameter-Liste, oder null wenn
+   *  das Feld fehlt (z. B. manuelle Fallback-Eingabe ohne parsebare Form). */
   function parseParams(req: TrameRequest): ParsedParam[] | null {
-    if (!req.stringData || req.stringData === '[]') return [];
-    try {
-      const arr = JSON.parse(req.stringData);
-      if (!Array.isArray(arr)) return null;
-      return arr.map((p: { parameterName?: string; data?: string }) => ({
-        parameterName: p.parameterName ?? '',
-        data: p.data ?? '',
-      }));
-    } catch {
-      return null;
-    }
+    if (!req.params) return [];
+    if (!Array.isArray(req.params)) return null;
+    return req.params.map((p) => ({
+      parameterName: p.parameterName ?? '',
+      data: p.data,
+    }));
   }
 
   function csEscape(s: string): string {
     return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r/g, '').replace(/\n/g, '\\n');
   }
 
-  /** JSON-Wert (als JSON-String) → C#-Literal. Skalare direkt, Objekte/Arrays
+  /** Nativer JSON-Wert → C#-Literal. Skalare direkt, Objekte/Arrays
    *  über JsonNode.Parse mit C#-11-Raw-String (kein manuelles Escaping). */
-  function csLiteral(data: string): { code: string; usesJsonNode: boolean } {
-    let v: unknown;
-    try {
-      v = JSON.parse(data);
-    } catch {
-      return { code: csStringLiteral(data), usesJsonNode: false };
-    }
-    if (v === null) return { code: 'null', usesJsonNode: false };
-    if (typeof v === 'boolean') return { code: v ? 'true' : 'false', usesJsonNode: false };
-    if (typeof v === 'number') return { code: `${v}`, usesJsonNode: false };
-    if (typeof v === 'string') return { code: csStringLiteral(v), usesJsonNode: false };
+  function csLiteral(data: unknown): { code: string; usesJsonNode: boolean } {
+    if (data === null || data === undefined) return { code: 'null', usesJsonNode: false };
+    if (typeof data === 'boolean') return { code: data ? 'true' : 'false', usesJsonNode: false };
+    if (typeof data === 'number') return { code: `${data}`, usesJsonNode: false };
+    if (typeof data === 'string') return { code: csStringLiteral(data), usesJsonNode: false };
     // Objekt/Array → JsonNode.Parse mit Raw-String (C# 11, .NET 8).
-    const json = JSON.stringify(v, null, 2);
+    const json = JSON.stringify(data, null, 2);
     return { code: `JsonNode.Parse("""\n${json}\n""")!`, usesJsonNode: true };
   }
 
@@ -99,13 +88,9 @@
     return '"' + csEscape(s) + '"';
   }
 
-  /** JSON-Wert → JS/TS-Literal (JSON ist eine Teilmenge von JS für Daten). */
-  function tsLiteral(data: string): string {
-    try {
-      return JSON.stringify(JSON.parse(data));
-    } catch {
-      return JSON.stringify(data);
-    }
+  /** Nativer JSON-Wert → JS/TS-Literal (JSON ist eine Teilmenge von JS für Daten). */
+  function tsLiteral(data: unknown): string {
+    return JSON.stringify(data);
   }
 
   // --- TypeScript ---------------------------------------------------------------
@@ -120,11 +105,11 @@
       if (r.id) parts.push(`  .named("${r.id}")`);
       const params = parseParams(r);
       if (params === null) {
-        parts.push(`  // stringData nicht parsebar — manuell anpassen:`);
-        parts.push(`  // stringData: ${JSON.stringify(r.stringData ?? '[]')}`);
+        parts.push(`  // params nicht parsebar — manuell anpassen:`);
+        parts.push(`  // params: ${JSON.stringify(r.params ?? [])}`);
       } else {
         for (const p of params) {
-          if (p.data.startsWith('@')) {
+          if (typeof p.data === 'string' && p.data.startsWith('@')) {
             parts.push(`  .withAlias("${p.data}")`);
           } else {
             parts.push(`  .param("${p.parameterName}", ${tsLiteral(p.data)})`);
@@ -164,11 +149,11 @@ const results = await rest.callBatch(batch.requests, batch.mode);`;
       if (r.id) parts.push(`    .Named("${csEscape(r.id)}")`);
       const params = parseParams(r);
       if (params === null) {
-        parts.push(`    // StringData nicht parsebar — manuell anpassen:`);
-        parts.push(`    // StringData = ${csStringLiteral(r.stringData ?? '[]')}`);
+        parts.push(`    // Params nicht parsebar — manuell anpassen:`);
+        parts.push(`    // Params = ${csStringLiteral(JSON.stringify(r.params ?? []))}`);
       } else {
         for (const p of params) {
-          if (p.data.startsWith('@')) {
+          if (typeof p.data === 'string' && p.data.startsWith('@')) {
             parts.push(`    .WithAlias("${csEscape(p.data)}")`);
           } else {
             const lit = csLiteral(p.data);

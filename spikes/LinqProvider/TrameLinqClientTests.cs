@@ -141,12 +141,14 @@ public class TrameLinqClientTests : IClassFixture<WebApplicationFactory<Program>
 
         // Act
         var whole = fetch.Expose();                       // "$" (ganzes Customer-Objekt)
-        var name = fetch.Expose(c => c!.Name);            // "$.Name"
+        var name = fetch.Expose(c => c!.Name);            // "$.name" (camelCase-Wire)
 
-        // Assert: die Pfade landen im dependencyMapping (ergebnisrelativ).
+        // Assert: die Pfade landen im dependencyMapping (ergebnisrelativ, camelCase
+        // gegen das Wire-Dokument — der Server serialisiert CamelCase, JsonPath ist
+        // case-sensitiv).
         fetch.DependencyMapping.Should().NotBeNull();
         fetch.DependencyMapping!.Values.Should().Contain("$");
-        fetch.DependencyMapping!.Values.Should().Contain("$.Name");
+        fetch.DependencyMapping!.Values.Should().Contain("$.name");
 
         // Deps tragen eindeutige Aliase.
         whole.Alias.Should().NotBe(name.Alias);

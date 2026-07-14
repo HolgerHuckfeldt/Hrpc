@@ -40,21 +40,22 @@ a string `alice` becomes `"\"alice\""`, an object becomes `"{...}"`.
 
 ### Step 2 — Inject
 
-In the consuming request, `@alias` placeholders inside `stringData` are replaced. The
-placeholder is recognized as a **raw `string` value whose text starts with `@`** in the
-parsed parameter JSON. Concretely, a consumer parameter carrying an alias looks like this
-in the wire `stringData`:
+In the consuming request, `@alias` placeholders inside `params` are replaced. The
+placeholder is recognized as a **native `string` value whose text starts with `@`** in the
+`params` array. Concretely, a consumer parameter carrying an alias looks like this on the
+wire (`data` is a native JSON string, not a JSON-string-wrapped value):
 
 ```json
 [{"parameterName":"orderId","data":"@orderId"}]
 ```
 
-Note `data` is the **raw text `@orderId`**, not a JSON-quoted `"\"@orderId\""`. The detector
-(`ContainsAlias`) checks `value.StartsWith("@")`; a value that starts with `"` is not
-recognized as an alias and would be deserialized as a literal string (and then likely fail
-binding). The replacement installs the extracted JSON text from step 1 as the parameter's
-`data`, so after substitution the field carries the JSON encoding of the fragment
-(`7`, `"alice"`, `[1,2,3]`, `{...}`).
+Note `data` is the **raw text `@orderId`** — a native JSON string, not a double-quoted
+`"\"@orderId\""`. The detector (`ContainsAlias`) checks `value.StartsWith("@")`; a value
+that starts with `"` is not recognized as an alias and would be deserialized as a literal
+string (and then likely fail binding). The replacement parses the JSON text stored in step
+1 into a native `JsonNode` and installs it as the parameter's `data`, so after substitution
+the field carries the native fragment value (`7`, `"alice"`, `[1,2,3]`, `{...}`) — not a
+JSON string.
 
 ### Step 3 — Bind
 
@@ -166,7 +167,7 @@ instead (`$.id` → `@cid`, `$.name` → `@cname`).
 
 | Regime | Applies to | Casing | Consequence |
 |---|---|---|---|
-| **Parameter NAME binding** | matching `stringData` entries to method parameters | **case-sensitive, ordinal** | `{"parameterName":"CustomerId"}` binds to `int CustomerId`, **not** to `int customerId`. Send the exact C# parameter name. |
+| **Parameter NAME binding** | matching `params` entries to method parameters | **case-sensitive, ordinal** | `{"parameterName":"CustomerId"}` binds to `int CustomerId`, **not** to `int customerId`. Send the exact C# parameter name. |
 | **Parameter VALUE properties** | JSON properties inside an object argument or result | **read case-insensitive, written camelCase** | STJ reads `{"Id":1}` and `{"id":1}` into `int Id` equally. The server *writes* results camelCase (`id`, `customerId`). |
 | **JsonPath extraction** | the `.Exposes("$.…", …)` path against a result | **case-sensitive** | The path runs against the camelCase wire document, so it must use camelCase: `$.customerId`, `$.items[*].id`. A PascalCase `$.Id` matches **nothing** → `Unresolved`. |
 

@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace TrameTests.Unit.Client;
@@ -154,7 +155,7 @@ public class TrameWebSocketClientReconnectTests
     {
         Controller = "C",
         Method = "M",
-        StringData = "[]",
+        Params = JsonNode.Parse("[]"),
         Id = id,
     };
 

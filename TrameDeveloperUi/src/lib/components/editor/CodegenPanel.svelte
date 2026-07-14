@@ -4,6 +4,10 @@
 
   let { tab }: { tab: Tab } = $props();
 
+  // Collapsed by default: codegen is on-demand only, so it never eats screen space
+  // until the user clicks the header to expand it.
+  let collapsed = $state(true);
+
   let tsSnippet = $derived.by(() => {
     if (!tab.controller || !tab.method) return '// select a method';
     const ctrl = tab.controller.name;
@@ -26,13 +30,16 @@ console.log(res.code, res.data);`;
     if (!tab.controller || !tab.method) return '// select a method';
     const ctrl = tab.controller.name;
     const m = tab.method.methodName;
+    // Data ist nativer JsonNode (kein doppelt-kodierter String mehr). Skalare und
+    // Objekte werden über JsonNode.Parse(<json-literal>) eingebettet.
     const args = tab.params
       .map((p) => {
-        const val = typeof p.value === 'object' ? JSON.stringify(p.value) : JSON.stringify(p.value ?? '');
-        return `    new TrameCallArg("${p.parameterName}", ${val})`;
+        const json = JSON.stringify(p.value ?? null);
+        return `    new TrameCallArg("${p.parameterName}", JsonNode.Parse(${JSON.stringify(json)})!)`;
       })
       .join(',\n');
     return `using var client = new TrameClient("/api/trame");
+using System.Text.Json.Nodes;
 var result = await client.CallAsync("${ctrl}", "${m}", new[] {
 ${args}
 });
@@ -60,31 +67,59 @@ Console.WriteLine(result.Code);`;
 
 <div class="codegen">
   <div class="pane-header compact">
-    <span class="label">Codegen</span>
+    <button class="codegen-toggle" onclick={() => (collapsed = !collapsed)} title={collapsed ? 'Show generated client code' : 'Hide generated client code'}>
+      <span class="chevron" class:open={!collapsed}>▸</span>
+      <span class="label">Codegen</span>
+    </button>
     <div class="actions">
-      <button class="ghost small" onclick={() => copy(tsSnippet, 'TS')}>
+      <button class="ghost small" onclick={() => copy(tsSnippet, 'TS')} disabled={collapsed}>
         {copied === 'TS' ? 'Copied!' : 'Copy TS'}
       </button>
-      <button class="ghost small" onclick={() => copy(csSnippet, 'C#')}>
+      <button class="ghost small" onclick={() => copy(csSnippet, 'C#')} disabled={collapsed}>
         {copied === 'C#' ? 'Copied!' : 'Copy C#'}
       </button>
     </div>
   </div>
-  <div class="codegen-grid">
-    <div class="code-block">
-      <div class="code-title">TypeScript</div>
-      <pre class="code"><code>{tsSnippet}</code></pre>
+  {#if !collapsed}
+    <div class="codegen-grid">
+      <div class="code-block">
+        <div class="code-title">TypeScript</div>
+        <pre class="code"><code>{tsSnippet}</code></pre>
+      </div>
+      <div class="code-block">
+        <div class="code-title">C#</div>
+        <pre class="code"><code>{csSnippet}</code></pre>
+      </div>
     </div>
-    <div class="code-block">
-      <div class="code-title">C#</div>
-      <pre class="code"><code>{csSnippet}</code></pre>
-    </div>
-  </div>
+  {/if}
 </div>
 
 <style>
   .codegen {
     flex-shrink: 0;
+  }
+  .codegen-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    font: inherit;
+  }
+  .codegen-toggle:hover {
+    color: var(--text);
+  }
+  .chevron {
+    display: inline-block;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    transition: transform 0.15s ease;
+  }
+  .chevron.open {
+    transform: rotate(90deg);
   }
   .compact {
     margin-top: 8px;

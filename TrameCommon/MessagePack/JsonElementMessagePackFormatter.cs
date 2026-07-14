@@ -92,10 +92,10 @@ public sealed class JsonElementMessagePackFormatter
 }
 
 /// <summary>
-/// Resolver: JsonElement/JsonElement? → unser Formatter, sonst StandardResolver.
-/// Ein eigener Resolver statt CompositeResolver, weil die CompositeResolver-Überladungen
-/// sich zwischen 2.x und 3.x unterscheiden — IFormatterResolver.GetFormatter&lt;T&gt;
-/// ist versionsstabil.
+/// Resolver: JsonElement/JsonElement? und JsonNode/JsonNode? → unsere Formatter, sonst
+/// StandardResolver. Ein eigener Resolver statt CompositeResolver, weil die
+/// CompositeResolver-Überladungen sich zwischen 2.x und 3.x unterscheiden —
+/// IFormatterResolver.GetFormatter&lt;T&gt; ist versionsstabil.
 /// </summary>
 public sealed class JsonElementResolver : IFormatterResolver
 {
@@ -107,6 +107,10 @@ public sealed class JsonElementResolver : IFormatterResolver
             return (IMessagePackFormatter<T>)(object)JsonElementMessagePackFormatter.Instance;
         if (typeof(T) == typeof(JsonElement?))
             return (IMessagePackFormatter<T>)(object)JsonElementMessagePackFormatter.Instance;
+        // Request-Seite: TrameParameter.Data / TrameRequest.Params sind native JsonNode-Werte.
+        // (JsonNode ist ein Referenztyp — typeof(JsonNode?) == typeof(JsonNode), ein Case reicht.)
+        if (typeof(T) == typeof(System.Text.Json.Nodes.JsonNode))
+            return (IMessagePackFormatter<T>)(object)JsonNodeMessagePackFormatter.Instance;
         // TrameResponse: eigener Formatter, damit der Bulk-Pfad Data aus DataBytes
         // schreibt (ConvertFromJson, ein Pass) statt den lazy Data-Getter auszulösen
         // (sonst JsonDocument-Baum + Re-Parse auf dem Server → Regression).

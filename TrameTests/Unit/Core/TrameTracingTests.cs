@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TrameCommon.Models;
 using TrameCore.Attributes;
 using TrameCore.Services;
@@ -102,7 +103,7 @@ public class TrameTracingTests
         {
             Controller = "TestInvoker",
             Method = "NoParams",
-            StringData = "[]"
+            Params = JsonNode.Parse("[]")
             // Id absichtlich nicht gesetzt → kein trame.request_id-Tag.
         };
 
@@ -121,7 +122,7 @@ public class TrameTracingTests
         {
             Controller = "TestInvoker",
             Method = "UploadBlob",
-            StringData = "[{\"ParameterName\":\"filename\",\"Data\":\"\\\"test.bin\\\"\"}]",
+            Params = JsonNode.Parse("[{\"ParameterName\":\"filename\",\"Data\":\"test.bin\"}]"),
             BinaryData = new byte[] { 1, 2, 3, 4, 5 },
             Id = "UploadBlob"
         };
@@ -210,7 +211,7 @@ public class TrameTracingTests
         {
             Controller = "Throwing",
             Method = "BoomStream",
-            StringData = "[]",
+            Params = JsonNode.Parse("[]"),
             Id = "boom"
         };
 
@@ -226,19 +227,25 @@ public class TrameTracingTests
 
     #region Helpers
 
+    // jsonValue ist entweder ein roher @alias-Platzhalter (C#-String ab "@") oder ein
+    // JSON-kodierter Wert ("42", "\"alice\"", "true", …). Seit Data ein nativer JsonNode
+    // ist, wandelt dieser Guard beides in die richtige Knotenform.
+    private static JsonNode? ToData(string jsonValue)
+        => jsonValue.StartsWith("@") ? JsonValue.Create(jsonValue) : JsonNode.Parse(jsonValue);
+
     private static TrameRequest CreateRequest(string controller, string method,
         params (string name, string jsonValue)[] parameters)
     {
         var paramList = parameters.Select(p => new TrameParameter
         {
             ParameterName = p.name,
-            Data = p.jsonValue
+            Data = ToData(p.jsonValue)
         }).ToList();
         return new TrameRequest
         {
             Controller = controller,
             Method = method,
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             Id = $"{controller}.{method}"
         };
     }
@@ -250,13 +257,13 @@ public class TrameTracingTests
         var paramList = parameters.Select(p => new TrameParameter
         {
             ParameterName = p.name,
-            Data = p.jsonValue
+            Data = ToData(p.jsonValue)
         }).ToList();
         return new TrameRequest
         {
             Controller = controller,
             Method = method,
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             Id = id,
             DependencyMapping = mapping
         };

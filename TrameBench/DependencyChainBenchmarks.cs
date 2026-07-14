@@ -1,6 +1,7 @@
 using BenchmarkDotNet.Attributes;
-using TrameCommon.Models;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using TrameCommon.Models;
 
 namespace TrameBench;
 
@@ -54,7 +55,7 @@ public class DependencyChainBenchmarks
                 {
                     Controller = "Customer",
                     Method = "AddCustomer",
-                    StringData = "[{\"ParameterName\":\"name\",\"Data\":\"\\\"Bench-Trame\\\"\"}]",
+                    Params = JsonNode.Parse("[{\"ParameterName\":\"name\",\"Data\":\"Bench-Trame\"}]"),
                     Id = "step1",
                     DependencyMapping = new Dictionary<string, string>
                     {
@@ -65,7 +66,7 @@ public class DependencyChainBenchmarks
                 {
                     Controller = "Customer",
                     Method = "GetCustomerById",
-                    StringData = "[{\"ParameterName\":\"id\",\"Data\":\"@newCustomerId\"}]",
+                    Params = JsonNode.Parse("[{\"ParameterName\":\"id\",\"Data\":\"@newCustomerId\"}]"),
                     Id = "step2",
                     DependencyMapping = new Dictionary<string, string>
                     {
@@ -76,7 +77,7 @@ public class DependencyChainBenchmarks
                 {
                     Controller = "Customer",
                     Method = "GetOrderByOrderId",
-                    StringData = "[{\"ParameterName\":\"id\",\"Data\":\"@orderId\"}]",
+                    Params = JsonNode.Parse("[{\"ParameterName\":\"id\",\"Data\":\"@orderId\"}]"),
                     Id = "step3"
                 }
             }
@@ -96,7 +97,7 @@ public class DependencyChainBenchmarks
                 {
                     Controller = "Customer",
                     Method = "AddCustomer",
-                    StringData = "[{\"ParameterName\":\"name\",\"Data\":\"\\\"Bench-Ws\\\"\"}]",
+                    Params = JsonNode.Parse("[{\"ParameterName\":\"name\",\"Data\":\"Bench-Ws\"}]"),
                     Id = "step1",
                     DependencyMapping = new Dictionary<string, string>
                     {
@@ -107,7 +108,7 @@ public class DependencyChainBenchmarks
                 {
                     Controller = "Customer",
                     Method = "GetCustomerById",
-                    StringData = "[{\"ParameterName\":\"id\",\"Data\":\"@newCustomerId\"}]",
+                    Params = JsonNode.Parse("[{\"ParameterName\":\"id\",\"Data\":\"@newCustomerId\"}]"),
                     Id = "step2",
                     DependencyMapping = new Dictionary<string, string>
                     {
@@ -118,7 +119,7 @@ public class DependencyChainBenchmarks
                 {
                     Controller = "Customer",
                     Method = "GetOrderByOrderId",
-                    StringData = "[{\"ParameterName\":\"id\",\"Data\":\"@orderId\"}]",
+                    Params = JsonNode.Parse("[{\"ParameterName\":\"id\",\"Data\":\"@orderId\"}]"),
                     Id = "step3"
                 }
             }
@@ -133,7 +134,7 @@ public class DependencyChainBenchmarks
         {
             Controller = "Customer",
             Method = "AddCustomer",
-            StringData = "[{\"ParameterName\":\"name\",\"Data\":\"\\\"Bench-Seq\\\"\"}]",
+            Params = JsonNode.Parse("[{\"ParameterName\":\"name\",\"Data\":\"Bench-Seq\"}]"),
             Id = "s1"
         });
         var customerId = resp1!.Data!.Value.GetRawText();
@@ -142,10 +143,10 @@ public class DependencyChainBenchmarks
         {
             Controller = "Customer",
             Method = "GetCustomerById",
-            // TrameParameter.Data ist ein string → der Wert muss als JSON-String (gequotet)
-            // eingebettet werden, nicht als nackte Zahl. Sonst schlägt das serverseitige
-            // Deserialisieren der Zahl in string fehl → "Error processing request parameters."
-            StringData = "[{\"ParameterName\":\"id\",\"Data\":\"" + customerId + "\"}]",
+            // TrameParameter.Data ist nun ein JsonNode → der Wert wird nativ als JSON-String
+            // eingebettet (der Parameter id ist string-typisiert), nicht als nackte Zahl.
+            // Sonst schlägt das serverseitige Deserialisieren der Zahl in string fehl.
+            Params = JsonNode.Parse("[{\"ParameterName\":\"id\",\"Data\":\"" + customerId + "\"}]"),
             Id = "s2"
         });
         // Data ist seit dem Single-Pass-Fix ein JsonElement (camelCase, kein JSON-String mehr).
@@ -157,7 +158,7 @@ public class DependencyChainBenchmarks
         {
             Controller = "Customer",
             Method = "GetOrderByOrderId",
-            StringData = "[{\"ParameterName\":\"id\",\"Data\":\"" + orderId + "\"}]",
+            Params = JsonNode.Parse("[{\"ParameterName\":\"id\",\"Data\":\"" + orderId + "\"}]"),
             Id = "s3"
         });
         return resp3;

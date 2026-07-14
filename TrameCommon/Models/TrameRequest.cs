@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using MessagePack;
 
 namespace TrameCommon.Models;
@@ -14,8 +15,13 @@ public class TrameRequest
     [Key(1)]
     public string Method { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Parameter als nativer JSON-Wert: ein <see cref="JsonArray"/> von
+    /// <c>{ parameterName, data, num }</c>-Einträgen, wobei <c>data</c> selbst ein
+    /// nativer JSON-Wert ist (keine Doppelkodierung mehr). <c>null</c> = keine Parameter.
+    /// </summary>
     [Key(2)]
-    public string? StringData { get; set; }
+    public JsonNode? Params { get; set; }
 
     [Key(3)]
     public byte[]? BinaryData { get; set; }

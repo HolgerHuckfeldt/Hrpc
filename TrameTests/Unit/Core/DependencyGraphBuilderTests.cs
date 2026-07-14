@@ -2,6 +2,7 @@ using FluentAssertions;
 using TrameCommon.Models;
 using TrameCore.Services.Helper;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace TrameTests.Unit.Core;
@@ -17,7 +18,7 @@ public class DependencyGraphBuilderTests
         {
             Controller = "Test",
             Method = "Method",
-            StringData = stringData,
+            Params = stringData == null ? null : JsonNode.Parse(stringData),
             Id = id,
             DependencyMapping = dependencyMapping
         };

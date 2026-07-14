@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Xunit;
 
 namespace TrameTests.Unit.Core;
@@ -42,13 +43,13 @@ public class CardinalityCapTests
         var paramList = parameters.Select(p => new TrameParameter
         {
             ParameterName = p.name,
-            Data = p.jsonValue
+            Data = p.jsonValue.StartsWith("@") ? JsonValue.Create(p.jsonValue) : JsonNode.Parse(p.jsonValue)
         }).ToList();
         return new TrameRequest
         {
             Controller = controller,
             Method = method,
-            StringData = JsonSerializer.Serialize(paramList),
+            Params = JsonSerializer.SerializeToNode(paramList),
             Id = $"{controller}.{method}"
         };
     }
@@ -143,9 +144,9 @@ public class CardinalityCapTests
         {
             Controller = "TestInvoker",
             Method = "StreamNumbers",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "count", Data = "20" }
+                new() { ParameterName = "count", Data = JsonNode.Parse("20") }
             }),
             Id = "s1",
             DependencyMapping = new Dictionary<string, string> { { "ids", "$[*]" } }
@@ -154,9 +155,9 @@ public class CardinalityCapTests
         {
             Controller = "DepChain",
             Method = "EchoIntList",
-            StringData = JsonSerializer.Serialize(new List<TrameParameter>
+            Params = JsonSerializer.SerializeToNode(new List<TrameParameter>
             {
-                new() { ParameterName = "values", Data = "@ids" }
+                new() { ParameterName = "values", Data = JsonValue.Create("@ids") }
             }),
             Id = "s2"
         };

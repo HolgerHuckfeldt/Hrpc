@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace TrameClient.Trame
 {
@@ -66,7 +67,7 @@ namespace TrameClient.Trame
             {
                 Num = _num,
                 ParameterName = aliasName,
-                Data = dependencyPlaceholder // e.g. "@firstId"
+                Data = JsonValue.Create(dependencyPlaceholder) // e.g. "@firstId" als nativer String-Wert
             });
             _num++;
             return this;
@@ -82,7 +83,7 @@ namespace TrameClient.Trame
             {
                 Num = _num,
                 ParameterName = parameterName,
-                Data = value == null ? null : JsonSerializer.Serialize(value)
+                Data = value == null ? null : JsonSerializer.SerializeToNode(value)
             });
             _num++;
             return this;
@@ -107,7 +108,7 @@ namespace TrameClient.Trame
             {
                 Num = _num,
                 ParameterName = $"param{_num}",
-                Data = p == null ? null : JsonSerializer.Serialize(p)
+                Data = p == null ? null : JsonSerializer.SerializeToNode(p)
             });
             _num++;
             return this;
@@ -126,7 +127,7 @@ namespace TrameClient.Trame
             {
                 Controller = _controller,
                 Method = _method,
-                StringData = JsonSerializer.Serialize(_parameters),
+                Params = JsonSerializer.SerializeToNode(_parameters),
                 Id = _name,
                 DependencyMapping = _exposedDependencies.Count > 0 ? _exposedDependencies : null
             };

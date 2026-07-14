@@ -1,5 +1,6 @@
 using TrameCore.Services;
 using Microsoft.AspNetCore.Mvc;
+using TrameRest.JsonRpc;
 
 namespace TrameRest
 {
@@ -19,9 +20,14 @@ namespace TrameRest
         /// angewandt (<c>RequireRateLimiting</c>). Nur aktivieren, wenn der Host
         /// die Policy registriert hat (AddTrame mit RateLimitPermitLimit &gt; 0).
         /// </param>
+        /// <param name="enableJsonRpcCompat">
+        /// Wenn <c>true</c>, wird der JSON-RPC-2.0-Kompatibilitäts-Endpoint
+        /// <c>POST {prefix}/jsonrpc</c> registriert (Opt-in, Default <c>false</c>).
+        /// Siehe <c>JSONRPC_COMPAT.md</c>.
+        /// </param>
         /// <returns>Der IEndpointRouteBuilder für weitere Konfigurationen.</returns>
         public static IEndpointRouteBuilder MapTrameEndpoints(this IEndpointRouteBuilder endpoints,
-            string prefix = "/api/trame", bool enableRateLimiting = false)
+            string prefix = "/api/trame", bool enableRateLimiting = false, bool enableJsonRpcCompat = false)
         {
             // Erstellt eine Gruppe für alle Routen — sauber und konfliktfrei.
             var group = endpoints.MapGroup(prefix);
@@ -56,6 +62,10 @@ namespace TrameRest
             {
                 if (request?.Requests is null || request.Requests.Count == 0)
                     return Results.BadRequest("Request is empty.");
+                // Batch-Cap-Gate (North-Bound-Härtung): früher 400 statt Fan-Out-DoS.
+                // Quelle ist ITrameCore (TrameOptions → Invoker → Interface → Transporte).
+                if (trameService.MaximumBatchSize > 0 && request.Requests.Count > trameService.MaximumBatchSize)
+                    return Results.BadRequest($"Batch exceeds MaximumBatchSize ({trameService.MaximumBatchSize}).");
                 try
                 {
                     var result = await trameService.InvokeDi(request.Requests, httpContext, request.Mode, ct);
@@ -68,11 +78,36 @@ namespace TrameRest
                 }
             });
 
-            group.MapGet("/discovery", (ITrameCore trameService) =>
+            group.MapGet("/discovery", (ITrameCore trameService, HttpContext httpContext) =>
             {
+                // North-Bound: Discovery ist ein Angriffsflächen-Orakel — hinter Auth
+                // legen, wenn RequireAuthentication an (Security-Audit F7.3). Die
+                // per-Method-Auth der Controller erledigt der Invoker; dieser Gate
+                // schützt nur die Framework-Discovery selbst.
+                if (trameService.RequireAuthentication && !(httpContext.User?.Identity?.IsAuthenticated ?? false))
+                    return Results.Unauthorized();
                 var allControllers = trameService.GetDiscoveryInfo();
                 return Results.Ok(allControllers);
             });
+
+            // JSON-RPC 2.0 Kompatibilitäts-Endpoint (Opt-in). Liest den Body roh
+            // (Object = Einzel-Request, Array = Batch), delegiert an den Dispatcher,
+            // der JSON-RPC → Trame übersetzt und ITrameCore.InvokeDi ruft. Antwort
+            // immer als 200er Hülle mit JSON-RPC-Envelope im Body (envelope-at-200);
+            // 204 ausschließlich, wenn jeder Request eine Notification war.
+            if (enableJsonRpcCompat)
+            {
+                group.MapPost("/jsonrpc", async (
+                    ITrameCore trameService, HttpContext httpContext, CancellationToken ct) =>
+                {
+                    httpContext.Request.EnableBuffering();
+                    var (status, body) = await JsonRpcDispatcher.DispatchAsync(
+                        trameService, httpContext, httpContext.Request.Body, ct);
+                    if (body is null)
+                        return Results.StatusCode(status);
+                    return Results.Content(body.ToJsonString(), "application/json; charset=utf-8", statusCode: status);
+                });
+            }
 
             return group;
         }

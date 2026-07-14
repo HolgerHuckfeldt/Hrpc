@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TrameClient.Trame;
 using TrameCommon.Models;
 
@@ -69,18 +70,19 @@ public sealed class TrameLinqClient
         for (int i = 0; i < paramInfos.Length; i++)
         {
             object? value = EvaluateArgument(mce.Arguments[i]);
-            string data;
+            JsonNode? data;
             if (value is IArg arg)
             {
-                // Arg<T>: Dep → @alias (serverseitige Substitution), sonst Wert.
+                // Arg<T>: Dep → @alias (serverseitige Substitution, nativer String-Wert
+                // mit @-Präfix), sonst nativer JSON-Wert (kein JSON-String mehr).
                 data = arg.IsDep
-                    ? "@" + arg.Alias
-                    : JsonSerializer.Serialize(arg.Value, _jsonOpts);
+                    ? JsonValue.Create("@" + arg.Alias)
+                    : JsonSerializer.SerializeToNode(arg.Value, _jsonOpts);
             }
             else
             {
                 // Fallback: nackter Wert (kein Arg<T>-Wrapper).
-                data = JsonSerializer.Serialize(value, _jsonOpts);
+                data = JsonSerializer.SerializeToNode(value, _jsonOpts);
             }
             parameters.Add(new TrameParameter
             {
@@ -96,7 +98,7 @@ public sealed class TrameLinqClient
             specType,
             BindingFlags.Instance | BindingFlags.NonPublic,
             null,
-            new object[] { controller.Controller, methodAttr.Method, id, JsonSerializer.Serialize(parameters) },
+            new object[] { controller.Controller, methodAttr.Method, id, JsonSerializer.SerializeToNode(parameters) },
             null)!;
     }
 
@@ -150,8 +152,10 @@ public sealed class TrameLinqClient
     private static T? Deserialize<T>(TrameResponse? resp)
     {
         if (resp == null || resp.Code is < 200 or > 299) return default;
-        if (string.IsNullOrEmpty(resp.Data)) return default;
-        try { return JsonSerializer.Deserialize<T>(resp.Data!, _jsonOpts); }
+        // TrameResponse.Data ist seit der Response-Seiten-Migration ein JsonElement?
+        // (kein JSON-String mehr) — direkt über den JsonElement-Deserializer binden.
+        if (!resp.Data.HasValue || resp.Data.Value.ValueKind == JsonValueKind.Null) return default;
+        try { return resp.Data.Value.Deserialize<T>(_jsonOpts); }
         catch { return default; }
     }
 }
@@ -168,16 +172,16 @@ public abstract class TrameCallSpec
     public string Controller { get; protected set; }
     public string Method { get; protected set; }
     public string Id { get; protected set; }
-    public string StringData { get; set; }
+    public JsonNode? Params { get; set; }
     public Dictionary<string, string>? DependencyMapping { get; set; }
     private int _exposeCounter;
 
-    protected TrameCallSpec(string controller, string method, string id, string stringData)
+    protected TrameCallSpec(string controller, string method, string id, JsonNode? paramsNode)
     {
         Controller = controller;
         Method = method;
         Id = id;
-        StringData = stringData;
+        Params = paramsNode;
     }
 
     /// <summary>
@@ -202,7 +206,7 @@ public abstract class TrameCallSpec
         Controller = Controller,
         Method = Method,
         Id = Id,
-        StringData = StringData,
+        Params = Params,
         DependencyMapping = DependencyMapping
     };
 }

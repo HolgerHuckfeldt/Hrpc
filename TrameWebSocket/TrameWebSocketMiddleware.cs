@@ -51,6 +51,17 @@ public class TrameWebSocketMiddleware
             return;
         }
 
+        // North-Bound-Default-Deny (Security-Audit F9.1): Upgrade ablehnen, bevor der
+        // Socket entsteht, wenn RequireAuthentication an und der Caller unauthentifiziert
+        // ist. WS hat keinen pro-Method-Opt-out ([TrameAnonymous] wirkt nur im Invoker-
+        // Gate auf REST); hier ist die Verbindung die Vertrauensgrenze. Authentifizierung
+        // muss upstream (Reverse-Proxy/Token-Middleware) HttpContext.User belegt haben.
+        if (_trameCore.RequireAuthentication && !(context.User?.Identity?.IsAuthenticated ?? false))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
         _logger?.LogInformation("WebSocket connection established: {ConnectionId}", context.Connection.Id);
 
@@ -137,6 +148,15 @@ public class TrameWebSocketMiddleware
                 if (multiRequest?.Requests == null)
                 {
                     await SendErrorAsync(webSocket, "Invalid multi request.");
+                    return;
+                }
+
+                // Batch-Cap-Gate (North-Bound-Härtung F4.1): frühes 400 statt Fan-Out-DoS.
+                // Quelle ist ITrameCore (TrameOptions → Invoker → Interface → Transporte).
+                if (_trameCore.MaximumBatchSize > 0 && multiRequest.Requests.Count > _trameCore.MaximumBatchSize)
+                {
+                    await SendErrorAsync(webSocket,
+                        $"Batch exceeds MaximumBatchSize ({_trameCore.MaximumBatchSize}).");
                     return;
                 }
 

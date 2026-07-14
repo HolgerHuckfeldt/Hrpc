@@ -11,7 +11,10 @@ Content-Type: application/json
 {
   "controller": "TestService",
   "method": "GetAdresse",
-  "stringData": "[{\"ParameterName\":\"id\",\"Data\":\"1\"},{\"ParameterName\":\"greet\",\"Data\":\"\\\"Hallo\\\"\"}]",
+  "params": [
+    { "parameterName": "id", "data": 1 },
+    { "parameterName": "greet", "data": "Hallo" }
+  ],
   "id": "TestService.GetAdresse"
 }
 
@@ -22,7 +25,7 @@ Content-Type: application/json
 {
   "controller": "Customer",
   "method": "GetAllCustomers",
-  "stringData": "[]",
+  "params": [],
   "id": "Customer.GetAllCustomers"
 }
 
@@ -33,7 +36,9 @@ Content-Type: application/json
 {
   "controller": "Customer",
   "method": "AddCustomer",
-  "stringData": "[{\"ParameterName\":\"name\",\"Data\":\"\\\"Max Mustermann\\\"\"}]",
+  "params": [
+    { "parameterName": "name", "data": "Max Mustermann" }
+  ],
   "id": "Customer.AddCustomer"
 }
 
@@ -46,17 +51,21 @@ Content-Type: application/json
     {
       "controller": "Customer",
       "method": "AddCustomer",
-      "stringData": "[{\"ParameterName\":\"name\",\"Data\":\"\\\"Alice\\\"\"}]",
-      "id": "createAlice"
+      "params": [
+        { "parameterName": "name", "data": "Alice" }
+      ],
+      "id": "createAlice",
+      "dependencyMapping": {
+        "createAliceId": "$"
+      }
     },
     {
       "controller": "Customer",
       "method": "GetCustomerById",
-      "stringData": "[{\"ParameterName\":\"id\",\"Data\":\"@createAliceId\"}]",
-      "id": "getAlice",
-      "dependencyMapping": {
-        "createAliceId": "$.data"
-      }
+      "params": [
+        { "parameterName": "id", "data": "@createAliceId" }
+      ],
+      "id": "getAlice"
     }
   ],
   "mode": 1

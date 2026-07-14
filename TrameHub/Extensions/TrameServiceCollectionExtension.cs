@@ -51,13 +51,21 @@ namespace TrameHub.Extensions
             if (options.UseSignalR)
             {
                 // Add SignalR as the transport-layer.
+                // Die drei HubOptions sind nur dann zu überschreiben, wenn der Caller sie
+                // explizit gesetzt hat — sonst gilt jeweils der SignalR-Default. Insbesondere
+                // MaximumParallelInvocationsPerClient=0 (TrameOptions-int-Default) würde SignalR
+                // beim Build des HubConnectionHandler werfen (must be ≥ 1); wir lassen in dem
+                // Fall den SignalR-Default (1) stehen, statt ihn mit 0 zu überschreiben.
                 var fastHub = services.AddSignalR(
                     o =>
                     {
                         o.EnableDetailedErrors = options.EnableDetailedErrors;
-                        o.MaximumReceiveMessageSize = options.MaximumReceiveMessageSize;
-                        o.StreamBufferCapacity = options.StreamBufferCapacity;
-                        o.MaximumParallelInvocationsPerClient = options.MaximumParallelInvocationsPerClient;
+                        if (options.MaximumReceiveMessageSize is { } maxMsg && maxMsg > 0)
+                            o.MaximumReceiveMessageSize = maxMsg;
+                        if (options.StreamBufferCapacity is { } cap && cap > 0)
+                            o.StreamBufferCapacity = cap;
+                        if (options.MaximumParallelInvocationsPerClient > 0)
+                            o.MaximumParallelInvocationsPerClient = options.MaximumParallelInvocationsPerClient;
                     });
 
                 if (options.UseMessagePack)
@@ -120,6 +128,13 @@ namespace TrameHub.Extensions
                 // Alias-Binding-Modus durchreichen (Default Weak; Strict = Fragment muss
                 // den Consumer-Typ vollständig decken, sonst 400 — siehe DEPENDENCY_BINDING.md).
                 invoker.AliasBindingMode = options.AliasBindingMode;
+                // North-Bound-Härtung (Default non-breaking, siehe SECURITY.md):
+                // RequireAuthentication = Default-Deny für unbestückte Methoden;
+                // MaximumBatchSize = Fan-Out-DoS-Cap; JsonPath-Limits = client-pfad-DoS-Cap.
+                invoker.RequireAuthentication = options.RequireAuthentication;
+                invoker.MaximumBatchSize = options.MaximumBatchSize;
+                invoker.MaxDependencyPathLength = options.MaxDependencyPathLength;
+                invoker.AllowRecursiveDescent = options.AllowRecursiveDescent;
                 return invoker;
             });
 
